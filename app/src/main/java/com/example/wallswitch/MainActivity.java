@@ -87,6 +87,8 @@ public class MainActivity extends AppCompatActivity {
         // 自愈：每次回到应用都按当前设置重排定时
         // （覆盖安装新版本、系统回收、荣耀省电清理都可能清掉闹钟，这里保证它们被重新排定）
         AlarmScheduler.scheduleAll(this);
+        // 同步刷新桌面小组件（库的启用状态、当前壁纸可能已变化）
+        WidgetProvider.updateWidget(this);
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理

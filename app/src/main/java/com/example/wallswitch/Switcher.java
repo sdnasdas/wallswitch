@@ -130,7 +130,7 @@ public class Switcher {
         return nextId;
     }
 
-    /** 应用到系统壁纸：桌面用 setBitmap，锁屏用带 FLAG_LOCK 的公开重载；返回是否成功。 */
+    /** 应用到系统壁纸：必须用带 which 的重载分别指定范围（简化版 setBitmap(bitmap) 会同时改桌面+锁屏）；返回是否成功。 */
     private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
         Bitmap bitmap = loadBitmap(file);
         if (bitmap == null) {
@@ -138,10 +138,10 @@ public class Switcher {
         }
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
+            // 注意：wm.setBitmap(bitmap) 内部等价于 FLAG_SYSTEM | FLAG_LOCK，会连锁屏一起改，所以必须显式传 which
             if (forHome) {
-                wm.setBitmap(bitmap);
+                wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_SYSTEM);
             } else {
-                // minSdk 26，可直接调用带 which 参数的公开重载
                 wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
             }
             return true;

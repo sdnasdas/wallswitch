@@ -58,24 +58,32 @@ public class WidgetProvider extends AppWidgetProvider {
         manager.updateAppWidget(component, views);
     }
 
-    /** 构建小组件视图：显示启用中的桌面库当前壁纸缩略图并绑定点击切换。 */
+    /** 构建小组件视图：卡片显示「启用中的桌面库」当前壁纸缩略图、库名，并绑定点击切换。 */
     private static RemoteViews buildViews(Context ctx) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_layout);
-        // 点击缩略图直接切换
+        LibraryStore.Library home = LibraryStore.enabledLibForScope(ctx, true);
+        if (home == null) {
+            // 没有启用中的桌面库：显示提示，点按打开应用去配置
+            views.setTextViewText(R.id.widget_label, ctx.getString(R.string.widget_no_lib));
+            Intent openApp = new Intent(ctx, MainActivity.class);
+            PendingIntent pi = PendingIntent.getActivity(ctx, 0, openApp,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            views.setOnClickPendingIntent(R.id.widget_root, pi);
+            return views;
+        }
+        // 点击整块卡片直接切换桌面/锁屏各自的启用库
         Intent intent = new Intent(ctx, WidgetProvider.class);
         intent.setAction(ACTION_SWITCH);
-        PendingIntent pi = PendingIntent.getBroadcast(ctx, 0, intent,
+        PendingIntent switchPi = PendingIntent.getBroadcast(ctx, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        views.setOnClickPendingIntent(R.id.widget_thumb, pi);
-        // 显示启用中的桌面库的当前壁纸缩略图，无启用库或缩略图缺失时不设图
-        LibraryStore.Library home = LibraryStore.enabledLibForScope(ctx, true);
-        if (home != null) {
-            String currentId = Switcher.getCurrent(ctx, home.id, true);
-            if (currentId != null) {
-                Bitmap thumb = WallpaperStore.getThumb(ctx, currentId);
-                if (thumb != null) {
-                    views.setImageViewBitmap(R.id.widget_thumb, thumb);
-                }
+        views.setOnClickPendingIntent(R.id.widget_root, switchPi);
+        // 库名标签 + 当前壁纸缩略图（缩略图缺失时保留占位背景）
+        views.setTextViewText(R.id.widget_label, home.name);
+        String currentId = Switcher.getCurrent(ctx, home.id, true);
+        if (currentId != null) {
+            Bitmap thumb = WallpaperStore.getThumb(ctx, currentId);
+            if (thumb != null) {
+                views.setImageViewBitmap(R.id.widget_thumb, thumb);
             }
         }
         return views;

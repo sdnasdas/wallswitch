@@ -23,6 +23,8 @@
     <string name="confirm">确认</string>
     <string name="cancel">取消</string>
     <string name="thumb_desc">壁纸缩略图</string>
+    <string name="widget_desc">显示当前桌面壁纸缩略图，点按卡片立即切换下一张</string>
+    <string name="widget_no_lib">点按打开应用</string>
     <string name="delete_confirm_title">删除壁纸</string>
     <string name="delete_confirm_msg">确定要删除这张壁纸吗？</string>
     <string name="import_done">已导入 %1$d 张图片</string>
