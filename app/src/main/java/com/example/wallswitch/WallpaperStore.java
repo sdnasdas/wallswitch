@@ -72,7 +72,7 @@ public class WallpaperStore {
         return result;
     }
 
-    /** 把相册选中的图片原样复制进收件箱，返回仅带 id 的条目（尚未入库）。 */
+    /** 把相册选中的图片原样复制进收件箱，返回仅带 id 的条目（尚未入库）。失败时清理半截文件后再抛出。 */
     public static Item importToInbox(Context context, Uri uri) throws Exception {
         String id = UUID.randomUUID().toString();
         File inboxDir = new File(context.getFilesDir(), DIR_INBOX);
@@ -81,7 +81,17 @@ public class WallpaperStore {
         }
         File target = new File(inboxDir, id);
         try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IllegalStateException("内容提供者返回空流");
+            }
             Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            // 复制中断会残留半截文件，必须清掉，否则会被当成待编辑项反复弹编辑页再解码失败
+            try {
+                Files.deleteIfExists(target.toPath());
+            } catch (Exception ignored) {
+            }
+            throw e;
         }
         Item item = new Item();
         item.id = id;
@@ -133,9 +143,12 @@ public class WallpaperStore {
         item.lock = lock;
         items.add(item);
         saveLibrary(context, items);
-        // 删除收件箱原文件
-        File inboxFile = getInboxFile(context, inboxId);
-        Files.deleteIfExists(inboxFile.toPath());
+        // 删除收件箱原文件：元数据已写完，此时删除失败不应让调用方误报「保存失败」
+        try {
+            File inboxFile = getInboxFile(context, inboxId);
+            Files.deleteIfExists(inboxFile.toPath());
+        } catch (Exception ignored) {
+        }
         return item;
     }
 
@@ -157,6 +170,14 @@ public class WallpaperStore {
             return ids;
         }
         for (File file : files) {
+            // 空文件是复制中断残留的半截文件，无法解码，直接清理并跳过
+            if (file.length() <= 0L) {
+                try {
+                    Files.deleteIfExists(file.toPath());
+                } catch (Exception ignored) {
+                }
+                continue;
+            }
             ids.add(file.getName());
         }
         Collections.sort(ids);

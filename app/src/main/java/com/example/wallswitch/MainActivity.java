@@ -136,11 +136,21 @@ public class MainActivity extends AppCompatActivity {
         Button btnAdd = findViewById(R.id.btn_add);
         btnAdd.setOnClickListener(v -> launchPicker());
         Button btnHome = findViewById(R.id.btn_switch_home);
-        btnHome.setOnClickListener(v -> Switcher.next(this, true));
+        btnHome.setOnClickListener(v -> switchAndToast(true));
         Button btnLock = findViewById(R.id.btn_switch_lock);
-        btnLock.setOnClickListener(v -> Switcher.next(this, false));
+        btnLock.setOnClickListener(v -> switchAndToast(false));
         Button btnBattery = findViewById(R.id.btn_battery);
         btnBattery.setOnClickListener(v -> requestIgnoreBattery());
+    }
+
+    /** 手动切换壁纸并按结果提示（Switcher 内部不再静默吞掉失败）。 */
+    private void switchAndToast(boolean forHome) {
+        boolean ok = Switcher.next(this, forHome);
+        if (ok) {
+            Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, R.string.switch_failed, Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 初始化桌面/锁屏启用开关（默认开启）。 */
@@ -313,26 +323,46 @@ public class MainActivity extends AppCompatActivity {
         pickLauncher.launch(request);
     }
 
-    /** 多选回调：逐张复制进收件箱，然后打开第一张待编辑项。 */
+    /**
+     * 多选回调：后台线程逐张复制进收件箱（主线程同步复制多张大图易卡顿、易瞬断失败），
+     * 完成后按真实成功/失败数量提示，并打开第一张待编辑项。
+     */
     private void onPicked(List<Uri> uris) {
         if (uris == null || uris.isEmpty()) {
             return;
         }
-        int failed = 0;
-        for (Uri uri : uris) {
-            try {
-                WallpaperStore.importToInbox(this, uri);
-            } catch (Exception e) {
-                failed++;
+        Button btnAdd = findViewById(R.id.btn_add);
+        btnAdd.setEnabled(false);
+        new Thread(() -> {
+            int success = 0;
+            int failed = 0;
+            for (Uri uri : uris) {
+                try {
+                    WallpaperStore.importToInbox(this, uri);
+                    success++;
+                } catch (Exception e) {
+                    failed++;
+                }
             }
-        }
-        if (failed > 0) {
-            Toast.makeText(this, R.string.import_failed, Toast.LENGTH_SHORT).show();
-        }
-        List<String> pending = WallpaperStore.pendingInbox(this);
-        if (!pending.isEmpty()) {
-            openEdit(pending.get(0));
-        }
+            List<String> pending = WallpaperStore.pendingInbox(this);
+            runOnUiThread(() -> {
+                btnAdd.setEnabled(true);
+                if (failed > 0) {
+                    if (success > 0) {
+                        Toast.makeText(this, getString(R.string.import_partial, success, failed),
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(this, R.string.import_all_failed, Toast.LENGTH_LONG).show();
+                    }
+                } else {
+                    Toast.makeText(this, getString(R.string.import_done, success),
+                            Toast.LENGTH_SHORT).show();
+                }
+                if (!pending.isEmpty()) {
+                    openEdit(pending.get(0));
+                }
+            });
+        }, "inbox-import").start();
     }
 
     /** 打开编辑页处理某个收件箱文件。 */

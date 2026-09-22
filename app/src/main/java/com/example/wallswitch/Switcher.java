@@ -42,8 +42,8 @@ public class Switcher {
     // 全图解码最长边上限（控制内存，与 WallpaperStore 一致）
     private static final int MAX_DECODE_DIM = 2048;
 
-    /** 切换下一张壁纸：forHome 为 true 表示桌面，false 表示锁屏。 */
-    public static void next(Context ctx, boolean forHome) {
+    /** 切换下一张壁纸：forHome 为 true 表示桌面，false 表示锁屏。返回是否成功设置到系统。 */
+    public static boolean next(Context ctx, boolean forHome) {
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         // 对应范围被关闭时直接返回
         boolean enabled = prefs.getBoolean(KEY_HOME_ENABLED, true);
@@ -51,7 +51,7 @@ public class Switcher {
             enabled = prefs.getBoolean(KEY_LOCK_ENABLED, true);
         }
         if (!enabled) {
-            return;
+            return false;
         }
         // 候选集 = 库中勾选了对应范围的图
         List<WallpaperStore.Item> all = WallpaperStore.load(ctx);
@@ -67,7 +67,7 @@ public class Switcher {
         }
         // 无候选图可设（库空或全部未勾选）：直接返回，不 Toast（避免后台弹窗）
         if (candidates.isEmpty()) {
-            return;
+            return false;
         }
         // 按模式选出下一张，并推进顺序索引 / 消耗随机池
         SharedPreferences.Editor editor = prefs.edit();
@@ -79,7 +79,7 @@ public class Switcher {
             nextId = pickOrder(prefs, editor, candidates, forHome);
         }
         if (nextId == null) {
-            return;
+            return false;
         }
         // 记录当前壁纸 id
         String keyCurrent = KEY_CURRENT_HOME;
@@ -88,10 +88,13 @@ public class Switcher {
         }
         editor.putString(keyCurrent, nextId);
         editor.apply();
-        // 应用到系统壁纸（失败静默）
-        setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
-        // 刷新小组件缩略图
-        WidgetProvider.updateWidget(ctx);
+        // 应用到系统壁纸（失败时向调用方返回 false，由界面侧给出反馈）
+        boolean applied = setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
+        // 设置成功后刷新小组件缩略图
+        if (applied) {
+            WidgetProvider.updateWidget(ctx);
+        }
+        return applied;
     }
 
     /** 读取当前壁纸 id：forHome 为 true 表示桌面，false 表示锁屏；无记录返回 null。 */
@@ -152,12 +155,12 @@ public class Switcher {
         return nextId;
     }
 
-    /** 应用到系统壁纸：桌面用 setBitmap，锁屏用带 FLAG_LOCK 的公开重载；失败静默（部分机型锁屏受限）。 */
-    private static void setWallpaper(Context ctx, File file, boolean forHome) {
+    /** 应用到系统壁纸：桌面用 setBitmap，锁屏用带 FLAG_LOCK 的公开重载；返回是否成功。 */
+    private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
         // 解码全图（超采样防 OOM，复用存储层实现）
         Bitmap bitmap = WallpaperStore.decodeBounded(file, MAX_DECODE_DIM);
         if (bitmap == null) {
-            return;
+            return false;
         }
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
@@ -167,8 +170,10 @@ public class Switcher {
                 // minSdk 26，可直接调用带 which 参数的公开重载
                 wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
             }
-        } catch (Exception ignored) {
-            // 荣耀等机型锁屏 API 受限等异常时静默降级，避免崩溃
+            return true;
+        } catch (Exception e) {
+            // 失败（如缺 SET_WALLPAPER 权限、机型锁屏受限）返回 false，不再完全静默
+            return false;
         }
     }
 }

@@ -33,7 +33,7 @@ public class EditActivity extends AppCompatActivity {
         File inboxFile = WallpaperStore.getInboxFile(this, inboxId);
         Bitmap bitmap = WallpaperStore.decodeBounded(inboxFile, MAX_DIM);
         if (bitmap == null) {
-            Toast.makeText(this, R.string.import_failed, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.decode_failed, Toast.LENGTH_SHORT).show();
             WallpaperStore.cancelImport(this, inboxId);
             finish();
             return;

@@ -4,6 +4,8 @@
     <string name="add_wallpaper">添加壁纸</string>
     <string name="switch_home">切换桌面</string>
     <string name="switch_lock">切换锁屏</string>
+    <string name="switch_done">壁纸已切换</string>
+    <string name="switch_failed">壁纸切换失败，请重试</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>
     <string name="scope_home">桌面</string>
@@ -14,7 +16,10 @@
     <string name="thumb_desc">壁纸缩略图</string>
     <string name="delete_confirm_title">删除壁纸</string>
     <string name="delete_confirm_msg">确定要删除这张壁纸吗？</string>
-    <string name="import_failed">部分图片导入失败</string>
+    <string name="import_done">已导入 %1$d 张图片</string>
+    <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>
+    <string name="import_all_failed">图片导入失败，请重试</string>
+    <string name="decode_failed">图片解码失败，已跳过该图</string>
     <string name="save_failed">保存失败</string>
 
     <!-- 设置区 -->
