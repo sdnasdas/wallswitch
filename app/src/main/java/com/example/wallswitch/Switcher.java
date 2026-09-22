@@ -24,6 +24,9 @@ public class Switcher {
     private static final String PREFS_NAME = "settings";
     // 全图解码最长边上限（控制内存，与 WallpaperStore 一致）
     private static final int MAX_DECODE_DIM = 2048;
+    // 最近一次解码结果缓存：小图库高频切换时避免反复解码同一张图（上限 1 张，控制内存）
+    private static String cachedName;
+    private static Bitmap cachedBitmap;
 
     /** 生成某库某范围的进度键前缀（LibraryStore 迁移也使用）。 */
     public static String progressBase(String libId, boolean forHome) {
@@ -129,8 +132,7 @@ public class Switcher {
 
     /** 应用到系统壁纸：桌面用 setBitmap，锁屏用带 FLAG_LOCK 的公开重载；返回是否成功。 */
     private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
-        // 解码全图（超采样防 OOM，复用存储层实现）
-        Bitmap bitmap = WallpaperStore.decodeBounded(file, MAX_DECODE_DIM);
+        Bitmap bitmap = loadBitmap(file);
         if (bitmap == null) {
             return false;
         }
@@ -147,5 +149,19 @@ public class Switcher {
             // 失败（如缺 SET_WALLPAPER 权限、机型锁屏受限）返回 false，不再完全静默
             return false;
         }
+    }
+
+    /** 解码壁纸并做单张缓存（超采样防 OOM，复用存储层实现）。 */
+    private static Bitmap loadBitmap(File file) {
+        String name = file.getName();
+        if (name.equals(cachedName) && cachedBitmap != null && !cachedBitmap.isRecycled()) {
+            return cachedBitmap;
+        }
+        Bitmap bitmap = WallpaperStore.decodeBounded(file, MAX_DECODE_DIM);
+        if (bitmap != null) {
+            cachedName = name;
+            cachedBitmap = bitmap;
+        }
+        return bitmap;
     }
 }

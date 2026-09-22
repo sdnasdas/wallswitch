@@ -36,6 +36,8 @@ public class LibraryStore {
     public static final String MODE_RANDOM = "random";
     // 默认切换间隔（秒）
     public static final int DEFAULT_INTERVAL_SECONDS = 1800;
+    // 最短切换间隔（秒）：过短会持续解码+设置壁纸，导致明显发热与耗电
+    public static final int MIN_INTERVAL_SECONDS = 5;
 
     /** 壁纸库元数据。 */
     public static class Library {
@@ -263,13 +265,13 @@ public class LibraryStore {
         saveList(ctx, libs);
     }
 
-    /** 修改切换间隔（秒），启用中的库立即重排定时。 */
+    /** 修改切换间隔（秒，下限 MIN_INTERVAL_SECONDS），启用中的库立即重排定时。 */
     public static void setInterval(Context ctx, String libId, int seconds) {
         List<Library> libs = load(ctx);
         boolean enabled = false;
         for (Library lib : libs) {
             if (lib.id.equals(libId)) {
-                lib.intervalSeconds = Math.max(1, seconds);
+                lib.intervalSeconds = Math.max(MIN_INTERVAL_SECONDS, seconds);
                 enabled = lib.enabled;
             }
         }

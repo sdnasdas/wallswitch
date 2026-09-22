@@ -258,6 +258,7 @@ public class MainActivity extends AppCompatActivity {
         wrapper.addView(input);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.lib_interval);
+        builder.setMessage(R.string.interval_hint);
         builder.setView(wrapper);
         builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
             int seconds = 0;
@@ -268,6 +269,11 @@ public class MainActivity extends AppCompatActivity {
             if (seconds > 0) {
                 LibraryStore.setInterval(MainActivity.this, lib.id, seconds);
                 refreshLibSettings();
+                if (seconds < 60) {
+                    // 秒级间隔仅适合亮屏测试，提示发热与耗电风险
+                    Toast.makeText(MainActivity.this, R.string.interval_warning,
+                            Toast.LENGTH_LONG).show();
+                }
             }
         });
         builder.setNegativeButton(R.string.cancel, null);

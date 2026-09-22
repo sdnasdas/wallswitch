@@ -12,7 +12,8 @@
     <string name="lib_name_hint">库名称（留空自动命名）</string>
     <string name="lib_enabled">启用本库</string>
     <string name="lib_interval">切换间隔</string>
-    <string name="interval_hint">间隔秒数（如 30 或 1800）</string>
+    <string name="interval_hint">间隔秒数（最小 5，建议 ≥60）</string>
+    <string name="interval_warning">间隔过短（&lt;60 秒）会持续解码并设置壁纸，导致明显发热与耗电，建议至少 60 秒</string>
     <string name="lib_scope_none">请先勾选桌面或锁屏范围</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>
