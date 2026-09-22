@@ -59,6 +59,17 @@
             android:text="@string/timer_enabled" />
     </LinearLayout>
 
+    <!-- 定时状态：上次执行结果 / 下次预计 / 逾期提示（用于定位“到点没切”的原因） -->
+    <TextView
+        android:id="@+id/tv_timer_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="4dp"
+        android:text="@string/timer_status_off"
+        android:textSize="12sp" />
+
     <!-- 启用开关 + 切换间隔（秒级） -->
     <LinearLayout
         android:layout_width="match_parent"

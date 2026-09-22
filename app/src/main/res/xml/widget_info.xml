@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- updatePeriodMillis = 30 分钟（系统允许的最小值）：桌面刷新小组件时顺带成为“补切时机”，
+     设备活跃时才送达（不会唤醒设备），用于补上被系统/ROM 冻结而漏跑的定时切换 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:description="@string/widget_desc"
-    android:initialLayout="@layout/widget_layout"
-    android:minWidth="40dp"
-    android:minHeight="40dp"
-    android:previewImage="@drawable/ic_widget_switch"
-    android:previewLayout="@layout/widget_layout"
-    android:resizeMode="none"
-    android:targetCellWidth="1"
-    android:targetCellHeight="1"
-    android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen"
-    tools:targetApi="31" />
+        xmlns:tools="http://schemas.android.com/tools"
+        android:description="@string/widget_desc"
+        android:initialLayout="@layout/widget_layout"
+        android:minWidth="40dp"
+        android:minHeight="40dp"
+        android:previewImage="@drawable/ic_widget_switch"
+        android:previewLayout="@layout/widget_layout"
+        android:resizeMode="none"
+        android:targetCellWidth="1"
+        android:targetCellHeight="1"
+        android:updatePeriodMillis="1800000"
+        android:widgetCategory="home_screen"
+        tools:targetApi="31" />
+

@@ -42,9 +42,29 @@ public class WidgetProvider extends AppWidgetProvider {
                 Switcher.next(context, lock.id, false);
             }
             updateWidget(context);
-        } else {
-            super.onReceive(context, intent);
+            return;
         }
+        if (AppWidgetManager.ACTION_APPWIDGET_UPDATE.equals(action)) {
+            // 桌面每 ≥30 分钟刷新一次小组件（updatePeriodMillis，只在设备活跃时送达、不唤醒设备）：
+            // 借这个“设备活跃”时机补上被 Doze/ROM 冻结而漏跑的定时切换，避免必须手动打开应用才能切
+            final PendingResult pending = goAsync();
+            catchUpAsync(context.getApplicationContext(), pending);
+        }
+        super.onReceive(context, intent);
+    }
+
+    /** 后台执行补切（解码大图 + 系统调用不能放主线程），执行完结束广播。 */
+    private static void catchUpAsync(final Context app, final PendingResult pending) {
+        new Thread(() -> {
+            try {
+                TimerScheduler.catchUp(app);
+            } catch (Exception ignored) {
+            } finally {
+                if (pending != null) {
+                    pending.finish();
+                }
+            }
+        }, "widget-catchup").start();
     }
 
     /** 渲染所有已放置的小组件（切换完成后由 Switcher 调用刷新缩略图）。 */

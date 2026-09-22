@@ -25,11 +25,12 @@ public class SwitchWorker extends Worker {
         if (libId == null) {
             return Result.success();
         }
-        // 切换该库覆盖的范围（Switcher 内部会校验库启用状态与范围勾选）
-        Switcher.next(getApplicationContext(), libId, true);
-        Switcher.next(getApplicationContext(), libId, false);
-        // 刷新小组件倒计时（WorkManager 的下次触发时间约为当前+间隔）
-        TimerScheduler.noteTrigger(getApplicationContext(), libId);
+        // 只在“确实到点且本轮未执行”时切换：避免与“补切”（小组件刷新/开机/打开应用）重复切一次
+        if (!TimerScheduler.isDue(getApplicationContext(), libId)) {
+            return Result.success();
+        }
+        // 执行该库覆盖范围的切换并记账（前移下次触发时间、记录结果、刷新小组件倒计时）
+        TimerScheduler.runNow(getApplicationContext(), libId);
         return Result.success();
     }
 }

@@ -15,6 +15,16 @@
     <string name="interval_hint">间隔分钟数（最小 15）</string>
     <string name="interval_min_toast">最小间隔 15 分钟（省电方案的系统下限）</string>
     <string name="widget_waiting">待切换</string>
+
+    <!-- 定时状态行（定位“到点没切”的原因） -->
+    <string name="timer_status_off">定时切换已关闭（手动切换与小组件仍可用）</string>
+    <string name="timer_status_none">定时切换已开启，但没有启用中的壁纸库</string>
+    <string name="timer_status_on">上次自动切换 %1$s（%2$s）｜ 下次预计 %3$s</string>
+    <string name="timer_status_overdue">⚠ 已过预计时间 %1$s 仍未见系统执行，等待调度中：点亮屏幕 / 刷新小组件 / 打开本应用会自动补切</string>
+    <string name="status_ok">成功</string>
+    <string name="status_never">尚未执行</string>
+    <string name="battery_allowed">后台限制：已允许忽略电池优化 ✔</string>
+    <string name="battery_denied">后台限制：未允许，定时可能被系统推迟（点按设置）</string>
     <string name="lib_scope_none">请先勾选桌面或锁屏范围</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>

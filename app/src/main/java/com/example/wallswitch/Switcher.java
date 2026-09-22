@@ -28,6 +28,14 @@ public class Switcher {
     private static String cachedName;
     private static Bitmap cachedBitmap;
 
+    // 最近一次设置壁纸的失败原因（供界面/日志显示，用于区分“没执行”和“执行了但失败”）
+    private static volatile String lastError;
+
+    /** 最近一次设置壁纸的失败原因，null 表示最近一次没有失败。 */
+    public static String lastError() {
+        return lastError;
+    }
+
     /** 生成某库某范围的进度键前缀（LibraryStore 迁移也使用）。 */
     public static String progressBase(String libId, boolean forHome) {
         return "p_" + libId + (forHome ? "_h" : "_l");
@@ -134,6 +142,7 @@ public class Switcher {
     private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
         Bitmap bitmap = loadBitmap(file);
         if (bitmap == null) {
+            lastError = "decode_failed";
             return false;
         }
         try {
@@ -144,9 +153,11 @@ public class Switcher {
             } else {
                 wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
             }
+            lastError = null;
             return true;
         } catch (Exception e) {
-            // 失败（如缺 SET_WALLPAPER 权限、机型锁屏受限）返回 false，不再完全静默
+            // 失败（如缺 SET_WALLPAPER 权限、机型限制后台设置壁纸）记录下来，便于界面提示
+            lastError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
             return false;
         }
     }

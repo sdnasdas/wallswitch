@@ -4,7 +4,8 @@
     <!-- 设置壁纸（桌面/锁屏）必需，缺权限时 setBitmap 抛 SecurityException -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- 定时切换只用 WorkManager（无 AlarmManager）：RECEIVE_BOOT_COMPLETED 由 androidx.work 的 manifest 合并声明 -->
+    <!-- 开机/覆盖安装后恢复定时并补切（WorkManager 也会自动恢复，这里用于补上漏跑的一轮） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -35,6 +36,15 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
         </receiver>
     </application>
 </manifest>

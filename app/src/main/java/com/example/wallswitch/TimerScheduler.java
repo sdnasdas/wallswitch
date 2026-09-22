@@ -34,6 +34,11 @@ public class TimerScheduler {
     private static final String KEY_TIMER_ENABLED = "timer_enabled";
     // 下次触发时间（wall clock 毫秒）的 key 前缀，供小组件倒计时显示
     private static final String KEY_NEXT_TRIGGER_PREFIX = "next_trigger_";
+    // 每库「上次自动切换时间」（毫秒）与「上次结果」的 key 前缀
+    private static final String KEY_LAST_RUN_PREFIX = "last_run_";
+    private static final String KEY_LAST_RESULT_PREFIX = "last_result_";
+    // 上次执行结果：成功
+    public static final String RESULT_OK = "ok";
     // 查询 WorkManager 任务状态的单线程执行器（ListenableFuture 回调，避免占用主线程）
     private static final Executor EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "timer-sync");
@@ -126,15 +131,74 @@ public class TimerScheduler {
         }
     }
 
-    /** 切换完成后记录下次触发时间并刷新小组件（Worker 每次跑完调用：下次约在 当前 + 间隔）。 */
-    public static void noteTrigger(Context ctx, String libId) {
+    /** 切换完成后由 Worker 调用：执行一次切换并记账（下次触发时间、结果、小组件刷新）。 */
+    public static boolean runNow(Context ctx, String libId) {
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
-        if (lib == null) {
-            return;
+        if (lib == null || !lib.enabled) {
+            return false;
         }
-        applyTrigger(ctx, libId, System.currentTimeMillis() + intervalSeconds(lib) * 1000L);
-        // 随即用 WorkManager 的调度时间校准（监听器执行在后台线程）
+        // 按库覆盖的范围逐个切换（Switcher 内部会校验范围勾选与库内是否有壁纸）
+        boolean okHome = Switcher.next(ctx, libId, true);
+        boolean okLock = Switcher.next(ctx, libId, false);
+        boolean ok = okHome || okLock;
+        long now = System.currentTimeMillis();
+        String result = ok ? RESULT_OK : Switcher.lastError();
+        // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong(KEY_LAST_RUN_PREFIX + libId, now)
+                .putString(KEY_LAST_RESULT_PREFIX + libId, result == null ? "failed" : result)
+                .putLong(KEY_NEXT_TRIGGER_PREFIX + libId, now + intervalSeconds(lib) * 1000L)
+                .apply();
+        WidgetProvider.updateWidget(ctx);
+        // 与 WorkManager 的真实调度时间对齐（它的值更旧且本轮已执行时不会被采纳）
         syncFromWorkManager(ctx);
+        return ok;
+    }
+
+    /**
+     * 该库本轮是否“已到点且尚未执行”——Worker 与补切共用，避免两边重复切换。
+     * 从未排定过（无记录）时，仅在从未执行过的情况下视为到点（对应周期任务的首次立即执行）。
+     */
+    public static boolean isDue(Context ctx, String libId) {
+        long due = recordedTrigger(ctx, libId);
+        long last = lastRun(ctx, libId);
+        if (due <= 0) {
+            return last == 0;
+        }
+        return due <= System.currentTimeMillis() && last < due;
+    }
+
+    /**
+     * 补切：系统没能按时执行 WorkManager 任务时（Doze 延后、ROM 冻结后台），
+     * 在“设备活跃”的时机（桌面刷新小组件、开机、打开应用）把漏掉的那一轮补上。
+     * 必须在后台线程调用；返回是否执行了补切。
+     */
+    public static boolean catchUp(Context ctx) {
+        if (!isTimerEnabled(ctx)) {
+            return false;
+        }
+        boolean did = false;
+        for (LibraryStore.Library lib : LibraryStore.load(ctx)) {
+            if (!lib.enabled) {
+                continue;
+            }
+            if (isDue(ctx, lib.id)) {
+                did |= runNow(ctx, lib.id);
+            }
+        }
+        return did;
+    }
+
+    /** 上次执行自动切换（含补切）的时间，无记录返回 0。 */
+    public static long lastRun(Context ctx, String libId) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_LAST_RUN_PREFIX + libId, 0L);
+    }
+
+    /** 上次执行结果："ok"、失败原因（异常/解码失败），从未执行返回 null。 */
+    public static String lastResult(Context ctx, String libId) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_LAST_RESULT_PREFIX + libId, null);
     }
 
     /**
@@ -194,7 +258,9 @@ public class TimerScheduler {
             scheduleInternal(ctx, libId);
             return;
         }
-        if (trigger > 0) {
+        // 只采纳比“上次执行时间”更晚的调度值：避免补切成功后，被 WorkManager 里那个过期的
+        // 周期时间覆盖回去，导致小组件一直显示“待切换”甚至重复补切
+        if (trigger > 0 && trigger > lastRun(ctx, libId)) {
             applyTrigger(ctx, libId, trigger);
         }
     }

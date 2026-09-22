@@ -35,8 +35,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 主页：多壁纸库管理——库选择/新建/删除，每库设置（启用开关、桌面/锁屏范围、
@@ -83,6 +86,18 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // 自愈：每次回到应用都按当前设置重排定时（WorkManager 任务本身可自动恢复，这里兜底）
         TimerScheduler.scheduleAll(this);
+        // 打开应用同样是“设备活跃”时机：后台补跑被 Doze/ROM 冻结而漏掉的定时切换
+        new Thread(() -> {
+            final boolean did = TimerScheduler.catchUp(getApplicationContext());
+            if (did) {
+                runOnUiThread(() -> {
+                    if (!isFinishing()) {
+                        refreshTimerStatus();
+                        refreshList();
+                    }
+                });
+            }
+        }, "app-catchup").start();
         // 同步刷新桌面小组件（库的启用状态、当前壁纸可能已变化）
         WidgetProvider.updateWidget(this);
         List<String> pending = WallpaperStore.pendingInbox(this);
@@ -151,6 +166,9 @@ public class MainActivity extends AppCompatActivity {
         spinner.post(() -> suppressLibCallback = false);
         refreshLibSettings();
         refreshList();
+        // 定时状态行与电池优化状态（判断后台是否能被唤醒）
+        refreshTimerStatus();
+        refreshBatteryButton();
     }
 
     /** 初始化库选择器与新建/删除按钮。 */
@@ -190,6 +208,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_switch_home).setOnClickListener(v -> switchAndToast(true));
         findViewById(R.id.btn_switch_lock).setOnClickListener(v -> switchAndToast(false));
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
+        // 电池优化是否已允许，直接显示在按钮上（决定后台定时能否被系统唤醒）
+        refreshBatteryButton();
     }
 
     /** 定时切换总开关：关闭时不排定任何定时任务（手动切换与小组件不受影响）。 */
@@ -197,8 +217,10 @@ public class MainActivity extends AppCompatActivity {
         Switch swTimer = findViewById(R.id.sw_timer_enabled);
         swTimer.setOnCheckedChangeListener(null);
         swTimer.setChecked(TimerScheduler.isTimerEnabled(this));
-        swTimer.setOnCheckedChangeListener((buttonView, isChecked) ->
-                TimerScheduler.setTimerEnabled(MainActivity.this, isChecked));
+        swTimer.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            TimerScheduler.setTimerEnabled(MainActivity.this, isChecked);
+            refreshTimerStatus();
+        });
     }
 
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
@@ -233,6 +255,7 @@ public class MainActivity extends AppCompatActivity {
                 swEnabled.setChecked(false);
                 Toast.makeText(MainActivity.this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
             }
+            refreshTimerStatus();
         });
         // 范围勾选（启用中的库修改范围会应用互斥约束）
         cbHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -240,12 +263,14 @@ public class MainActivity extends AppCompatActivity {
             if (target != null) {
                 LibraryStore.setScope(MainActivity.this, target.id, isChecked, cbLock.isChecked());
             }
+            refreshTimerStatus();
         });
         cbLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
             LibraryStore.Library target = currentLib();
             if (target != null) {
                 LibraryStore.setScope(MainActivity.this, target.id, cbHome.isChecked(), isChecked);
             }
+            refreshTimerStatus();
         });
         // 切换模式（顺序/随机，按库保存）
         rgMode.setOnCheckedChangeListener((group, checkedId) ->
@@ -291,6 +316,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 LibraryStore.setInterval(MainActivity.this, lib.id, minutes * 60);
                 refreshLibSettings();
+                refreshTimerStatus();
             }
         });
         builder.setNegativeButton(R.string.cancel, null);
@@ -306,6 +332,74 @@ public class MainActivity extends AppCompatActivity {
             return (seconds / 60) + "分" + (seconds % 60) + "秒";
         }
         return seconds + "秒";
+    }
+
+    /**
+     * 定时状态行：上次执行结果 + 下次预计时间；若已过预计时间仍未见系统执行，
+     * 说明被 Doze/ROM 冻结拦住了（等待调度，点亮屏幕/刷新小组件/打开本应用会自动补切）。
+     */
+    private void refreshTimerStatus() {
+        TextView tv = findViewById(R.id.tv_timer_status);
+        if (tv == null) {
+            return;
+        }
+        if (!TimerScheduler.isTimerEnabled(this)) {
+            tv.setText(R.string.timer_status_off);
+            return;
+        }
+        String libId = enabledLibId();
+        Long next = TimerScheduler.nextTrigger(this);
+        if (libId == null || next == null) {
+            tv.setText(R.string.timer_status_none);
+            return;
+        }
+        String result = TimerScheduler.lastResult(this, libId);
+        String resultText;
+        if (TimerScheduler.RESULT_OK.equals(result)) {
+            resultText = getString(R.string.status_ok);
+        } else if (result == null) {
+            resultText = getString(R.string.status_never);
+        } else {
+            resultText = result;
+        }
+        long now = System.currentTimeMillis();
+        if (next <= now) {
+            tv.setText(getString(R.string.timer_status_overdue,
+                    formatInterval((int) Math.max(60, (now - next) / 1000))));
+        } else {
+            long last = TimerScheduler.lastRun(this, libId);
+            String lastText = last > 0 ? formatClock(last) : getString(R.string.status_never);
+            tv.setText(getString(R.string.timer_status_on, lastText, resultText, formatClock(next)));
+        }
+    }
+
+    /** 某个启用库的 id（状态展示用）：桌面优先，其次锁屏；无启用库返回 null。 */
+    private String enabledLibId() {
+        LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, true);
+        if (lib == null) {
+            lib = LibraryStore.enabledLibForScope(this, false);
+        }
+        return lib == null ? null : lib.id;
+    }
+
+    /** 时间戳 → HH:mm。 */
+    private String formatClock(long millis) {
+        return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(millis));
+    }
+
+    /** 电池优化按钮文案：直接显示当前是否已允许（决定后台定时能否被系统唤醒）。 */
+    private void refreshBatteryButton() {
+        Button btn = findViewById(R.id.btn_battery);
+        if (btn != null) {
+            btn.setText(isIgnoringBatteryOptimizations()
+                    ? R.string.battery_allowed : R.string.battery_denied);
+        }
+    }
+
+    /** 是否已允许忽略电池优化。 */
+    private boolean isIgnoringBatteryOptimizations() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
     }
 
     /** 新建库弹窗。 */
@@ -432,8 +526,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 检查电池优化白名单：未忽略且未提示过时弹一次引导。 */
     private void maybePromptBattery() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm.isIgnoringBatteryOptimizations(getPackageName())) {
+        if (isIgnoringBatteryOptimizations()) {
             return;
         }
         if (prefs.getBoolean("battery_prompted", false)) {
