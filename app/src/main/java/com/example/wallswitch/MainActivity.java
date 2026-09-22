@@ -1,6 +1,5 @@
 package com.example.wallswitch;
 
-import android.app.TimePickerDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -24,6 +23,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.Switch;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -39,34 +39,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 主页：壁纸库列表（缩略图 + 桌面/锁屏范围勾选 + 删除）、添加壁纸、
- * 手动切换桌面/锁屏壁纸按钮与切换模式（顺序/随机）选择。
+ * 主页：多壁纸库管理——库选择/新建/删除，每库设置（启用开关、桌面/锁屏范围、
+ * 顺序/随机模式、秒级切换间隔），添加壁纸到当前库、库内壁纸列表、手动切换测试。
  */
 public class MainActivity extends AppCompatActivity {
 
-    // SharedPreferences 文件名与 key 约定
+    // SharedPreferences 文件名
     private static final String PREFS_NAME = "settings";
-    private static final String KEY_MODE = "mode";
-    private static final String MODE_ORDER = "order";
-    private static final String MODE_RANDOM = "random";
-    // 定时类型 key 与取值（与 AlarmScheduler 的 prefs 约定保持一致）
-    private static final String KEY_TIMER_TYPE = "timer_type";
-    private static final String TIMER_OFF = "off";
-    private static final String TIMER_30 = "30";
-    private static final String TIMER_60 = "60";
-    private static final String TIMER_360 = "360";
-    private static final String TIMER_DAILY = "daily";
-    private static final String TIMER_CUSTOM = "custom";
-    // 定时类型取值顺序（与 R.array.timer_options 一一对应）
-    private static final String[] TIMER_TYPES = {TIMER_OFF, TIMER_30, TIMER_60, TIMER_360, TIMER_DAILY, TIMER_CUSTOM};
-    // 自定义间隔与每天时刻 key
-    private static final String KEY_CUSTOM_MINUTES = "custom_minutes";
-    private static final String KEY_DAILY_HOUR = "daily_hour";
-    private static final String KEY_DAILY_MINUTE = "daily_minute";
-    // 桌面/锁屏启用开关与电池提示 key（开关默认 true，电池提示默认 false）
-    private static final String KEY_HOME_ENABLED = "home_enabled";
-    private static final String KEY_LOCK_ENABLED = "lock_enabled";
-    private static final String KEY_BATTERY_PROMPTED = "battery_prompted";
     // 相册单次多选上限
     private static final int MAX_PICK = 50;
 
@@ -74,8 +53,10 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView recycler;
     private Adapter adapter;
     private SharedPreferences prefs;
-    // 当前生效的定时类型（用于回显判断与取消输入时恢复）
-    private String lastTimerType = TIMER_OFF;
+    // 当前选中的壁纸库 id
+    private String currentLibId;
+    // Spinner 数据回填期间抑制选择回调，避免误触发切换库
+    private boolean suppressLibCallback = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,67 +66,272 @@ public class MainActivity extends AppCompatActivity {
         // 注册系统相册多选（PickVisualMedia，无需存储权限）
         pickLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK),
-                uris -> onPicked(uris));
-        adapter = new Adapter();
+                this::onPicked);
         recycler = findViewById(R.id.recycler);
-        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
-        layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
-        recycler.setLayoutManager(layoutManager);
+        recycler.setLayoutManager(new LinearLayoutManager(this));
+        adapter = new Adapter();
         recycler.setAdapter(adapter);
-        setupModeViews();
+        setupLibViews();
         setupButtons();
-        setupEnabledViews();
-        setupTimerViews();
+        // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 收件箱有待编辑项时优先进入编辑页（每次确认/取消后回到这里继续处理下一张）
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
-            openEdit(pending.get(0));
+            // 还有待编辑项：继续逐张处理
+            openEdit(pending.get(0), currentLibId());
             return;
         }
+        refreshAll();
+    }
+
+    /** 当前库 id（未初始化时从持久化恢复）。 */
+    private String currentLibId() {
+        if (currentLibId == null) {
+            currentLibId = prefs.getString(LibraryStore.KEY_CURRENT_LIB, null);
+        }
+        return currentLibId;
+    }
+
+    /** 当前选中的库，可能为 null（库列表为空时）。 */
+    private LibraryStore.Library currentLib() {
+        String id = currentLibId();
+        if (id == null) {
+            return null;
+        }
+        return LibraryStore.get(this, id);
+    }
+
+    /** 刷新库列表 Spinner、当前库设置区与壁纸列表。 */
+    private void refreshAll() {
+        List<LibraryStore.Library> libs = LibraryStore.load(this);
+        if (libs.isEmpty()) {
+            LibraryStore.create(this, null);
+            libs = LibraryStore.load(this);
+        }
+        // 校正当前库选择（被删除时回退到第一个）
+        String saved = currentLibId();
+        boolean found = false;
+        for (LibraryStore.Library lib : libs) {
+            if (lib.id.equals(saved)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            currentLibId = libs.get(0).id;
+            prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
+        }
+        // 回填库 Spinner
+        Spinner spinner = findViewById(R.id.spinner_libs);
+        List<String> names = new ArrayList<>();
+        int selected = 0;
+        for (int i = 0; i < libs.size(); i++) {
+            names.add(libs.get(i).name);
+            if (libs.get(i).id.equals(currentLibId)) {
+                selected = i;
+            }
+        }
+        suppressLibCallback = true;
+        ArrayAdapter<String> arrayAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, names);
+        arrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(arrayAdapter);
+        spinner.setSelection(selected, false);
+        // 数据绑定完成后再恢复回调（post 保证在本次事件循环之后执行）
+        spinner.post(() -> suppressLibCallback = false);
+        refreshLibSettings();
         refreshList();
     }
 
-    /** 初始化切换模式选择（选中即写 prefs）。 */
-    private void setupModeViews() {
-        RadioGroup rgMode = findViewById(R.id.rg_mode);
-        String mode = prefs.getString(KEY_MODE, MODE_ORDER);
-        if (MODE_RANDOM.equals(mode)) {
-            rgMode.check(R.id.rb_random);
-        } else {
-            rgMode.check(R.id.rb_order);
-        }
-        rgMode.setOnCheckedChangeListener((group, checkedId) -> {
-            String newMode = MODE_ORDER;
-            if (checkedId == R.id.rb_random) {
-                newMode = MODE_RANDOM;
+    /** 初始化库选择器与新建/删除按钮。 */
+    private void setupLibViews() {
+        Spinner spinner = findViewById(R.id.spinner_libs);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (suppressLibCallback) {
+                    return;
+                }
+                List<LibraryStore.Library> libs = LibraryStore.load(MainActivity.this);
+                if (position < 0 || position >= libs.size()) {
+                    return;
+                }
+                String newId = libs.get(position).id;
+                if (newId.equals(currentLibId)) {
+                    return;
+                }
+                currentLibId = newId;
+                prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
+                refreshLibSettings();
+                refreshList();
             }
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putString(KEY_MODE, newMode);
-            editor.apply();
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
         });
+        findViewById(R.id.btn_lib_new).setOnClickListener(v -> showNewLibDialog());
+        findViewById(R.id.btn_lib_delete).setOnClickListener(v -> confirmDeleteLib());
     }
 
-    /** 初始化顶部操作按钮。 */
+    /** 手动切换/添加/电池按钮。 */
     private void setupButtons() {
-        Button btnAdd = findViewById(R.id.btn_add);
-        btnAdd.setOnClickListener(v -> launchPicker());
-        Button btnHome = findViewById(R.id.btn_switch_home);
-        btnHome.setOnClickListener(v -> switchAndToast(true));
-        Button btnLock = findViewById(R.id.btn_switch_lock);
-        btnLock.setOnClickListener(v -> switchAndToast(false));
-        Button btnBattery = findViewById(R.id.btn_battery);
-        btnBattery.setOnClickListener(v -> requestIgnoreBattery());
+        findViewById(R.id.btn_add).setOnClickListener(v -> launchPicker());
+        findViewById(R.id.btn_switch_home).setOnClickListener(v -> switchAndToast(true));
+        findViewById(R.id.btn_switch_lock).setOnClickListener(v -> switchAndToast(false));
+        findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
     }
 
-    /** 手动切换壁纸并按结果提示（Switcher 内部不再静默吞掉失败）。 */
+    /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
+    private void refreshLibSettings() {
+        Switch swEnabled = findViewById(R.id.sw_lib_enabled);
+        CheckBox cbHome = findViewById(R.id.cb_lib_home);
+        CheckBox cbLock = findViewById(R.id.cb_lib_lock);
+        RadioGroup rgMode = findViewById(R.id.rg_mode);
+        TextView tvInterval = findViewById(R.id.tv_interval);
+        LibraryStore.Library lib = currentLib();
+        // 先置空监听再回填，避免 setChecked 触发意外写回
+        swEnabled.setOnCheckedChangeListener(null);
+        cbHome.setOnCheckedChangeListener(null);
+        cbLock.setOnCheckedChangeListener(null);
+        rgMode.setOnCheckedChangeListener(null);
+        if (lib == null) {
+            swEnabled.setChecked(false);
+            cbHome.setChecked(false);
+            cbLock.setChecked(false);
+            tvInterval.setText(R.string.lib_interval);
+            return;
+        }
+        swEnabled.setChecked(lib.enabled);
+        cbHome.setChecked(lib.home);
+        cbLock.setChecked(lib.lock);
+        rgMode.check(LibraryStore.MODE_RANDOM.equals(lib.mode) ? R.id.rb_random : R.id.rb_order);
+        tvInterval.setText(getString(R.string.lib_interval) + "：" + formatInterval(lib.intervalSeconds));
+        // 启用开关：启用失败（未选范围）时回退并提示
+        swEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            boolean ok = LibraryStore.setEnabled(MainActivity.this, currentLibId(), isChecked);
+            if (!ok) {
+                swEnabled.setChecked(false);
+                Toast.makeText(MainActivity.this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
+            }
+        });
+        // 范围勾选（启用中的库修改范围会应用互斥约束）
+        cbHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            LibraryStore.Library target = currentLib();
+            if (target != null) {
+                LibraryStore.setScope(MainActivity.this, target.id, isChecked, cbLock.isChecked());
+            }
+        });
+        cbLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            LibraryStore.Library target = currentLib();
+            if (target != null) {
+                LibraryStore.setScope(MainActivity.this, target.id, cbHome.isChecked(), isChecked);
+            }
+        });
+        // 切换模式（顺序/随机，按库保存）
+        rgMode.setOnCheckedChangeListener((group, checkedId) ->
+                LibraryStore.setMode(MainActivity.this, currentLibId(),
+                        checkedId == R.id.rb_random ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
+        // 切换间隔（秒级）
+        tvInterval.setOnClickListener(v -> showIntervalDialog());
+    }
+
+    /** 弹窗输入切换间隔（秒），确认后写回并重排启用中的定时。 */
+    private void showIntervalDialog() {
+        LibraryStore.Library lib = currentLib();
+        if (lib == null) {
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint(R.string.interval_hint);
+        input.setText(String.valueOf(lib.intervalSeconds));
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        wrapper.setPadding(padding, 0, padding, 0);
+        wrapper.addView(input);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.lib_interval);
+        builder.setView(wrapper);
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
+            int seconds = 0;
+            try {
+                seconds = Integer.parseInt(input.getText().toString().trim());
+            } catch (NumberFormatException ignored) {
+            }
+            if (seconds > 0) {
+                LibraryStore.setInterval(MainActivity.this, lib.id, seconds);
+                refreshLibSettings();
+            }
+        });
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
+    /** 间隔展示：60 的整数倍显示分钟，其余显示「X分Y秒」或「X秒」。 */
+    private String formatInterval(int seconds) {
+        if (seconds >= 60 && seconds % 60 == 0) {
+            return (seconds / 60) + "分钟";
+        }
+        if (seconds >= 60) {
+            return (seconds / 60) + "分" + (seconds % 60) + "秒";
+        }
+        return seconds + "秒";
+    }
+
+    /** 新建库弹窗。 */
+    private void showNewLibDialog() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setHint(R.string.lib_name_hint);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        wrapper.setPadding(padding, 0, padding, 0);
+        wrapper.addView(input);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.lib_new);
+        builder.setView(wrapper);
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
+            String name = input.getText().toString().trim();
+            LibraryStore.Library lib = LibraryStore.create(MainActivity.this,
+                    name.isEmpty() ? null : name);
+            currentLibId = lib.id;
+            prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
+            refreshAll();
+        });
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
+    /** 删除当前库前弹确认框（库内壁纸一并删除）。 */
+    private void confirmDeleteLib() {
+        LibraryStore.Library lib = currentLib();
+        if (lib == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.lib_delete);
+        builder.setMessage(getString(R.string.lib_delete_msg, lib.name));
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
+            LibraryStore.delete(MainActivity.this, lib.id);
+            currentLibId = null;
+            refreshAll();
+        });
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
+    /** 手动切换：作用于该范围当前启用的库（与小组件、定时行为一致）。 */
     private void switchAndToast(boolean forHome) {
-        boolean ok = Switcher.next(this, forHome);
+        LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, forHome);
+        boolean ok = lib != null && Switcher.next(this, lib.id, forHome);
         if (ok) {
             Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
         } else {
@@ -153,174 +339,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 初始化桌面/锁屏启用开关（默认开启）。 */
-    private void setupEnabledViews() {
-        Switch swHome = findViewById(R.id.sw_home_enabled);
-        Switch swLock = findViewById(R.id.sw_lock_enabled);
-        swHome.setChecked(prefs.getBoolean(KEY_HOME_ENABLED, true));
-        swLock.setChecked(prefs.getBoolean(KEY_LOCK_ENABLED, true));
-        swHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putBoolean(KEY_HOME_ENABLED, isChecked);
-            editor.apply();
-        });
-        swLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putBoolean(KEY_LOCK_ENABLED, isChecked);
-            editor.apply();
-        });
-    }
-
-    /** 初始化定时频率选择：按 prefs 回显，用户选择后写 prefs 并立即重排闹钟。 */
-    private void setupTimerViews() {
-        lastTimerType = prefs.getString(KEY_TIMER_TYPE, TIMER_OFF);
-        Spinner spinner = findViewById(R.id.spinner_timer);
-        ArrayAdapter<CharSequence> arrayAdapter = ArrayAdapter.createFromResource(this,
-                R.array.timer_options, android.R.layout.simple_spinner_item);
-        arrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinner.setAdapter(arrayAdapter);
-        // 按 prefs 回显选中项
-        for (int i = 0; i < TIMER_TYPES.length; i++) {
-            if (TIMER_TYPES[i].equals(lastTimerType)) {
-                spinner.setSelection(i);
-                break;
-            }
-        }
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String type = TIMER_TYPES[position];
-                // 回显触发的回调或与当前生效类型相同：视为无变化，避免误弹输入框
-                if (type.equals(lastTimerType)) {
-                    return;
-                }
-                onTimerTypeSelected(type);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
-    }
-
-    /** 处理用户选择的定时类型：间隔型直接生效，自定义/每天先弹输入确认。 */
-    private void onTimerTypeSelected(String type) {
-        if (TIMER_CUSTOM.equals(type)) {
-            showCustomMinutesDialog();
-        } else if (TIMER_DAILY.equals(type)) {
-            showDailyTimePicker();
-        } else {
-            applyTimerType(type);
-        }
-    }
-
-    /** 写入定时类型并立即重排闹钟。 */
-    private void applyTimerType(String type) {
-        lastTimerType = type;
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putString(KEY_TIMER_TYPE, type);
-        editor.apply();
-        AlarmScheduler.schedule(this);
-    }
-
-    /** 弹出自定义间隔输入框（单位分钟），确认后写入并生效。 */
-    private void showCustomMinutesDialog() {
-        EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setHint(R.string.custom_minutes_hint);
-        input.setText(String.valueOf(prefs.getInt(KEY_CUSTOM_MINUTES, 30)));
-        int padding = (int) (16 * getResources().getDisplayMetrics().density);
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        wrapper.setPadding(padding, 0, padding, 0);
-        wrapper.addView(input);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.timer_custom);
-        builder.setView(wrapper);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            int minutes = 0;
-            try {
-                minutes = Integer.parseInt(input.getText().toString().trim());
-            } catch (NumberFormatException ignored) {
-            }
-            // 输入无效：不修改设置，恢复原选中项
-            if (minutes <= 0) {
-                restoreTimerSpinner();
-                return;
-            }
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putInt(KEY_CUSTOM_MINUTES, minutes);
-            editor.apply();
-            applyTimerType(TIMER_CUSTOM);
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        // 取消按钮、返回键关闭都会走 dismiss，统一在此恢复 Spinner 回显
-        builder.setOnDismissListener(dialog -> restoreTimerSpinner());
-        builder.show();
-    }
-
-    /** 弹出每天时刻选择器（默认读 daily_hour/daily_minute，即 8:00），确认后写入并生效。 */
-    private void showDailyTimePicker() {
-        int hour = prefs.getInt(KEY_DAILY_HOUR, 8);
-        int minute = prefs.getInt(KEY_DAILY_MINUTE, 0);
-        TimePickerDialog dialog = new TimePickerDialog(this, (view, h, m) -> {
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putInt(KEY_DAILY_HOUR, h);
-            editor.putInt(KEY_DAILY_MINUTE, m);
-            editor.apply();
-            applyTimerType(TIMER_DAILY);
-        }, hour, minute, true);
-        dialog.setOnCancelListener(d -> restoreTimerSpinner());
-        dialog.show();
-    }
-
-    /** 把定时 Spinner 恢复为当前生效的类型（取消输入时调用）。 */
-    private void restoreTimerSpinner() {
-        Spinner spinner = findViewById(R.id.spinner_timer);
-        for (int i = 0; i < TIMER_TYPES.length; i++) {
-            if (TIMER_TYPES[i].equals(lastTimerType)) {
-                spinner.setSelection(i);
-                break;
-            }
-        }
-    }
-
-    /** 检查电池优化白名单：未忽略且未提示过时弹一次引导。 */
-    private void maybePromptBattery() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm.isIgnoringBatteryOptimizations(getPackageName())) {
-            return;
-        }
-        if (prefs.getBoolean(KEY_BATTERY_PROMPTED, false)) {
-            return;
-        }
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putBoolean(KEY_BATTERY_PROMPTED, true);
-        editor.apply();
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.battery_prompt_title);
-        builder.setMessage(R.string.battery_prompt_msg);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestIgnoreBattery());
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
-    }
-
-    /** 跳转系统「忽略电池优化」授权页（个别机型不支持该 action 时静默）。 */
-    private void requestIgnoreBattery() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception ignored) {
-        }
-    }
-
     /** 打开系统相册多选。 */
     private void launchPicker() {
-        PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
-        builder.setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
-        PickVisualMediaRequest request = builder.build();
-        pickLauncher.launch(request);
+        PickVisualMediaRequest.Builder builder =
+                new PickVisualMediaRequest.Builder(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
+        pickLauncher.launch(builder.build());
     }
 
     /**
@@ -345,7 +368,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             List<String> pending = WallpaperStore.pendingInbox(this);
-            // lambda 捕获要求实际 final：先把累加结果复制到 final 变量再传入回调
+            // lambda 捕获要求实际 final：先把计数定稿
             final int okCount = success;
             final int failCount = failed;
             runOnUiThread(() -> {
@@ -362,23 +385,54 @@ public class MainActivity extends AppCompatActivity {
                             Toast.LENGTH_SHORT).show();
                 }
                 if (!pending.isEmpty()) {
-                    openEdit(pending.get(0));
+                    openEdit(pending.get(0), currentLibId());
                 }
             });
         }, "inbox-import").start();
     }
 
-    /** 打开编辑页处理某个收件箱文件。 */
-    private void openEdit(String inboxId) {
+    /** 打开编辑页处理某个收件箱文件（确认后入库到指定库）。 */
+    private void openEdit(String inboxId, String libId) {
         Intent intent = new Intent(this, EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_INBOX_ID, inboxId);
+        intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
         startActivity(intent);
     }
 
-    /** 刷新壁纸库列表。 */
+    /** 刷新壁纸列表（当前库内的壁纸）。 */
     private void refreshList() {
-        List<WallpaperStore.Item> items = WallpaperStore.load(this);
+        String libId = currentLibId();
+        List<WallpaperStore.Item> items = libId == null
+                ? new ArrayList<>() : WallpaperStore.loadByLib(this, libId);
         adapter.setItems(items);
+    }
+
+    /** 检查电池优化白名单：未忽略且未提示过时弹一次引导。 */
+    private void maybePromptBattery() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm.isIgnoringBatteryOptimizations(getPackageName())) {
+            return;
+        }
+        if (prefs.getBoolean("battery_prompted", false)) {
+            return;
+        }
+        prefs.edit().putBoolean("battery_prompted", true).apply();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.battery_prompt_title);
+        builder.setMessage(R.string.battery_prompt_msg);
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestIgnoreBattery());
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
+    /** 跳转系统「忽略电池优化」授权页（个别机型不支持该 action 时静默）。 */
+    private void requestIgnoreBattery() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 删除前弹确认框。 */
@@ -394,7 +448,7 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
-    /** 壁纸库列表适配器。 */
+    /** 壁纸列表适配器（当前库内的壁纸）。 */
     private class Adapter extends RecyclerView.Adapter<ViewHolder> {
 
         private List<WallpaperStore.Item> items = new ArrayList<>();
@@ -417,19 +471,6 @@ public class MainActivity extends AppCompatActivity {
             final WallpaperStore.Item item = items.get(position);
             Bitmap thumb = WallpaperStore.getThumb(MainActivity.this, item.id);
             holder.imgThumb.setImageBitmap(thumb);
-            // 先置空监听再回填勾选状态，避免触发意外写回
-            holder.cbHome.setOnCheckedChangeListener(null);
-            holder.cbLock.setOnCheckedChangeListener(null);
-            holder.cbHome.setChecked(item.home);
-            holder.cbLock.setChecked(item.lock);
-            holder.cbHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                item.home = isChecked;
-                WallpaperStore.setScope(MainActivity.this, item.id, item.home, item.lock);
-            });
-            holder.cbLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                item.lock = isChecked;
-                WallpaperStore.setScope(MainActivity.this, item.id, item.home, item.lock);
-            });
             holder.btnDelete.setOnClickListener(v -> confirmDelete(item));
         }
 
@@ -443,15 +484,11 @@ public class MainActivity extends AppCompatActivity {
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
         final ImageView imgThumb;
-        final CheckBox cbHome;
-        final CheckBox cbLock;
         final ImageButton btnDelete;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
             imgThumb = itemView.findViewById(R.id.img_thumb);
-            cbHome = itemView.findViewById(R.id.cb_home);
-            cbLock = itemView.findViewById(R.id.cb_lock);
             btnDelete = itemView.findViewById(R.id.btn_delete);
         }
     }

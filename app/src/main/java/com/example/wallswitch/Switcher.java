@@ -13,81 +13,53 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 切换逻辑核心：顺序/随机切换 + 桌面/锁屏独立推进进度。
- * 进度约定（SharedPreferences "settings"，桌面/锁屏各自独立）：
- * - home_seq / lock_seq：顺序模式下一次的索引
- * - home_pool / lock_pool：随机模式下剩余未用的 id 池（JSON 数组字符串）
- * - home_current / lock_current：当前壁纸 id
+ * 切换逻辑核心：按「壁纸库 + 范围（桌面/锁屏）」切换，进度按库隔离。
+ * 进度键（SharedPreferences "settings"）由 progressBase 生成：
+ * - p_&lt;libId&gt;_h_seq/_pool/_current：该库桌面范围的顺序索引/随机池/当前壁纸
+ * - p_&lt;libId&gt;_l_seq/_pool/_current：该库锁屏范围
  */
 public class Switcher {
 
     // SharedPreferences 文件名
     private static final String PREFS_NAME = "settings";
-    // 切换模式 key 与取值
-    private static final String KEY_MODE = "mode";
-    private static final String MODE_ORDER = "order";
-    private static final String MODE_RANDOM = "random";
-    // 桌面/锁屏启用开关 key（默认 true）
-    private static final String KEY_HOME_ENABLED = "home_enabled";
-    private static final String KEY_LOCK_ENABLED = "lock_enabled";
-    // 顺序进度 key
-    private static final String KEY_SEQ_HOME = "home_seq";
-    private static final String KEY_SEQ_LOCK = "lock_seq";
-    // 随机池 key
-    private static final String KEY_POOL_HOME = "home_pool";
-    private static final String KEY_POOL_LOCK = "lock_pool";
-    // 当前壁纸 id key
-    private static final String KEY_CURRENT_HOME = "home_current";
-    private static final String KEY_CURRENT_LOCK = "lock_current";
     // 全图解码最长边上限（控制内存，与 WallpaperStore 一致）
     private static final int MAX_DECODE_DIM = 2048;
 
-    /** 切换下一张壁纸：forHome 为 true 表示桌面，false 表示锁屏。返回是否成功设置到系统。 */
-    public static boolean next(Context ctx, boolean forHome) {
-        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        // 对应范围被关闭时直接返回
-        boolean enabled = prefs.getBoolean(KEY_HOME_ENABLED, true);
-        if (!forHome) {
-            enabled = prefs.getBoolean(KEY_LOCK_ENABLED, true);
-        }
-        if (!enabled) {
+    /** 生成某库某范围的进度键前缀（LibraryStore 迁移也使用）。 */
+    public static String progressBase(String libId, boolean forHome) {
+        return "p_" + libId + (forHome ? "_h" : "_l");
+    }
+
+    /**
+     * 切换指定库的下一张壁纸：forHome 为 true 表示桌面，false 表示锁屏。
+     * 库未启用或未覆盖对应范围时不切换。返回是否成功设置到系统。
+     */
+    public static boolean next(Context ctx, String libId, boolean forHome) {
+        LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+        if (lib == null || !lib.enabled) {
             return false;
         }
-        // 候选集 = 库中勾选了对应范围的图
-        List<WallpaperStore.Item> all = WallpaperStore.load(ctx);
-        List<WallpaperStore.Item> candidates = new ArrayList<>();
-        for (WallpaperStore.Item item : all) {
-            boolean match = item.home;
-            if (!forHome) {
-                match = item.lock;
-            }
-            if (match) {
-                candidates.add(item);
-            }
+        if (forHome ? !lib.home : !lib.lock) {
+            return false;
         }
-        // 无候选图可设（库空或全部未勾选）：直接返回，不 Toast（避免后台弹窗）
+        // 候选集 = 该库内的全部壁纸
+        List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
         if (candidates.isEmpty()) {
             return false;
         }
-        // 按模式选出下一张，并推进顺序索引 / 消耗随机池
-        SharedPreferences.Editor editor = prefs.edit();
-        String mode = prefs.getString(KEY_MODE, MODE_ORDER);
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String base = progressBase(libId, forHome);
         String nextId;
-        if (MODE_RANDOM.equals(mode)) {
-            nextId = pickRandom(prefs, editor, candidates, forHome);
+        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+            nextId = pickRandom(prefs, base, candidates);
         } else {
-            nextId = pickOrder(prefs, editor, candidates, forHome);
+            nextId = pickOrder(prefs, base, candidates);
         }
         if (nextId == null) {
             return false;
         }
         // 记录当前壁纸 id
-        String keyCurrent = KEY_CURRENT_HOME;
-        if (!forHome) {
-            keyCurrent = KEY_CURRENT_LOCK;
-        }
-        editor.putString(keyCurrent, nextId);
-        editor.apply();
+        prefs.edit().putString(base + "_current", nextId).apply();
         // 应用到系统壁纸（失败时向调用方返回 false，由界面侧给出反馈）
         boolean applied = setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
         // 设置成功后刷新小组件缩略图
@@ -97,40 +69,40 @@ public class Switcher {
         return applied;
     }
 
-    /** 读取当前壁纸 id：forHome 为 true 表示桌面，false 表示锁屏；无记录返回 null。 */
-    public static String getCurrent(Context ctx, boolean forHome) {
-        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String key = KEY_CURRENT_HOME;
-        if (!forHome) {
-            key = KEY_CURRENT_LOCK;
-        }
-        return prefs.getString(key, null);
+    /** 读取某库某范围的当前壁纸 id：无记录返回 null。 */
+    public static String getCurrent(Context ctx, String libId, boolean forHome) {
+        String base = progressBase(libId, forHome);
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(base + "_current", null);
     }
 
-    /** 顺序模式：取候选中 (seq+1) % size 的图并写回 seq，返回下一张 id。 */
-    private static String pickOrder(SharedPreferences prefs, SharedPreferences.Editor editor,
-                                    List<WallpaperStore.Item> candidates, boolean forHome) {
-        String keySeq = KEY_SEQ_HOME;
-        if (!forHome) {
-            keySeq = KEY_SEQ_LOCK;
+    /** 清除某库的切换进度（删除库时调用）。 */
+    public static void clearProgress(Context ctx, String libId) {
+        SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+        for (boolean forHome : new boolean[]{true, false}) {
+            String base = progressBase(libId, forHome);
+            editor.remove(base + "_seq");
+            editor.remove(base + "_pool");
+            editor.remove(base + "_current");
         }
-        int seq = prefs.getInt(keySeq, -1);
+        editor.apply();
+    }
+
+    /** 顺序模式：取 (seq+1) % size 的图并写回 seq，返回下一张 id。 */
+    private static String pickOrder(SharedPreferences prefs, String base,
+                                    List<WallpaperStore.Item> candidates) {
+        int seq = prefs.getInt(base + "_seq", -1);
         int nextIndex = (seq + 1) % candidates.size();
-        editor.putInt(keySeq, nextIndex);
+        prefs.edit().putInt(base + "_seq", nextIndex).apply();
         return candidates.get(nextIndex).id;
     }
 
-    /** 随机模式：从剩余池取一张（一轮不重复、用完重置），池内失效 id 先过滤，返回下一张 id。 */
-    private static String pickRandom(SharedPreferences prefs, SharedPreferences.Editor editor,
-                                     List<WallpaperStore.Item> candidates, boolean forHome) {
-        String keyPool = KEY_POOL_HOME;
-        if (!forHome) {
-            keyPool = KEY_POOL_LOCK;
-        }
-        // 读取现有池，过滤掉已不在候选集中的 id（图被删除或取消勾选）
+    /** 随机模式：从剩余池取一张（该库一轮不重复、用完重置），池内失效 id 先过滤。 */
+    private static String pickRandom(SharedPreferences prefs, String base,
+                                     List<WallpaperStore.Item> candidates) {
         List<String> pool = new ArrayList<>();
         try {
-            JSONArray arr = new JSONArray(prefs.getString(keyPool, "[]"));
+            JSONArray arr = new JSONArray(prefs.getString(base + "_pool", "[]"));
             for (int i = 0; i < arr.length(); i++) {
                 String id = arr.getString(i);
                 for (WallpaperStore.Item item : candidates) {
@@ -151,7 +123,7 @@ public class Switcher {
         }
         // 取出第一张并从池中移除后写回，保证一轮内不重复
         String nextId = pool.remove(0);
-        editor.putString(keyPool, new JSONArray(pool).toString());
+        prefs.edit().putString(base + "_pool", new JSONArray(pool).toString()).apply();
         return nextId;
     }
 

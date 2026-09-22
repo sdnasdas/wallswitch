@@ -8,6 +8,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.File;
+import java.util.List;
 
 /**
  * 添加时编辑页：全屏手势裁剪，确认后按当前手势导出并入库（默认桌面+锁屏都应用），
@@ -17,17 +18,26 @@ public class EditActivity extends AppCompatActivity {
 
     // 收件箱 id 的 Intent extra key
     public static final String EXTRA_INBOX_ID = "inbox_id";
+    // 目标壁纸库 id 的 Intent extra key
+    public static final String EXTRA_LIB_ID = "lib_id";
     // 解码与导出尺寸上限
     private static final int MAX_DIM = 2048;
 
     private CropView cropView;
     private String inboxId;
+    private String libId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
+        libId = getIntent().getStringExtra(EXTRA_LIB_ID);
+        if (libId == null || LibraryStore.get(this, libId) == null) {
+            // 未指定或库已删除：回退到第一个库，没有库则建默认库
+            List<LibraryStore.Library> libs = LibraryStore.load(this);
+            libId = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
+        }
         cropView = findViewById(R.id.crop_view);
         // 解码收件箱原图（超采样防 OOM）交给手势视图
         File inboxFile = WallpaperStore.getInboxFile(this, inboxId);
@@ -55,7 +65,7 @@ public class EditActivity extends AppCompatActivity {
             return;
         }
         try {
-            WallpaperStore.confirmImport(this, inboxId, result, true, true);
+            WallpaperStore.confirmImport(this, inboxId, result, libId);
         } catch (Exception e) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
         }

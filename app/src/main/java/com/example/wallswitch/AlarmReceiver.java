@@ -18,10 +18,14 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (!ACTION_ALARM.equals(intent.getAction())) {
             return;
         }
-        // 桌面与锁屏各自独立推进（受 enabled 与勾选范围控制）
-        Switcher.next(context, true);
-        Switcher.next(context, false);
-        // 一次一排：触发后重新安排下一次
-        AlarmScheduler.schedule(context);
+        String libId = intent.getStringExtra(AlarmScheduler.EXTRA_LIB_ID);
+        if (libId == null) {
+            return;
+        }
+        // 切换该库覆盖的范围（桌面/锁屏，Switcher 内部会校验库启用状态与范围勾选）
+        Switcher.next(context, libId, true);
+        Switcher.next(context, libId, false);
+        // 一次一排：触发后重新安排该库的下一次定时
+        AlarmScheduler.schedule(context, libId);
     }
 }

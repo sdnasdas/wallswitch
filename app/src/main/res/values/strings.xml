@@ -6,6 +6,14 @@
     <string name="switch_lock">切换锁屏</string>
     <string name="switch_done">壁纸已切换</string>
     <string name="switch_failed">壁纸切换失败，请重试</string>
+    <string name="lib_new">新建库</string>
+    <string name="lib_delete">删除库</string>
+    <string name="lib_delete_msg">删除壁纸库「%1$s」将同时删除库内所有壁纸，确定吗？</string>
+    <string name="lib_name_hint">库名称（留空自动命名）</string>
+    <string name="lib_enabled">启用本库</string>
+    <string name="lib_interval">切换间隔</string>
+    <string name="interval_hint">间隔秒数（如 30 或 1800）</string>
+    <string name="lib_scope_none">请先勾选桌面或锁屏范围</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>
     <string name="scope_home">桌面</string>

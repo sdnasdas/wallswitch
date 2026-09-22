@@ -41,11 +41,10 @@ public class WallpaperStore {
     // 缩略图最长边
     private static final int THUMB_MAX_DIM = 256;
 
-    /** 壁纸库条目元数据。 */
+    /** 壁纸条目元数据：id 为图片文件标识，libId 为所属壁纸库 id。 */
     public static class Item {
         public String id;
-        public boolean home;
-        public boolean lock;
+        public String libId;
     }
 
     /** 从 library.json 读取壁纸库列表，文件不存在时返回空列表。 */
@@ -63,8 +62,7 @@ public class WallpaperStore {
                 JSONObject obj = arr.getJSONObject(i);
                 Item item = new Item();
                 item.id = obj.getString("id");
-                item.home = obj.optBoolean("home", true);
-                item.lock = obj.optBoolean("lock", true);
+                item.libId = obj.optString("lib_id", "");
                 result.add(item);
             }
         } catch (Exception ignored) {
@@ -98,15 +96,8 @@ public class WallpaperStore {
         return item;
     }
 
-    /** 确认导入（无编辑结果时）：按上限解码收件箱原图后入库。 */
-    public static Item confirmImport(Context context, String inboxId, boolean home, boolean lock) throws Exception {
-        File inboxFile = getInboxFile(context, inboxId);
-        Bitmap edited = decodeBounded(inboxFile, MAX_DECODE_DIM);
-        return confirmImport(context, inboxId, edited, home, lock);
-    }
-
-    /** 确认导入（带编辑结果）：保存全图与缩略图、追加元数据，并删除收件箱原文件。 */
-    public static Item confirmImport(Context context, String inboxId, Bitmap edited, boolean home, boolean lock) throws Exception {
+    /** 确认导入：保存全图与缩略图、按所属壁纸库追加元数据，并删除收件箱原文件。 */
+    public static Item confirmImport(Context context, String inboxId, Bitmap edited, String libId) throws Exception {
         Bitmap bitmap = edited;
         if (bitmap == null) {
             File sourceFile = getInboxFile(context, inboxId);
@@ -135,12 +126,11 @@ public class WallpaperStore {
         FileOutputStream thumbOut = new FileOutputStream(thumbFile);
         thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, thumbOut);
         thumbOut.close();
-        // 追加元数据
+        // 追加元数据（归属指定壁纸库）
         List<Item> items = load(context);
         Item item = new Item();
         item.id = id;
-        item.home = home;
-        item.lock = lock;
+        item.libId = libId == null ? "" : libId;
         items.add(item);
         saveLibrary(context, items);
         // 删除收件箱原文件：元数据已写完，此时删除失败不应让调用方误报「保存失败」
@@ -203,17 +193,49 @@ public class WallpaperStore {
         }
     }
 
-    /** 更新某张壁纸的应用范围（桌面/锁屏）。 */
-    public static void setScope(Context context, String id, boolean home, boolean lock) {
+    /** 加载指定壁纸库内的全部壁纸（按添加顺序）。 */
+    public static List<Item> loadByLib(Context context, String libId) {
+        List<Item> result = new ArrayList<>();
+        for (Item item : load(context)) {
+            if (item.libId != null && item.libId.equals(libId)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /** 删除整个壁纸库的壁纸（文件与元数据），删除库时调用。 */
+    public static void deleteByLib(Context context, String libId) {
         try {
             List<Item> items = load(context);
+            List<Item> remain = new ArrayList<>();
             for (Item item : items) {
-                if (item.id.equals(id)) {
-                    item.home = home;
-                    item.lock = lock;
+                if (libId.equals(item.libId)) {
+                    Files.deleteIfExists(getFullFile(context, item.id).toPath());
+                    Files.deleteIfExists(getThumbFile(context, item.id).toPath());
+                } else {
+                    remain.add(item);
                 }
             }
-            saveLibrary(context, items);
+            saveLibrary(context, remain);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 旧版迁移：把没有 lib_id 的历史壁纸全部归入指定库（仅补空值，幂等）。 */
+    public static void migrateLegacyToLib(Context context, String libId) {
+        try {
+            List<Item> items = load(context);
+            boolean changed = false;
+            for (Item item : items) {
+                if (item.libId == null || item.libId.isEmpty()) {
+                    item.libId = libId;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                saveLibrary(context, items);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -284,8 +306,7 @@ public class WallpaperStore {
         for (Item item : items) {
             JSONObject obj = new JSONObject();
             obj.put("id", item.id);
-            obj.put("home", item.home);
-            obj.put("lock", item.lock);
+            obj.put("lib_id", item.libId == null ? "" : item.libId);
             arr.put(obj);
         }
         File libFile = new File(context.getFilesDir(), LIB_FILE);

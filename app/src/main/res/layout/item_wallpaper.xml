@@ -13,20 +13,6 @@
         android:contentDescription="@string/thumb_desc"
         android:scaleType="centerCrop" />
 
-    <CheckBox
-        android:id="@+id/cb_home"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:text="@string/scope_home" />
-
-    <CheckBox
-        android:id="@+id/cb_lock"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="@string/scope_lock" />
-
     <Space
         android:layout_width="0dp"
         android:layout_height="1dp"

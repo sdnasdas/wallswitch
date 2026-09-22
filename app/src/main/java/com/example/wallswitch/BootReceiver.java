@@ -14,7 +14,7 @@ public class BootReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             return;
         }
-        // 设置在 SharedPreferences 持久化，重启后直接按原设置重排即可
-        AlarmScheduler.schedule(context);
+        // 设置持久化在 SharedPreferences，重启后按原设置重排所有启用库的定时
+        AlarmScheduler.scheduleAll(context);
     }
 }
