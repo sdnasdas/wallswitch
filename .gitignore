@@ -1,0 +1,13 @@
+# 本地构建产物与工具
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+
+# 本地类型检查工作目录（桩类型与脚本保留，工作产物忽略）
+check/work/
+
+# IDE / 工具目录
+.idea/
+.trae/
