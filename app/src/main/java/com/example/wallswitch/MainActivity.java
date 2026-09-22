@@ -75,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
         recycler.setAdapter(adapter);
         setupLibViews();
         setupButtons();
+        setupTimerSwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
         // 精确闹钟权限引导（Android 12+ 未授权时定时会退化为不精确，息屏常不生效）
@@ -194,6 +195,15 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_switch_home).setOnClickListener(v -> switchAndToast(true));
         findViewById(R.id.btn_switch_lock).setOnClickListener(v -> switchAndToast(false));
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
+    }
+
+    /** 定时切换总开关：关闭时不排定任何闹钟（手动切换与小组件不受影响）。 */
+    private void setupTimerSwitch() {
+        Switch swTimer = findViewById(R.id.sw_timer_enabled);
+        swTimer.setOnCheckedChangeListener(null);
+        swTimer.setChecked(AlarmScheduler.isTimerEnabled(this));
+        swTimer.setOnCheckedChangeListener((buttonView, isChecked) ->
+                AlarmScheduler.setTimerEnabled(MainActivity.this, isChecked));
     }
 
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */

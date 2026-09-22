@@ -4,27 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg"
-    android:padding="6dp">
+    android:padding="4dp">
 
     <ImageView
-        android:id="@+id/widget_thumb"
+        android:id="@+id/widget_icon"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_thumb_bg"
-        android:contentDescription="@string/thumb_desc"
-        android:scaleType="centerCrop" />
-
-    <TextView
-        android:id="@+id/widget_label"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="@drawable/widget_label_bg"
-        android:gravity="center"
-        android:maxLines="1"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:text="@string/app_name"
-        android:textColor="#FFFFFFFF"
-        android:textSize="11sp" />
+        android:contentDescription="@string/widget_desc"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_widget_switch" />
 </FrameLayout>

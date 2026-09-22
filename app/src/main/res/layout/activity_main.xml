@@ -43,6 +43,22 @@
             android:text="@string/lib_delete" />
     </LinearLayout>
 
+    <!-- 定时切换总开关（关闭时不排定任何闹钟） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <Switch
+            android:id="@+id/sw_timer_enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/timer_enabled" />
+    </LinearLayout>
+
     <!-- 启用开关 + 切换间隔（秒级） -->
     <LinearLayout
         android:layout_width="match_parent"
