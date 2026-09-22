@@ -112,7 +112,8 @@ public class TimerScheduler {
         }
         for (LibraryStore.Library lib : LibraryStore.load(ctx)) {
             if (lib.enabled) {
-                schedule(ctx, lib.id);
+                // 循环内只排定，最后统一查一次，避免 N 个任务各触发一轮查询
+                scheduleInternal(ctx, lib.id);
             }
         }
         syncFromWorkManager(ctx);
