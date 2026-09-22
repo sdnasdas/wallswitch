@@ -14,6 +14,7 @@
     <string name="lib_interval">切换间隔</string>
     <string name="interval_hint">间隔分钟数（最小 15）</string>
     <string name="interval_min_toast">最小间隔 15 分钟（省电方案的系统下限）</string>
+    <string name="widget_waiting">待切换</string>
     <string name="lib_scope_none">请先勾选桌面或锁屏范围</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>

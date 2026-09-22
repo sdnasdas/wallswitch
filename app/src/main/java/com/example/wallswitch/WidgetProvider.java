@@ -62,16 +62,23 @@ public class WidgetProvider extends AppWidgetProvider {
     /** 构建小组件视图：1x1 切换图标卡片 + 下次切换倒计时，点按切换（未启用桌面库时点按打开应用）。 */
     private static RemoteViews buildViews(Context ctx) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_layout);
-        // 倒计时：显示最近的下次定时切换时间（定时关闭或未排定则隐藏）
+        // 倒计时：取 WorkManager 给出的「最早可运行时间」（定时关闭或未排定则隐藏）；
+        // 该时间已过但任务仍在排队（Doze/省电延后）时，倒计时会变负数，改显示「待切换」
         Long trigger = TimerScheduler.nextTrigger(ctx);
-        if (trigger != null) {
+        long now = System.currentTimeMillis();
+        if (trigger == null) {
+            views.setViewVisibility(R.id.widget_timer, View.GONE);
+            views.setViewVisibility(R.id.widget_waiting, View.GONE);
+        } else if (trigger > now) {
             // Chronometer 的 base 用开机计时（elapsedRealtime），这里把墙钟时间换算过去
-            long base = SystemClock.elapsedRealtime() + (trigger - System.currentTimeMillis());
+            long base = SystemClock.elapsedRealtime() + (trigger - now);
+            views.setViewVisibility(R.id.widget_waiting, View.GONE);
             views.setViewVisibility(R.id.widget_timer, View.VISIBLE);
             views.setChronometer(R.id.widget_timer, base, null, true);
             views.setChronometerCountDown(R.id.widget_timer, true);
         } else {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
+            views.setViewVisibility(R.id.widget_waiting, View.VISIBLE);
         }
         LibraryStore.Library home = LibraryStore.enabledLibForScope(ctx, true);
         if (home == null) {

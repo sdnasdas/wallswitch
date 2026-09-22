@@ -28,5 +28,16 @@
             android:layout_gravity="center_horizontal"
             android:textColor="#FFFFFFFF"
             android:textSize="10sp" />
+
+        <!-- 已到最早可运行时间但系统尚未执行（Doze/省电延后）时的等待提示 -->
+        <TextView
+            android:id="@+id/widget_waiting"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="@string/widget_waiting"
+            android:textColor="#FFFFFFFF"
+            android:textSize="10sp"
+            android:visibility="gone" />
     </LinearLayout>
 </FrameLayout>

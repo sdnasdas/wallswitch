@@ -6,14 +6,24 @@ import android.content.SharedPreferences;
 import androidx.work.Data;
 import androidx.work.ExistingPeriodicWorkPolicy;
 import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkInfo;
 import androidx.work.WorkManager;
 
+import com.google.common.util.concurrent.ListenableFuture;
+
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 定时切换调度（WorkManager 周期任务，参照 Muzei 等成熟应用的做法）：
  * 系统强制最小间隔 15 分钟；任务批量合并执行、Doze 中自动推迟、重启/覆盖安装后自动恢复，省电且可靠。
- * 定时总开关关闭时不排定任何任务。每次排定都会把下次触发时间写入 prefs，供小组件倒计时显示。
+ * 定时总开关关闭时不排定任何任务。
+ *
+ * 倒计时数据来源：WorkManager 公开 API {@link WorkInfo#getNextScheduleTimeMillis()}——注意它只表示
+ * 「最早具备运行条件的时刻」（受系统调度/Doze 影响，真实执行几乎不会恰好在这一刻，也可能已是过去时间），
+ * 因此小组件显示的是「预计」倒计时，并在等待系统调度时改显示“待切换”。
  */
 public class TimerScheduler {
 
@@ -24,6 +34,12 @@ public class TimerScheduler {
     private static final String KEY_TIMER_ENABLED = "timer_enabled";
     // 下次触发时间（wall clock 毫秒）的 key 前缀，供小组件倒计时显示
     private static final String KEY_NEXT_TRIGGER_PREFIX = "next_trigger_";
+    // 查询 WorkManager 任务状态的单线程执行器（ListenableFuture 回调，避免占用主线程）
+    private static final Executor EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "timer-sync");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /** 定时切换是否已开启（默认关闭）。 */
     public static boolean isTimerEnabled(Context ctx) {
@@ -67,7 +83,11 @@ public class TimerScheduler {
                     .build();
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
                     WORK_PREFIX + libId, ExistingPeriodicWorkPolicy.UPDATE, request);
-            noteTrigger(ctx, libId);
+            // 只补一个保守估计（首次排定或记录缺失时）；真实值由 syncFromWorkManager 用 WorkManager 校准，
+            // 避免每次打开应用都把倒计时往后推一个间隔
+            if (recordedTrigger(ctx, libId) <= 0) {
+                applyTrigger(ctx, libId, System.currentTimeMillis() + seconds * 1000L);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -84,7 +104,7 @@ public class TimerScheduler {
         WidgetProvider.updateWidget(ctx);
     }
 
-    /** 按当前设置重排所有启用库的定时（回到应用时自愈调用；总开关关闭时不做任何事）。 */
+    /** 按当前设置重排所有启用库的定时，并用 WorkManager 的真实调度时间校准倒计时（回到应用时自愈调用）。 */
     public static void scheduleAll(Context ctx) {
         if (!isTimerEnabled(ctx)) {
             return;
@@ -94,6 +114,7 @@ public class TimerScheduler {
                 schedule(ctx, lib.id);
             }
         }
+        syncFromWorkManager(ctx);
     }
 
     /** 取消所有库的定时任务（含已停用库，清掉历史遗留）。 */
@@ -103,18 +124,94 @@ public class TimerScheduler {
         }
     }
 
-    /** 记录下次触发时间并刷新小组件倒计时（排定或切换后调用）。 */
+    /** 切换完成后记录下次触发时间并刷新小组件（Worker 每次跑完调用：下次约在 当前 + 间隔）。 */
     public static void noteTrigger(Context ctx, String libId) {
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
         if (lib == null) {
             return;
         }
-        int seconds = intervalSeconds(lib);
+        applyTrigger(ctx, libId, System.currentTimeMillis() + intervalSeconds(lib) * 1000L);
+        // 随即用 WorkManager 的调度时间校准（监听器执行在后台线程）
+        syncFromWorkManager(ctx);
+    }
+
+    /**
+     * 向 WorkManager 查询各库周期任务的状态与「最早可运行时间」，写入本地记录并刷新小组件。
+     * 顺带自愈：任务不在排队（被系统/厂商清理、被取消）时自动重新排定。
+     */
+    public static void syncFromWorkManager(Context ctx) {
+        if (!isTimerEnabled(ctx)) {
+            return;
+        }
+        WorkManager workManager;
+        try {
+            workManager = WorkManager.getInstance(ctx);
+        } catch (Exception e) {
+            return;
+        }
+        // 回调在后台线程执行，统一改用 Application Context，避免长期持有 Activity
+        final Context app = ctx.getApplicationContext();
+        for (LibraryStore.Library lib : LibraryStore.load(app)) {
+            if (!lib.enabled) {
+                continue;
+            }
+            String libId = lib.id;
+            try {
+                ListenableFuture<List<WorkInfo>> future =
+                        workManager.getWorkInfosForUniqueWork(WORK_PREFIX + libId);
+                future.addListener(() -> onQueried(app, libId, future), EXECUTOR);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** WorkManager 查询回调（后台线程）：ENQUEUED/RUNNING 时取其最早可运行时间，否则重新排定。 */
+    private static void onQueried(Context ctx, String libId, ListenableFuture<List<WorkInfo>> future) {
+        boolean enqueued = false;
+        long trigger = -1L;
+        try {
+            List<WorkInfo> infos = future.get();
+            if (infos != null) {
+                for (WorkInfo info : infos) {
+                    WorkInfo.State state = info.getState();
+                    if (state != WorkInfo.State.ENQUEUED && state != WorkInfo.State.RUNNING) {
+                        continue;
+                    }
+                    enqueued = true;
+                    long t = info.getNextScheduleTimeMillis();
+                    // 合法值才采纳（可能为 Long.MAX_VALUE 表示未排定，也可能已是过去时间）
+                    if (t > 0 && t < Long.MAX_VALUE && (trigger <= 0 || t < trigger)) {
+                        trigger = t;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (!enqueued) {
+            // 任务被系统或厂商清理：重新排定（schedule 内部不再回调本方法，无循环风险）
+            schedule(ctx, libId);
+            return;
+        }
+        if (trigger > 0) {
+            applyTrigger(ctx, libId, trigger);
+        }
+    }
+
+    /** 写入下次触发时间并刷新小组件（值未变化时不动，避免无意义的刷新）。 */
+    private static void applyTrigger(Context ctx, String libId, long triggerMillis) {
+        if (recordedTrigger(ctx, libId) == triggerMillis) {
+            return;
+        }
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putLong(KEY_NEXT_TRIGGER_PREFIX + libId,
-                        System.currentTimeMillis() + seconds * 1000L)
+                .putLong(KEY_NEXT_TRIGGER_PREFIX + libId, triggerMillis)
                 .apply();
         WidgetProvider.updateWidget(ctx);
+    }
+
+    /** 已记录的下次触发时间（毫秒），无记录返回 -1。 */
+    private static long recordedTrigger(Context ctx, String libId) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_NEXT_TRIGGER_PREFIX + libId, -1L);
     }
 
     /** 小组件用：所有启用库中最近的下次触发时间（毫秒），无则 null；总开关关闭时返回 null。 */
