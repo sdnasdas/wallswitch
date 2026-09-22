@@ -341,8 +341,8 @@ public class MainActivity extends AppCompatActivity {
 
     /** 打开系统相册多选。 */
     private void launchPicker() {
-        PickVisualMediaRequest.Builder builder =
-                new PickVisualMediaRequest.Builder(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
+        PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
+        builder.setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
         pickLauncher.launch(builder.build());
     }
 
