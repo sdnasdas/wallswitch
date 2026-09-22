@@ -1,10 +1,12 @@
 package com.example.wallswitch;
 
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -75,11 +77,16 @@ public class MainActivity extends AppCompatActivity {
         setupButtons();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
+        // 精确闹钟权限引导（Android 12+ 未授权时定时会退化为不精确，息屏常不生效）
+        maybePromptExactAlarm();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // 自愈：每次回到应用都按当前设置重排定时
+        // （覆盖安装新版本、系统回收、荣耀省电清理都可能清掉闹钟，这里保证它们被重新排定）
+        AlarmScheduler.scheduleAll(this);
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理
@@ -427,8 +434,52 @@ public class MainActivity extends AppCompatActivity {
         builder.setTitle(R.string.battery_prompt_title);
         builder.setMessage(R.string.battery_prompt_msg);
         builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestIgnoreBattery());
+        // 荣耀/华为还需在应用详情里开启「自启动/后台运行」
+        builder.setNeutralButton(R.string.app_details, (dialog, which) -> openAppDetails());
         builder.setNegativeButton(R.string.cancel, null);
         builder.show();
+    }
+
+    /** 检查精确闹钟权限：未授权时引导去系统设置开启（Android 12+ 定时切换依赖它，只提示一次）。 */
+    private void maybePromptExactAlarm() {
+        if (Build.VERSION.SDK_INT < 31) {
+            return;
+        }
+        AlarmManager am = getSystemService(AlarmManager.class);
+        if (am == null || am.canScheduleExactAlarms()) {
+            return;
+        }
+        if (prefs.getBoolean("exact_alarm_prompted", false)) {
+            return;
+        }
+        prefs.edit().putBoolean("exact_alarm_prompted", true).apply();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.exact_alarm_title);
+        builder.setMessage(R.string.exact_alarm_msg);
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestExactAlarmPermission());
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
+    /** 跳转系统「闹钟和提醒」授权页（个别机型不支持该 action 时打开应用详情兜底）。 */
+    private void requestExactAlarmPermission() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            openAppDetails();
+        }
+    }
+
+    /** 打开本应用的系统详情页（荣耀/华为在此开启自启动、后台运行白名单）。 */
+    private void openAppDetails() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 跳转系统「忽略电池优化」授权页（个别机型不支持该 action 时静默）。 */

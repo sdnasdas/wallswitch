@@ -14,8 +14,8 @@ public class AlarmScheduler {
 
     // Intent extra：要切换的壁纸库 id
     public static final String EXTRA_LIB_ID = "lib_id";
-    // 短间隔阈值（秒）：低于该值时不用 allow-while-idle 版本，避免 Doze 期间被反复唤醒持续发热
-    private static final int WAKE_IDLE_THRESHOLD_SECONDS = 600;
+    // 短间隔阈值（秒）：低于该值（测试模式）不用 allow-while-idle 版本，避免 Doze 期间被反复唤醒持续发热
+    private static final int WAKE_IDLE_THRESHOLD_SECONDS = 60;
 
     /** 为指定库安排下一次定时切换；库不存在或未启用时不安排。 */
     public static void schedule(Context ctx, String libId) {
@@ -34,10 +34,10 @@ public class AlarmScheduler {
             // 精确闹钟权限被拒（Android 12+ 需用户授权）时降级为非精确闹钟，可能有小延迟但功能可用
             am.setAndAllowWhileIdle(AlarmManager.RTC, trigger, pi);
         } else if (seconds < WAKE_IDLE_THRESHOLD_SECONDS) {
-            // 秒级测试间隔：用普通精确闹钟，不唤醒 Doze 中的设备（息屏时最多延迟到下次唤醒）
+            // 秒级测试间隔（<60 秒）：用普通精确闹钟，不唤醒 Doze 中的设备（配合 AlarmReceiver 的亮屏判断）
             am.setExact(AlarmManager.RTC, trigger, pi);
         } else {
-            // 常规长间隔：允许在 Doze 中唤醒，保证息屏也能按时切换
+            // 常规间隔（≥60 秒）：允许在 Doze 中唤醒，保证息屏也能按时切换
             am.setExactAndAllowWhileIdle(AlarmManager.RTC, trigger, pi);
         }
     }

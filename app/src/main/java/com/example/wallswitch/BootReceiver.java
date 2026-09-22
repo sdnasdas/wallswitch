@@ -11,10 +11,12 @@ public class BootReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+        String action = intent.getAction();
+        if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
+                && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             return;
         }
-        // 设置持久化在 SharedPreferences，重启后按原设置重排所有启用库的定时
+        // 开机、以及每次覆盖安装新版本（系统会清空该应用的闹钟）后，按原设置重排所有启用库的定时
         AlarmScheduler.scheduleAll(context);
     }
 }

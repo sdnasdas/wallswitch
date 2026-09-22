@@ -45,6 +45,9 @@
     <string name="battery_prompt_title">电池优化提示</string>
     <string name="battery_prompt_msg">为保证定时切换不被系统拦截，建议允许后台运行</string>
     <string name="battery_settings">电池优化设置</string>
+    <string name="app_details">应用详情</string>
+    <string name="exact_alarm_title">需要「闹钟和提醒」权限</string>
+    <string name="exact_alarm_msg">Android 12 及以上系统中，定时切换壁纸依赖「闹钟和提醒」权限；未授权时会退化为不精确闹钟，息屏后可能严重延迟或不生效。请在接下来弹出的页面中允许本应用使用闹钟和提醒。</string>
 
     <!-- 定时频率选项（顺序与代码中 TIMER_TYPES 一一对应） -->
     <string-array name="timer_options">

@@ -39,6 +39,10 @@ public class AlertDialog {
             return this;
         }
 
+        public Builder setNeutralButton(int textId, DialogInterface.OnClickListener listener) {
+            return this;
+        }
+
         public Builder setOnDismissListener(DialogInterface.OnDismissListener listener) {
             return this;
         }
