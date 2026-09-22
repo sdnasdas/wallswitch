@@ -65,8 +65,14 @@ public class TimerScheduler {
         return Math.max(LibraryStore.MIN_INTERVAL_SECONDS, seconds);
     }
 
-    /** 为指定库安排定时切换；总开关关闭、库不存在或未启用时不安排。 */
+    /** 为指定库安排定时切换，并用 WorkManager 的真实调度时间校准倒计时；总开关关闭/库未启用则不安排。 */
     public static void schedule(Context ctx, String libId) {
+        scheduleInternal(ctx, libId);
+        syncFromWorkManager(ctx);
+    }
+
+    /** 只负责把周期任务交给 WorkManager（不再写估算值：倒计时一律以 WorkManager 的调度时间为准）。 */
+    private static void scheduleInternal(Context ctx, String libId) {
         if (!isTimerEnabled(ctx)) {
             return;
         }
@@ -83,11 +89,6 @@ public class TimerScheduler {
                     .build();
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
                     WORK_PREFIX + libId, ExistingPeriodicWorkPolicy.UPDATE, request);
-            // 只补一个保守估计（首次排定或记录缺失时）；真实值由 syncFromWorkManager 用 WorkManager 校准，
-            // 避免每次打开应用都把倒计时往后推一个间隔
-            if (recordedTrigger(ctx, libId) <= 0) {
-                applyTrigger(ctx, libId, System.currentTimeMillis() + seconds * 1000L);
-            }
         } catch (Exception ignored) {
         }
     }
@@ -188,8 +189,8 @@ public class TimerScheduler {
         } catch (Exception ignored) {
         }
         if (!enqueued) {
-            // 任务被系统或厂商清理：重新排定（schedule 内部不再回调本方法，无循环风险）
-            schedule(ctx, libId);
+            // 任务被系统或厂商清理：重新排定（走 scheduleInternal，不回调查询，无循环风险）
+            scheduleInternal(ctx, libId);
             return;
         }
         if (trigger > 0) {
