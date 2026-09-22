@@ -345,17 +345,20 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             List<String> pending = WallpaperStore.pendingInbox(this);
+            // lambda 捕获要求实际 final：先把累加结果复制到 final 变量再传入回调
+            final int okCount = success;
+            final int failCount = failed;
             runOnUiThread(() -> {
                 btnAdd.setEnabled(true);
-                if (failed > 0) {
-                    if (success > 0) {
-                        Toast.makeText(this, getString(R.string.import_partial, success, failed),
+                if (failCount > 0) {
+                    if (okCount > 0) {
+                        Toast.makeText(this, getString(R.string.import_partial, okCount, failCount),
                                 Toast.LENGTH_LONG).show();
                     } else {
                         Toast.makeText(this, R.string.import_all_failed, Toast.LENGTH_LONG).show();
                     }
                 } else {
-                    Toast.makeText(this, getString(R.string.import_done, success),
+                    Toast.makeText(this, getString(R.string.import_done, okCount),
                             Toast.LENGTH_SHORT).show();
                 }
                 if (!pending.isEmpty()) {
