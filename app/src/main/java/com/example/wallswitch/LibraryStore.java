@@ -14,7 +14,7 @@ import java.util.UUID;
 
 /**
  * 壁纸库管理：每个库包含多张壁纸、影响范围（桌面/锁屏，可单选或双选）、
- * 启用开关、秒级切换间隔与切换模式（顺序/随机）。
+ * 启用开关、切换间隔（分钟级，系统下限 15 分钟）与切换模式（顺序/随机）。
  * 启用约束（同一范围最多一个启用库）：
  * - 未选择任何范围的库不能启用；
  * - 启用某库时自动停用与之范围重叠的其他启用库（任一方为双范围即视为重叠）。
@@ -36,8 +36,8 @@ public class LibraryStore {
     public static final String MODE_RANDOM = "random";
     // 默认切换间隔（秒）
     public static final int DEFAULT_INTERVAL_SECONDS = 1800;
-    // 最短切换间隔（秒）：过短会持续解码+设置壁纸，导致明显发热与耗电
-    public static final int MIN_INTERVAL_SECONDS = 5;
+    // 最短切换间隔（秒）：WorkManager 省电方案的系统下限为 15 分钟
+    public static final int MIN_INTERVAL_SECONDS = 15 * 60;
 
     /** 壁纸库元数据。 */
     public static class Library {
@@ -174,7 +174,7 @@ public class LibraryStore {
         for (Library lib : libs) {
             if (lib.id.equals(libId)) {
                 if (lib.enabled) {
-                    AlarmScheduler.cancel(ctx, libId);
+                    TimerScheduler.cancel(ctx, libId);
                 }
             } else {
                 remain.add(lib);
@@ -212,16 +212,16 @@ public class LibraryStore {
                         || (target.home && other.home) || (target.lock && other.lock);
                 if (overlap) {
                     other.enabled = false;
-                    AlarmScheduler.cancel(ctx, other.id);
+                    TimerScheduler.cancel(ctx, other.id);
                 }
             }
         }
         target.enabled = enable;
         saveList(ctx, libs);
         if (enable) {
-            AlarmScheduler.schedule(ctx, libId);
+            TimerScheduler.schedule(ctx, libId);
         } else {
-            AlarmScheduler.cancel(ctx, libId);
+            TimerScheduler.cancel(ctx, libId);
         }
         return true;
     }
@@ -246,7 +246,7 @@ public class LibraryStore {
         if (target.enabled) {
             if (!home && !lock) {
                 target.enabled = false;
-                AlarmScheduler.cancel(ctx, libId);
+                TimerScheduler.cancel(ctx, libId);
             } else {
                 for (Library other : libs) {
                     if (other.id.equals(libId) || !other.enabled) {
@@ -256,16 +256,16 @@ public class LibraryStore {
                             || (home && other.home) || (lock && other.lock);
                     if (overlap) {
                         other.enabled = false;
-                        AlarmScheduler.cancel(ctx, other.id);
+                        TimerScheduler.cancel(ctx, other.id);
                     }
                 }
-                AlarmScheduler.schedule(ctx, libId);
+                TimerScheduler.schedule(ctx, libId);
             }
         }
         saveList(ctx, libs);
     }
 
-    /** 修改切换间隔（秒，下限 MIN_INTERVAL_SECONDS），启用中的库立即重排定时。 */
+    /** 修改切换间隔（秒，下限 MIN_INTERVAL_SECONDS = 15 分钟），启用中的库立即重排定时。 */
     public static void setInterval(Context ctx, String libId, int seconds) {
         List<Library> libs = load(ctx);
         boolean enabled = false;
@@ -277,7 +277,7 @@ public class LibraryStore {
         }
         saveList(ctx, libs);
         if (enabled) {
-            AlarmScheduler.schedule(ctx, libId);
+            TimerScheduler.schedule(ctx, libId);
         }
     }
 

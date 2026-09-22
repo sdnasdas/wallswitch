@@ -6,11 +6,27 @@
     android:background="@drawable/widget_bg"
     android:padding="4dp">
 
-    <ImageView
-        android:id="@+id/widget_icon"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="@string/widget_desc"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_widget_switch" />
+        android:orientation="vertical">
+
+        <ImageView
+            android:id="@+id/widget_icon"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:contentDescription="@string/widget_desc"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_widget_switch" />
+
+        <!-- 下次定时切换倒计时（未开启定时切换时隐藏） -->
+        <Chronometer
+            android:id="@+id/widget_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:textColor="#FFFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
 </FrameLayout>

@@ -1,12 +1,10 @@
 package com.example.wallswitch;
 
-import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -42,7 +40,7 @@ import java.util.List;
 
 /**
  * 主页：多壁纸库管理——库选择/新建/删除，每库设置（启用开关、桌面/锁屏范围、
- * 顺序/随机模式、秒级切换间隔），添加壁纸到当前库、库内壁纸列表、手动切换测试。
+ * 顺序/随机模式、切换间隔（分钟，最小 15）），添加壁纸到当前库、库内壁纸列表、手动切换测试。
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -78,16 +76,13 @@ public class MainActivity extends AppCompatActivity {
         setupTimerSwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
-        // 精确闹钟权限引导（Android 12+ 未授权时定时会退化为不精确，息屏常不生效）
-        maybePromptExactAlarm();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 自愈：每次回到应用都按当前设置重排定时
-        // （覆盖安装新版本、系统回收、荣耀省电清理都可能清掉闹钟，这里保证它们被重新排定）
-        AlarmScheduler.scheduleAll(this);
+        // 自愈：每次回到应用都按当前设置重排定时（WorkManager 任务本身可自动恢复，这里兜底）
+        TimerScheduler.scheduleAll(this);
         // 同步刷新桌面小组件（库的启用状态、当前壁纸可能已变化）
         WidgetProvider.updateWidget(this);
         List<String> pending = WallpaperStore.pendingInbox(this);
@@ -197,13 +192,13 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
     }
 
-    /** 定时切换总开关：关闭时不排定任何闹钟（手动切换与小组件不受影响）。 */
+    /** 定时切换总开关：关闭时不排定任何定时任务（手动切换与小组件不受影响）。 */
     private void setupTimerSwitch() {
         Switch swTimer = findViewById(R.id.sw_timer_enabled);
         swTimer.setOnCheckedChangeListener(null);
-        swTimer.setChecked(AlarmScheduler.isTimerEnabled(this));
+        swTimer.setChecked(TimerScheduler.isTimerEnabled(this));
         swTimer.setOnCheckedChangeListener((buttonView, isChecked) ->
-                AlarmScheduler.setTimerEnabled(MainActivity.this, isChecked));
+                TimerScheduler.setTimerEnabled(MainActivity.this, isChecked));
     }
 
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
@@ -256,11 +251,11 @@ public class MainActivity extends AppCompatActivity {
         rgMode.setOnCheckedChangeListener((group, checkedId) ->
                 LibraryStore.setMode(MainActivity.this, currentLibId(),
                         checkedId == R.id.rb_random ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
-        // 切换间隔（秒级）
+        // 切换间隔（分钟级，最小 15）
         tvInterval.setOnClickListener(v -> showIntervalDialog());
     }
 
-    /** 弹窗输入切换间隔（秒），确认后写回并重排启用中的定时。 */
+    /** 弹窗输入切换间隔（分钟，最小 15），确认后写回并重排启用中的定时。 */
     private void showIntervalDialog() {
         LibraryStore.Library lib = currentLib();
         if (lib == null) {
@@ -269,7 +264,9 @@ public class MainActivity extends AppCompatActivity {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setHint(R.string.interval_hint);
-        input.setText(String.valueOf(lib.intervalSeconds));
+        // 历史值可能是秒级（旧版本遗留），这里换算成分钟并保证 ≥15
+        input.setText(String.valueOf(Math.max(LibraryStore.MIN_INTERVAL_SECONDS / 60,
+                lib.intervalSeconds / 60)));
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
         int padding = (int) (16 * getResources().getDisplayMetrics().density);
@@ -280,26 +277,27 @@ public class MainActivity extends AppCompatActivity {
         builder.setMessage(R.string.interval_hint);
         builder.setView(wrapper);
         builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            int seconds = 0;
+            int minutes = 0;
             try {
-                seconds = Integer.parseInt(input.getText().toString().trim());
+                minutes = Integer.parseInt(input.getText().toString().trim());
             } catch (NumberFormatException ignored) {
             }
-            if (seconds > 0) {
-                LibraryStore.setInterval(MainActivity.this, lib.id, seconds);
-                refreshLibSettings();
-                if (seconds < 60) {
-                    // 秒级间隔仅适合亮屏测试，提示发热与耗电风险
-                    Toast.makeText(MainActivity.this, R.string.interval_warning,
-                            Toast.LENGTH_LONG).show();
+            if (minutes > 0) {
+                if (minutes < LibraryStore.MIN_INTERVAL_SECONDS / 60) {
+                    // WorkManager 省电方案的系统下限：不足 15 分钟会被抬到 15 分钟
+                    Toast.makeText(MainActivity.this, R.string.interval_min_toast,
+                            Toast.LENGTH_SHORT).show();
+                    minutes = LibraryStore.MIN_INTERVAL_SECONDS / 60;
                 }
+                LibraryStore.setInterval(MainActivity.this, lib.id, minutes * 60);
+                refreshLibSettings();
             }
         });
         builder.setNegativeButton(R.string.cancel, null);
         builder.show();
     }
 
-    /** 间隔展示：60 的整数倍显示分钟，其余显示「X分Y秒」或「X秒」。 */
+    /** 间隔展示：60 的整数倍显示分钟，其余显示「X分Y秒」或「X秒」（兼容历史秒级值）。 */
     private String formatInterval(int seconds) {
         if (seconds >= 60 && seconds % 60 == 0) {
             return (seconds / 60) + "分钟";
@@ -450,38 +448,6 @@ public class MainActivity extends AppCompatActivity {
         builder.setNeutralButton(R.string.app_details, (dialog, which) -> openAppDetails());
         builder.setNegativeButton(R.string.cancel, null);
         builder.show();
-    }
-
-    /** 检查精确闹钟权限：未授权时引导去系统设置开启（Android 12+ 定时切换依赖它，只提示一次）。 */
-    private void maybePromptExactAlarm() {
-        if (Build.VERSION.SDK_INT < 31) {
-            return;
-        }
-        AlarmManager am = getSystemService(AlarmManager.class);
-        if (am == null || am.canScheduleExactAlarms()) {
-            return;
-        }
-        if (prefs.getBoolean("exact_alarm_prompted", false)) {
-            return;
-        }
-        prefs.edit().putBoolean("exact_alarm_prompted", true).apply();
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.exact_alarm_title);
-        builder.setMessage(R.string.exact_alarm_msg);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestExactAlarmPermission());
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
-    }
-
-    /** 跳转系统「闹钟和提醒」授权页（个别机型不支持该 action 时打开应用详情兜底）。 */
-    private void requestExactAlarmPermission() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception e) {
-            openAppDetails();
-        }
     }
 
     /** 打开本应用的系统详情页（荣耀/华为在此开启自启动、后台运行白名单）。 */

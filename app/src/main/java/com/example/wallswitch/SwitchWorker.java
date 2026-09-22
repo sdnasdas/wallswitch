@@ -28,6 +28,8 @@ public class SwitchWorker extends Worker {
         // 切换该库覆盖的范围（Switcher 内部会校验库启用状态与范围勾选）
         Switcher.next(getApplicationContext(), libId, true);
         Switcher.next(getApplicationContext(), libId, false);
+        // 刷新小组件倒计时（WorkManager 的下次触发时间约为当前+间隔）
+        TimerScheduler.noteTrigger(getApplicationContext(), libId);
         return Result.success();
     }
 }
