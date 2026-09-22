@@ -27,6 +27,11 @@ android {
 }
 
 dependencies {
+    // kotlin-stdlib 1.8 起已并入 jdk7/jdk8 内容，强制旧传递依赖对齐到 1.8.22，避免类重复
+    constraints {
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22')
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22')
+    }
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
