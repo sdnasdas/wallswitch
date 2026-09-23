@@ -136,6 +136,17 @@
     <string name="launcher_shot_desc">叠加我的首页截图（精确预览）</string>
     <string name="section_launcher_preview">桌面图标预览</string>
     <string name="launcher_overlay_title">桌面图标预览底图</string>
+    <string name="section_export">导出目录</string>
+    <string name="export_dir_title">导出目录</string>
+    <string name="export_now_title">立即导出全部壁纸</string>
+    <string name="export_dir_unset">未设置 · 点按选一个文件夹（如 Documents/wallswitch）</string>
+    <string name="export_dir_set_state">已设置：%1$s · 点按更换，长按取消</string>
+    <string name="export_dir_set">已记住导出目录，以后新壁纸会自动导出</string>
+    <string name="export_dir_clear_msg">取消后不再自动导出新壁纸（已导出的文件不会被删除），确定吗？</string>
+    <string name="export_now_desc">按原始字节复制，不重压，零画质损失</string>
+    <string name="export_need_dir">请先选一个导出目录</string>
+    <string name="export_running">正在导出…</string>
+    <string name="export_done">已导出 %1$d 张壁纸</string>
     <string name="launcher_overlay_set">已设置 · 点按更换，长按清除</string>
     <string name="launcher_overlay_unset">未设置 · 点按选一张自己的首页截图</string>
     <string name="launcher_overlay_clear_msg">清除后，裁剪页将不再有「自己的首页」图标层（仍可用内置网格示意），确定吗？</string>

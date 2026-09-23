@@ -237,6 +237,17 @@ public class WallpaperStore {
         item.title = pendingTitle(context, inboxId);
         items.add(item);
         saveLibrary(context, items);
+        // 顺手导出一份到用户选定的导出目录（未设置直接跳过；失败不影响入库）。
+        // 放后台线程：导出是纯 IO，不该拖慢确认按钮。
+        final File exportSource = fullFile;
+        final String exportTitle = item.title;
+        final String exportId = id;
+        new Thread(() -> {
+            try {
+                WallpaperExporter.exportFile(context, exportSource, exportTitle, exportId);
+            } catch (Exception ignored) {
+            }
+        }, "wallpaper-export").start();
         // 删除收件箱原文件：元数据已写完，此时删除失败不应让调用方误报「保存失败」
         try {
             File inboxFile = getInboxFile(context, inboxId);

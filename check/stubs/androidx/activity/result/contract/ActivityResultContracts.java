@@ -27,6 +27,11 @@ public class ActivityResultContracts {
         }
     }
 
+    /** SAF 目录选择（ACTION_OPEN_DOCUMENT_TREE）。 */
+    public static class OpenDocumentTree
+            extends androidx.activity.result.ActivityResultContract<android.net.Uri, android.net.Uri> {
+    }
+
     /** Android 13+ 通知权限（POST_NOTIFICATIONS）等运行时权限请求契约。 */
     public static class RequestPermission
             extends androidx.activity.result.ActivityResultContract<String, Boolean> {

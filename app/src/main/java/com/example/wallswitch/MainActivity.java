@@ -71,6 +71,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> notifyPermissionLauncher;
     // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
+    // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
+    private ActivityResultLauncher<Uri> exportDirLauncher;
     private RecyclerView recycler;
     private Adapter adapter;
     private SharedPreferences prefs;
@@ -100,6 +102,8 @@ public class MainActivity extends AppCompatActivity {
                 this::onNotifyPermissionResult);
         overlayLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
+        exportDirLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocumentTree(), this::onExportDirPicked);
         recycler = findViewById(R.id.recycler);
         // 单列长条：横向长条卡片垂直排布（v3.1 的 2 列网格每一格太小，删除按钮也难看）
         recycler.setLayoutManager(new LinearLayoutManager(this));
@@ -166,6 +170,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshTimerStatus();
                 refreshBatteryButton();
                 refreshLauncherOverlayRow();
+                refreshExportRows();
             }
         });
         // 「桌面图标预览底图」：点按选/换一张自己的首页截图，长按清除。全局只设一次。
@@ -176,6 +181,19 @@ public class MainActivity extends AppCompatActivity {
                 confirmClearLauncherOverlay();
                 return true;
             });
+        }
+        // 导出目录：点按选/换一个文件夹（SAF），长按取消；下一行是「立即导出全部壁纸」
+        View exportDirRow = findViewById(R.id.row_export_dir);
+        if (exportDirRow != null) {
+            exportDirRow.setOnClickListener(v -> exportDirLauncher.launch(null));
+            exportDirRow.setOnLongClickListener(v -> {
+                confirmClearExportDir();
+                return true;
+            });
+        }
+        View exportNowRow = findViewById(R.id.row_export_now);
+        if (exportNowRow != null) {
+            exportNowRow.setOnClickListener(v -> exportAllWallpapers());
         }
     }
 
@@ -270,6 +288,7 @@ public class MainActivity extends AppCompatActivity {
         refreshTimerStatus();
         refreshBatteryButton();
         refreshLauncherOverlayRow();
+        refreshExportRows();
     }
 
     /** 初始化库选择下拉与顶栏菜单（新建库常驻图标 / 删除库收在溢出菜单）。 */
@@ -934,6 +953,63 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton(R.string.cancel, null)
                 .show();
+    }
+
+    /** 选一个导出目录（SAF）：选完记住并申请持久化授权。 */
+    private void onExportDirPicked(Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        WallpaperExporter.setTreeUri(this, uri);
+        refreshExportRows();
+        Toast.makeText(this, R.string.export_dir_set, Toast.LENGTH_SHORT).show();
+    }
+
+    /** 取消导出目录（不清除已经导出的文件）。 */
+    private void confirmClearExportDir() {
+        if (!WallpaperExporter.isConfigured(this)) {
+            Toast.makeText(this, R.string.export_dir_unset, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.export_dir_title)
+                .setMessage(R.string.export_dir_clear_msg)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    WallpaperExporter.clear(MainActivity.this);
+                    refreshExportRows();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 把库内全部壁纸导出到该目录（纯 IO，放后台线程）。 */
+    private void exportAllWallpapers() {
+        if (!WallpaperExporter.isConfigured(this)) {
+            Toast.makeText(this, R.string.export_need_dir, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, R.string.export_running, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final int count = WallpaperExporter.exportAll(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(MainActivity.this, getString(R.string.export_done, count),
+                        Toast.LENGTH_LONG).show();
+            });
+        }, "wallpaper-export-all").start();
+    }
+
+    /** 导出目录那行的状态回显。 */
+    private void refreshExportRows() {
+        TextView state = findViewById(R.id.tv_export_dir);
+        if (state == null) {
+            return;
+        }
+        state.setText(WallpaperExporter.isConfigured(this)
+                ? getString(R.string.export_dir_set_state, WallpaperExporter.displayName(this))
+                : getString(R.string.export_dir_unset));
     }
 
     /** 抽屉里那行的状态文案：已设置 / 未设置。 */
