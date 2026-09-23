@@ -118,4 +118,9 @@
     <string name="section_timer">自动切换</string>
     <string name="section_actions">操作</string>
     <string name="section_list">库内壁纸</string>
+
+    <!-- v2.1 排版重设计：库设置卡行标签 -->
+    <string name="lib_scope_label">范围</string>
+    <string name="lib_mode_label">顺序</string>
+    <string name="lib_interval_label">切换间隔</string>
 </resources>
