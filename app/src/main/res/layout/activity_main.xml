@@ -4,7 +4,7 @@
      头部 = tv_title + 新建库/删除库；滚动区 = 库设置卡 / 自动切换卡 / 引擎卡 / 列表卡(recycler)；
      底部坞 = 切换桌面|切换锁屏 + 添加壁纸（拇指可达、常驻不滚动）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res/auto"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"

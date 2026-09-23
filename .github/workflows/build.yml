@@ -35,16 +35,7 @@ jobs:
           echo "${{ secrets.WALLSWITCH_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/wallswitch.keystore"
 
       - name: Build debug APK
-        run: |
-          gradle assembleDebug --no-daemon && BUILD_OK=1 || BUILD_OK=0
-          echo "===== 探针：缓存中 material/cardview AAR 的 R.txt 符号检查 ====="
-          AAR=$(find $HOME/.gradle/caches -path "*com.google.android.material*" -name "material-1.12.0.aar" | head -1)
-          echo "material AAR: $AAR"
-          unzip -p "$AAR" R.txt | grep -E "cardBackgroundColor|cardCornerRadius|cardElevation|strokeColor|strokeWidth|shapeAppearanceOverlay" || echo "!!! material R.txt 缺这些 attr"
-          CARDAAR=$(find $HOME/.gradle/caches -path "*cardview*" -name "cardview-1.0.0.aar" | head -1)
-          echo "cardview AAR: $CARDAAR"
-          unzip -p "$CARDAAR" R.txt | grep -E "cardBackgroundColor|cardCornerRadius|cardElevation" || echo "!!! cardview R.txt 缺这些 attr"
-          test $BUILD_OK -eq 1
+        run: gradle assembleDebug --no-daemon
         env:
           WALLSWITCH_KEYSTORE_PATH: ${{ runner.temp }}/wallswitch.keystore
           WALLSWITCH_KEYSTORE_PASSWORD: ${{ secrets.WALLSWITCH_KEYSTORE_PASSWORD }}
