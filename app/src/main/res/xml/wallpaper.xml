@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 动态壁纸引擎元数据：系统壁纸选择器里显示的名称与缩略图 -->
+<wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/app_name"
+    android:thumbnail="@mipmap/ic_launcher" />

@@ -94,7 +94,16 @@ public class Switcher {
         // 记录当前壁纸 id
         prefs.edit().putString(base + "_current", nextId).apply();
         // 应用到系统壁纸（失败时向调用方返回 false，由界面侧给出反馈）
-        boolean applied = setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
+        boolean applied;
+        if (forHome && WallSwitchService.isActive(ctx)) {
+            // 引擎模式（Muzei 方案）：桌面由 WallSwitchService 直接渲染，
+            // 切图 = 推进指针 + 通知引擎重绘，不走系统静态壁纸链路，根治"幽灵图"
+            WallSwitchService.notifyWallpaperChanged();
+            applied = true;
+        } else {
+            // 静态链路：引擎未激活时的兜底路径（含三道校验 + 读回比对重试）
+            applied = setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
+        }
         // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
         String appliedTitle = applied ? WallpaperStore.getTitle(ctx, nextId) : null;
         if (forHome) {

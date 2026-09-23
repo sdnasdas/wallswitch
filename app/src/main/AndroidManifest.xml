@@ -40,6 +40,21 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
+        <!-- 动态壁纸引擎（Muzei 方案）：被设为动态壁纸后桌面由本引擎直接渲染，
+             不再走系统静态壁纸链路，根治 MagicOS "幽灵图"；未激活时自动回退静态方案 -->
+        <service
+            android:name=".WallSwitchService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

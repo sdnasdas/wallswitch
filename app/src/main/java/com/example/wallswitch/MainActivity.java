@@ -132,6 +132,9 @@ public class MainActivity extends AppCompatActivity {
         }, "app-catchup").start();
         // 同步刷新桌面小组件（库的启用状态、当前壁纸可能已变化）
         WidgetProvider.updateWidget(this);
+        // 引擎模式状态（桌面是否由本 App 的动态壁纸引擎直接渲染）
+        ((TextView) findViewById(R.id.tv_engine)).setText(
+                WallSwitchService.isActive(this) ? R.string.engine_active : R.string.engine_hint);
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理
@@ -240,6 +243,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_switch_home).setOnClickListener(v -> switchAndToast(true));
         findViewById(R.id.btn_switch_lock).setOnClickListener(v -> switchAndToast(false));
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
+        // v2.0：引擎模式引导——打开系统动态壁纸选择器并预选本引擎
+        findViewById(R.id.btn_engine).setOnClickListener(v -> WallSwitchService.openActivator(this));
         // 电池优化是否已允许，直接显示在按钮上（决定后台定时能否被系统唤醒）
         refreshBatteryButton();
     }

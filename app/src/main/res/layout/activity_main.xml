@@ -196,6 +196,24 @@
         android:layout_marginStart="16dp"
         android:text="@string/battery_settings" />
 
+    <!-- v2.0：引擎模式引导（动态壁纸直渲，根治 MagicOS "幽灵图"） -->
+    <Button
+        android:id="@+id/btn_engine"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:text="@string/engine_activate" />
+
+    <TextView
+        android:id="@+id/tv_engine"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="4dp"
+        android:text="@string/engine_hint"
+        android:textSize="12sp" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
         android:layout_width="match_parent"

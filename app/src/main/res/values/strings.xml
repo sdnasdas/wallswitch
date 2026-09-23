@@ -76,6 +76,11 @@
     <string name="status_decode_failed">图片解码失败，已跳过</string>
     <string name="status_not_applied">系统未应用新壁纸（可能被主题/杂志锁屏/省电策略拦截）</string>
     <string name="status_apply_mismatch">壁纸已写入但系统未正确显示（重试无效），请手动切换一次</string>
+
+    <!-- v2.0：引擎模式（动态壁纸直渲，借鉴 Muzei：不走系统静态壁纸链路，根治"幽灵图"） -->
+    <string name="engine_activate">设为动态壁纸引擎（推荐，根治幽灵图）</string>
+    <string name="engine_hint">引擎模式未启用：启用后桌面由本 App 直接渲染，不再有"幽灵图"</string>
+    <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
     <string name="status_live_wallpaper">桌面被动态壁纸「%1$s」占用，请先在系统设置中换成静态壁纸</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
 
