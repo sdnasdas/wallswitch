@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 添加壁纸的裁剪页（v3.0）：顶部操作提示 + 全屏手势裁剪区 + 底部操作条（与页面底分离） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/edit_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/page_bg"
     android:orientation="vertical">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/card_bg"
+        android:paddingStart="20dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="14dp"
+        android:text="@string/edit_hint"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
 
     <com.example.wallswitch.CropView
         android:id="@+id/crop_view"
@@ -14,10 +28,15 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@color/card_bg"
+        android:elevation="6dp"
         android:orientation="horizontal"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:id="@+id/btn_cancel"
             android:layout_width="0dp"
@@ -25,11 +44,11 @@
             android:layout_weight="1"
             android:text="@string/cancel" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_confirm"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="12dp"
             android:layout_weight="1"
             android:text="@string/confirm" />
     </LinearLayout>

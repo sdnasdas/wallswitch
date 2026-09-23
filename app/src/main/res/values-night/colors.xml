@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式配色：与浅色版一一对应，保证页面底/卡片/两级文字/分隔线/危险色的层级关系不变。
+         主色提亮为浅蓝，否则 #1E88E5 在深底上作文字色对比度不足。 -->
+    <color name="brand">#90CAF9</color>
+    <color name="page_bg">#121316</color>
+    <color name="card_bg">#1E2024</color>
+    <color name="text_primary">#E6E7E9</color>
+    <color name="text_secondary">#9AA0A6</color>
+    <color name="divider">#33363B</color>
+    <color name="danger">#FF6B60</color>
+</resources>

@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
+import android.util.LruCache;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,10 +37,12 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -91,7 +94,8 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.RequestPermission(),
                 this::onNotifyPermissionResult);
         recycler = findViewById(R.id.recycler);
-        recycler.setLayoutManager(new LinearLayoutManager(this));
+        // 2 列网格：缩略图更大更直观（v2.1 是单列小图列表，一屏看不了几张）
+        recycler.setLayoutManager(new GridLayoutManager(this, 2));
         adapter = new Adapter();
         recycler.setAdapter(adapter);
         setupTabs();
@@ -403,6 +407,18 @@ public class MainActivity extends AppCompatActivity {
         rowInterval.setOnClickListener(v -> showIntervalDialog());
     }
 
+    /** 弹窗输入框统一套一层 TextInputLayout（M3 描边 + 浮动提示），返回可直接 setView 的容器。 */
+    private TextInputLayout wrapInput(EditText input, int hintRes) {
+        TextInputLayout wrapper = new TextInputLayout(this);
+        wrapper.setHint(getString(hintRes));
+        int padding = (int) (20 * getResources().getDisplayMetrics().density);
+        wrapper.setPadding(padding, 0, padding, 0);
+        input.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        wrapper.addView(input);
+        return wrapper;
+    }
+
     /** 弹窗输入切换间隔（分钟，最小 15），确认后写回并重排启用中的定时。 */
     private void showIntervalDialog() {
         LibraryStore.Library lib = currentLib();
@@ -411,39 +427,32 @@ public class MainActivity extends AppCompatActivity {
         }
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setHint(R.string.interval_hint);
         // 历史值可能是秒级（旧版本遗留），这里换算成分钟并保证 ≥15
         input.setText(String.valueOf(Math.max(LibraryStore.MIN_INTERVAL_SECONDS / 60,
                 lib.intervalSeconds / 60)));
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (16 * getResources().getDisplayMetrics().density);
-        wrapper.setPadding(padding, 0, padding, 0);
-        wrapper.addView(input);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.lib_interval);
-        builder.setMessage(R.string.interval_hint);
-        builder.setView(wrapper);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            int minutes = 0;
-            try {
-                minutes = Integer.parseInt(input.getText().toString().trim());
-            } catch (NumberFormatException ignored) {
-            }
-            if (minutes > 0) {
-                if (minutes < LibraryStore.MIN_INTERVAL_SECONDS / 60) {
-                    // WorkManager 省电方案的系统下限：不足 15 分钟会被抬到 15 分钟
-                    Toast.makeText(MainActivity.this, R.string.interval_min_toast,
-                            Toast.LENGTH_SHORT).show();
-                    minutes = LibraryStore.MIN_INTERVAL_SECONDS / 60;
-                }
-                LibraryStore.setInterval(MainActivity.this, lib.id, minutes * 60);
-                refreshLibSettings();
-                refreshTimerStatus();
-            }
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.lib_interval)
+                .setView(wrapInput(input, R.string.interval_hint))
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    int minutes = 0;
+                    try {
+                        minutes = Integer.parseInt(input.getText().toString().trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                    if (minutes > 0) {
+                        if (minutes < LibraryStore.MIN_INTERVAL_SECONDS / 60) {
+                            // WorkManager 省电方案的系统下限：不足 15 分钟会被抬到 15 分钟
+                            Toast.makeText(MainActivity.this, R.string.interval_min_toast,
+                                    Toast.LENGTH_SHORT).show();
+                            minutes = LibraryStore.MIN_INTERVAL_SECONDS / 60;
+                        }
+                        LibraryStore.setInterval(MainActivity.this, lib.id, minutes * 60);
+                        refreshLibSettings();
+                        refreshTimerStatus();
+                    }
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /** 间隔展示：60 的整数倍显示分钟，其余显示「X分Y秒」或「X秒」（兼容历史秒级值）。 */
@@ -530,25 +539,19 @@ public class MainActivity extends AppCompatActivity {
     private void showNewLibDialog() {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setHint(R.string.lib_name_hint);
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (16 * getResources().getDisplayMetrics().density);
-        wrapper.setPadding(padding, 0, padding, 0);
-        wrapper.addView(input);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.lib_new);
-        builder.setView(wrapper);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            String name = input.getText().toString().trim();
-            LibraryStore.Library lib = LibraryStore.create(MainActivity.this,
-                    name.isEmpty() ? null : name);
-            currentLibId = lib.id;
-            prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
-            refreshAll();
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.lib_new)
+                .setView(wrapInput(input, R.string.lib_name_hint))
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    String name = input.getText().toString().trim();
+                    LibraryStore.Library lib = LibraryStore.create(MainActivity.this,
+                            name.isEmpty() ? null : name);
+                    currentLibId = lib.id;
+                    prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
+                    refreshAll();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /** 删除当前库前弹确认框（库内壁纸一并删除）。 */
@@ -557,16 +560,16 @@ public class MainActivity extends AppCompatActivity {
         if (lib == null) {
             return;
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.lib_delete);
-        builder.setMessage(getString(R.string.lib_delete_msg, lib.name));
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            LibraryStore.delete(MainActivity.this, lib.id);
-            currentLibId = null;
-            refreshAll();
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.lib_delete)
+                .setMessage(getString(R.string.lib_delete_msg, lib.name))
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    LibraryStore.delete(MainActivity.this, lib.id);
+                    currentLibId = null;
+                    refreshAll();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /** 手动切换：作用于该范围当前启用的库（与小组件、定时行为一致）。
@@ -674,14 +677,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         prefs.edit().putBoolean("battery_prompted", true).apply();
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.battery_prompt_title);
-        builder.setMessage(R.string.battery_prompt_msg);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> requestIgnoreBattery());
-        // 荣耀/华为还需在应用详情里开启「自启动/后台运行」
-        builder.setNeutralButton(R.string.app_details, (dialog, which) -> openAppDetails());
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.battery_prompt_title)
+                .setMessage(R.string.battery_prompt_msg)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> requestIgnoreBattery())
+                // 荣耀/华为还需在应用详情里开启「自启动/后台运行」
+                .setNeutralButton(R.string.app_details, (dialog, which) -> openAppDetails())
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /** 打开本应用的系统详情页（荣耀/华为在此开启自启动、后台运行白名单）。 */
@@ -706,15 +709,15 @@ public class MainActivity extends AppCompatActivity {
 
     /** 删除前弹确认框。 */
     private void confirmDelete(WallpaperStore.Item item) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.delete_confirm_title);
-        builder.setMessage(R.string.delete_confirm_msg);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            WallpaperStore.delete(this, item.id);
-            refreshList();
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.delete_confirm_title)
+                .setMessage(R.string.delete_confirm_msg)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    WallpaperStore.delete(MainActivity.this, item.id);
+                    refreshList();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /**
@@ -728,7 +731,7 @@ public class MainActivity extends AppCompatActivity {
         View content = LayoutInflater.from(this).inflate(R.layout.dialog_preview, null, false);
         ImageView preview = content.findViewById(R.id.img_preview);
         TextView info = content.findViewById(R.id.tv_preview_info);
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.preview_title)
                 .setView(content)
                 .setNeutralButton(R.string.rename_title, (d, which) -> showRenameDialog(item))
@@ -770,22 +773,16 @@ public class MainActivity extends AppCompatActivity {
     private void showRenameDialog(WallpaperStore.Item item) {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setHint(R.string.rename_hint);
         input.setText(item.title == null ? "" : item.title);
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (16 * getResources().getDisplayMetrics().density);
-        wrapper.setPadding(padding, 0, padding, 0);
-        wrapper.addView(input);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(R.string.rename_title);
-        builder.setView(wrapper);
-        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
-            WallpaperStore.setTitle(this, item.id, input.getText().toString().trim());
-            refreshList();
-        });
-        builder.setNegativeButton(R.string.cancel, null);
-        builder.show();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.rename_title)
+                .setView(wrapInput(input, R.string.rename_hint))
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    WallpaperStore.setTitle(MainActivity.this, item.id, input.getText().toString().trim());
+                    refreshList();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /**
@@ -828,6 +825,27 @@ public class MainActivity extends AppCompatActivity {
 
         private List<WallpaperStore.Item> items = new ArrayList<>();
 
+        // 缩略图内存缓存（上限 4MB）：网格一屏要绑 6~8 张，每次刷新都重新解码会掉帧
+        private final LruCache<String, Bitmap> thumbs = new LruCache<String, Bitmap>(4 * 1024 * 1024) {
+            @Override
+            protected int sizeOf(String key, Bitmap value) {
+                return value.getByteCount();
+            }
+        };
+
+        /** 取缩略图：先查缓存，未命中再解码并存入。 */
+        private Bitmap thumbFor(String id) {
+            Bitmap cached = thumbs.get(id);
+            if (cached != null) {
+                return cached;
+            }
+            Bitmap decoded = WallpaperStore.getThumb(MainActivity.this, id);
+            if (decoded != null) {
+                thumbs.put(id, decoded);
+            }
+            return decoded;
+        }
+
         void setItems(List<WallpaperStore.Item> newItems) {
             items = newItems;
             notifyDataSetChanged();
@@ -844,13 +862,14 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             final WallpaperStore.Item item = items.get(position);
-            Bitmap thumb = WallpaperStore.getThumb(MainActivity.this, item.id);
-            holder.imgThumb.setImageBitmap(thumb);
+            holder.imgThumb.setImageBitmap(thumbFor(item.id));
             // 缩略图旁显示壁纸标题（未命名则用占位文案）
             holder.tvTitle.setText(item.title == null || item.title.isEmpty()
                     ? getString(R.string.untitled) : item.title);
-            // 点缩略图看全图与真实像素尺寸（列表缩略图太小，无法判断图是否被裁过/比例是否正常）
-            holder.imgThumb.setOnClickListener(v -> showPreview(item));
+            // 整卡（含缩略图）点击都进预览：网格里缩略图更小，只有全图才能判断比例/是否被裁过
+            View.OnClickListener open = v -> showPreview(item);
+            holder.itemView.setOnClickListener(open);
+            holder.imgThumb.setOnClickListener(open);
             holder.btnDelete.setOnClickListener(v -> confirmDelete(item));
         }
 
