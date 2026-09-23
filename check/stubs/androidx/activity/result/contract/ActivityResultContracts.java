@@ -24,4 +24,9 @@ public class ActivityResultContracts {
         public PickMultipleVisualMedia(int maxItems) {
         }
     }
+
+    /** Android 13+ 通知权限（POST_NOTIFICATIONS）等运行时权限请求契约。 */
+    public static class RequestPermission
+            extends androidx.activity.result.ActivityResultContract<String, Boolean> {
+    }
 }

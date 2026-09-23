@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 开机/覆盖安装后恢复定时并补切（WorkManager 也会自动恢复，这里用于补上漏跑的一轮） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 自动切换提示（通知栏通知）：Android 13+ 需运行时授权，未授权则发不出通知 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"

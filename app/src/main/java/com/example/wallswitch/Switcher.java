@@ -32,9 +32,18 @@ public class Switcher {
     // 最近一次设置壁纸的失败原因（供界面/日志显示，用于区分“没执行”和“执行了但失败”）
     private static volatile String lastError;
 
+    // 最近一次成功应用的壁纸标题（按范围分别记录，供自动切换通知显示"切到了哪张"）
+    private static volatile String lastTitleHome;
+    private static volatile String lastTitleLock;
+
     /** 最近一次设置壁纸的失败原因，null 表示最近一次没有失败。 */
     public static String lastError() {
         return lastError;
+    }
+
+    /** 最近一次应用的壁纸标题（forHome 区分桌面/锁屏）：本轮未成功应用返回 null，已应用但未命名返回空串。 */
+    public static String lastAppliedTitle(boolean forHome) {
+        return forHome ? lastTitleHome : lastTitleLock;
     }
 
     /** 生成某库某范围的进度键前缀（LibraryStore 迁移也使用）。 */
@@ -74,6 +83,13 @@ public class Switcher {
         prefs.edit().putString(base + "_current", nextId).apply();
         // 应用到系统壁纸（失败时向调用方返回 false，由界面侧给出反馈）
         boolean applied = setWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId), forHome);
+        // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
+        String appliedTitle = applied ? WallpaperStore.getTitle(ctx, nextId) : null;
+        if (forHome) {
+            lastTitleHome = appliedTitle;
+        } else {
+            lastTitleLock = appliedTitle;
+        }
         // 设置成功后刷新小组件缩略图
         if (applied) {
             WidgetProvider.updateWidget(ctx);

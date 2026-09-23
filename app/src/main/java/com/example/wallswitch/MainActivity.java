@@ -1,10 +1,14 @@
 package com.example.wallswitch;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -35,6 +39,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -51,8 +56,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "settings";
     // 相册单次多选上限
     private static final int MAX_PICK = 50;
+    // 预览解码的最长边上限（与 WallpaperStore/Switcher 保持一致，防 OOM）
+    private static final int PREVIEW_MAX_DIM = 2048;
+    // 通知权限提示是否已弹过的记录 key（避免每次打开应用都打扰）
+    private static final String KEY_NOTIFY_PROMPTED = "notify_prompted";
 
     private ActivityResultLauncher<PickVisualMediaRequest> pickLauncher;
+    // 通知权限请求（Android 13+ 自动切换提示需要 POST_NOTIFICATIONS）
+    private ActivityResultLauncher<String> notifyPermissionLauncher;
     private RecyclerView recycler;
     private Adapter adapter;
     private SharedPreferences prefs;
@@ -70,6 +81,10 @@ public class MainActivity extends AppCompatActivity {
         pickLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK),
                 this::onPicked);
+        // 注册通知权限请求（Android 13+）：未授权时自动切换通知发不出来
+        notifyPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                this::onNotifyPermissionResult);
         recycler = findViewById(R.id.recycler);
         recycler.setLayoutManager(new LinearLayoutManager(this));
         adapter = new Adapter();
@@ -77,8 +92,25 @@ public class MainActivity extends AppCompatActivity {
         setupLibViews();
         setupButtons();
         setupTimerSwitch();
+        setupNotifySwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
+        // 标题显示版本号：便于确认手机上安装的是哪一版（每次提交都会递增）
+        showVersionInTitle();
+    }
+
+    /** 标题栏显示「应用名 v版本名」，版本取自安装包信息（与 build.gradle 的 versionName 一致）。 */
+    private void showVersionInTitle() {
+        String version = null;
+        try {
+            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {
+        }
+        if (version == null || version.isEmpty()) {
+            return;
+        }
+        TextView title = findViewById(R.id.tv_title);
+        title.setText(getString(R.string.title_with_version, getString(R.string.app_name), version));
     }
 
     @Override
@@ -221,6 +253,59 @@ public class MainActivity extends AppCompatActivity {
             TimerScheduler.setTimerEnabled(MainActivity.this, isChecked);
             refreshTimerStatus();
         });
+    }
+
+    /**
+     * 自动切换提示开关：自动切换（定时与补切）完成后发系统通知——成功静音留痕、失败弹横幅。
+     * 打开时先确保通知可用，否则开关开了也看不到任何提示。
+     */
+    private void setupNotifySwitch() {
+        Switch swNotify = findViewById(R.id.sw_auto_notify);
+        swNotify.setOnCheckedChangeListener(null);
+        swNotify.setChecked(SwitchNotifier.isEnabled(this));
+        swNotify.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            SwitchNotifier.setEnabled(MainActivity.this, isChecked);
+            if (isChecked) {
+                ensureNotificationsEnabled();
+            }
+        });
+        // 默认开启且尚未授权时，首次打开应用请求一次通知权限（已请求过就不再打扰）
+        if (SwitchNotifier.isEnabled(this) && !prefs.getBoolean(KEY_NOTIFY_PROMPTED, false)
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putBoolean(KEY_NOTIFY_PROMPTED, true).apply();
+            notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+        }
+    }
+
+    /** 确保通知可用：Android 13+ 申请权限；系统级关闭时提示并跳到通知设置页。 */
+    private void ensureNotificationsEnabled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            return;
+        }
+        if (!SwitchNotifier.canNotify(this)) {
+            Toast.makeText(this, R.string.notify_disabled_hint, Toast.LENGTH_LONG).show();
+            openNotificationSettings();
+        }
+    }
+
+    /** 通知权限申请结果：未授权时说明后果（自动切换提示将看不到）。 */
+    private void onNotifyPermissionResult(boolean granted) {
+        if (!granted) {
+            Toast.makeText(this, R.string.notify_permission_denied, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** 跳转本应用的系统通知设置页（华为/荣耀在此重新允许通知）。 */
+    private void openNotificationSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(intent);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
@@ -581,6 +666,77 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
+    /**
+     * 点击缩略图：后台解码库内全图并弹窗预览。
+     * 预览按图片原始比例整张显示（不裁剪、不补黑边，超高可滚动），
+     * 下方显示「标题 + 该文件在库中的真实像素尺寸」——用于判断库里存的到底是一张完整图，
+     * 还是被裁过/比例不对（例如只有屏幕上那一块）的结果图。
+     * 弹窗里的「改标题」可直接重命名（通知会带上这个标题）。
+     */
+    private void showPreview(WallpaperStore.Item item) {
+        View content = LayoutInflater.from(this).inflate(R.layout.dialog_preview, null, false);
+        ImageView preview = content.findViewById(R.id.img_preview);
+        TextView info = content.findViewById(R.id.tv_preview_info);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.preview_title)
+                .setView(content)
+                .setNeutralButton(R.string.rename_title, (d, which) -> showRenameDialog(item))
+                .setPositiveButton(R.string.close, null)
+                .create();
+        dialog.show();
+        // 大图解码要几百毫秒，放后台线程，避免点一下卡住列表
+        new Thread(() -> {
+            File file = WallpaperStore.getFullFile(this, item.id);
+            // 只读图片头拿真实尺寸：预览图会被限制在 2048 内，不能代表库内实际保存的尺寸
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            final int width = bounds.outWidth;
+            final int height = bounds.outHeight;
+            final Bitmap bitmap = WallpaperStore.decodeBounded(file, PREVIEW_MAX_DIM);
+            runOnUiThread(() -> {
+                // 解码期间弹窗可能已被关闭，或页面已退出：不再回填
+                if (isFinishing() || isDestroyed() || !dialog.isShowing()) {
+                    return;
+                }
+                if (bitmap == null || width <= 0 || height <= 0) {
+                    info.setText(R.string.preview_failed);
+                    return;
+                }
+                preview.setImageBitmap(bitmap);
+                info.setText(previewInfoText(item, width, height));
+            });
+        }, "thumb-preview").start();
+    }
+
+    /** 预览信息行：标题 + 实际像素尺寸。 */
+    private String previewInfoText(WallpaperStore.Item item, int width, int height) {
+        String title = item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
+        return getString(R.string.title_label, title) + "\n" + getString(R.string.preview_info, width, height);
+    }
+
+    /** 重命名壁纸标题（通知里会带上这个标题，便于区分切到了哪张）。 */
+    private void showRenameDialog(WallpaperStore.Item item) {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setHint(R.string.rename_hint);
+        input.setText(item.title == null ? "" : item.title);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        wrapper.setPadding(padding, 0, padding, 0);
+        wrapper.addView(input);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.rename_title);
+        builder.setView(wrapper);
+        builder.setPositiveButton(R.string.confirm, (dialog, which) -> {
+            WallpaperStore.setTitle(this, item.id, input.getText().toString().trim());
+            refreshList();
+        });
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.show();
+    }
+
     /** 壁纸列表适配器（当前库内的壁纸）。 */
     private class Adapter extends RecyclerView.Adapter<ViewHolder> {
 
@@ -604,6 +760,11 @@ public class MainActivity extends AppCompatActivity {
             final WallpaperStore.Item item = items.get(position);
             Bitmap thumb = WallpaperStore.getThumb(MainActivity.this, item.id);
             holder.imgThumb.setImageBitmap(thumb);
+            // 缩略图旁显示壁纸标题（未命名则用占位文案）
+            holder.tvTitle.setText(item.title == null || item.title.isEmpty()
+                    ? getString(R.string.untitled) : item.title);
+            // 点缩略图看全图与真实像素尺寸（列表缩略图太小，无法判断图是否被裁过/比例是否正常）
+            holder.imgThumb.setOnClickListener(v -> showPreview(item));
             holder.btnDelete.setOnClickListener(v -> confirmDelete(item));
         }
 
@@ -617,11 +778,13 @@ public class MainActivity extends AppCompatActivity {
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
         final ImageView imgThumb;
+        final TextView tvTitle;
         final ImageButton btnDelete;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
             imgThumb = itemView.findViewById(R.id.img_thumb);
+            tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
             btnDelete = itemView.findViewById(R.id.btn_delete);
         }
     }

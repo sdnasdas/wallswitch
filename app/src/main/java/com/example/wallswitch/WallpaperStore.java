@@ -34,6 +34,8 @@ public class WallpaperStore {
     private static final String DIR_INBOX = "inbox";
     // 元数据文件名
     private static final String LIB_FILE = "library.json";
+    // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
+    private static final String TITLE_PREFS = "pending_titles";
     // JPEG 压缩质量
     private static final int JPEG_QUALITY = 90;
     // 解码尺寸上限（防 OOM）
@@ -41,10 +43,12 @@ public class WallpaperStore {
     // 缩略图最长边
     private static final int THUMB_MAX_DIM = 256;
 
-    /** 壁纸条目元数据：id 为图片文件标识，libId 为所属壁纸库 id。 */
+    /** 壁纸条目元数据：id 为图片文件标识，libId 为所属壁纸库 id，title 为壁纸标题（可空）。 */
     public static class Item {
         public String id;
         public String libId;
+        // 壁纸标题：默认取导入时的原文件名（去扩展名），可在预览弹窗里改；历史数据可能为空
+        public String title;
     }
 
     /** 从 library.json 读取壁纸库列表，文件不存在时返回空列表。 */
@@ -63,6 +67,7 @@ public class WallpaperStore {
                 Item item = new Item();
                 item.id = obj.getString("id");
                 item.libId = obj.optString("lib_id", "");
+                item.title = obj.optString("title", "");
                 result.add(item);
             }
         } catch (Exception ignored) {
@@ -70,7 +75,7 @@ public class WallpaperStore {
         return result;
     }
 
-    /** 把相册选中的图片原样复制进收件箱，返回仅带 id 的条目（尚未入库）。失败时清理半截文件后再抛出。 */
+    /** 把相册选中的图片原样复制进收件箱，返回仅带 id 与标题的条目（尚未入库）。失败时清理半截文件后再抛出。 */
     public static Item importToInbox(Context context, Uri uri) throws Exception {
         String id = UUID.randomUUID().toString();
         File inboxDir = new File(context.getFilesDir(), DIR_INBOX);
@@ -91,9 +96,84 @@ public class WallpaperStore {
             }
             throw e;
         }
+        // 用原文件名（去扩展名）作为壁纸标题默认值，确认导入时写进元数据
+        String title = stripExtension(displayName(context, uri));
+        putPendingTitle(context, id, title);
         Item item = new Item();
         item.id = id;
+        item.title = title;
         return item;
+    }
+
+    /** 读取相册 URI 的原始文件名（OpenableColumns.DISPLAY_NAME），读不到返回空串。 */
+    public static String displayName(Context context, Uri uri) {
+        try (android.database.Cursor cursor = context.getContentResolver().query(uri,
+                new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    if (name != null) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    /** 去掉文件扩展名（标题里不带 .jpg 之类后缀）。 */
+    private static String stripExtension(String name) {
+        if (name == null) {
+            return "";
+        }
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    /** 取出某待编辑项的标题（确认导入时使用），取出后不清除（取消导入时由 cancelImport 清理）。 */
+    private static String pendingTitle(Context context, String inboxId) {
+        return context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE)
+                .getString(inboxId, "");
+    }
+
+    /** 记录某待编辑项的标题。 */
+    private static void putPendingTitle(Context context, String inboxId, String title) {
+        context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(inboxId, title == null ? "" : title)
+                .apply();
+    }
+
+    /** 修改某张壁纸的标题（预览弹窗里改，空串表示未命名）。 */
+    public static void setTitle(Context context, String id, String title) {
+        try {
+            List<Item> items = load(context);
+            boolean changed = false;
+            for (Item item : items) {
+                if (item.id.equals(id)) {
+                    item.title = title == null ? "" : title;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                saveLibrary(context, items);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 读取某张壁纸的标题，无记录/未命名返回空串。 */
+    public static String getTitle(Context context, String id) {
+        try {
+            for (Item item : load(context)) {
+                if (item.id.equals(id)) {
+                    return item.title == null ? "" : item.title;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     /** 确认导入：保存全图与缩略图、按所属壁纸库追加元数据，并删除收件箱原文件。 */
@@ -126,11 +206,12 @@ public class WallpaperStore {
         FileOutputStream thumbOut = new FileOutputStream(thumbFile);
         thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, thumbOut);
         thumbOut.close();
-        // 追加元数据（归属指定壁纸库）
+        // 追加元数据（归属指定壁纸库，标题取导入时记录的原文件名）
         List<Item> items = load(context);
         Item item = new Item();
         item.id = id;
         item.libId = libId == null ? "" : libId;
+        item.title = pendingTitle(context, inboxId);
         items.add(item);
         saveLibrary(context, items);
         // 删除收件箱原文件：元数据已写完，此时删除失败不应让调用方误报「保存失败」
@@ -142,13 +223,16 @@ public class WallpaperStore {
         return item;
     }
 
-    /** 取消导入：删除收件箱中的待编辑文件。 */
+    /** 取消导入：删除收件箱中的待编辑文件与其中的标题记录。 */
     public static void cancelImport(Context context, String inboxId) {
         try {
             File inboxFile = getInboxFile(context, inboxId);
             Files.deleteIfExists(inboxFile.toPath());
         } catch (Exception ignored) {
         }
+        context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
+                .remove(inboxId)
+                .apply();
     }
 
     /** 列出收件箱中待编辑的文件 id（按名称排序，保证顺序稳定）。 */
@@ -189,6 +273,10 @@ public class WallpaperStore {
                 }
             }
             saveLibrary(context, remain);
+            // 顺带清掉可能残留的待编辑标题记录
+            context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
+                    .remove(id)
+                    .apply();
         } catch (Exception ignored) {
         }
     }
@@ -307,6 +395,7 @@ public class WallpaperStore {
             JSONObject obj = new JSONObject();
             obj.put("id", item.id);
             obj.put("lib_id", item.libId == null ? "" : item.libId);
+            obj.put("title", item.title == null ? "" : item.title);
             arr.put(obj);
         }
         File libFile = new File(context.getFilesDir(), LIB_FILE);

@@ -54,5 +54,20 @@ public class AlertDialog {
         public AlertDialog show() {
             return new AlertDialog();
         }
+
+        public AlertDialog create() {
+            return new AlertDialog();
+        }
+    }
+
+    public void show() {
+    }
+
+    /** 真实 AlertDialog 继承自 Dialog，具备该方法（弹窗回填前用于判断是否已关闭）。 */
+    public boolean isShowing() {
+        return false;
+    }
+
+    public void dismiss() {
     }
 }

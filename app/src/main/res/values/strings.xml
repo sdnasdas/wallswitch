@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">wallpaper</string>
+    <!-- 标题栏：应用名 + 版本号（便于确认手机上装的是哪一版） -->
+    <string name="title_with_version">%1$s v%2$s</string>
     <string name="add_wallpaper">添加壁纸</string>
     <string name="switch_home">切换桌面</string>
     <string name="switch_lock">切换锁屏</string>
@@ -75,4 +77,33 @@
     <string name="status_not_applied">系统未应用新壁纸（可能被主题/杂志锁屏/省电策略拦截）</string>
     <string name="status_live_wallpaper">桌面被动态壁纸「%1$s」占用，请先在系统设置中换成静态壁纸</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
+
+    <!-- 缩略图点击预览 -->
+    <string name="preview_title">预览</string>
+    <string name="preview_desc">壁纸全图预览</string>
+    <string name="preview_loading">加载中…</string>
+    <string name="preview_info">%1$d × %2$d 像素</string>
+    <string name="preview_failed">图片加载失败</string>
+    <string name="close">关闭</string>
+
+    <!-- 自动切换提示（系统通知：成功静音留痕、失败弹横幅） -->
+    <string name="auto_notify_enabled">自动切换提示（通知）</string>
+    <string name="notify_channel_ok">自动切换记录</string>
+    <string name="notify_channel_ok_desc">自动切换完成后静音留痕，不弹横幅、不出声</string>
+    <string name="notify_channel_fail">自动切换失败</string>
+    <string name="notify_channel_fail_desc">自动切换失败时提醒（会弹横幅）</string>
+    <string name="notify_ok_title">壁纸已自动切换</string>
+    <string name="notify_ok_text">库「%1$s」</string>
+    <string name="notify_ok_home">｜桌面：%1$s</string>
+    <string name="notify_ok_lock">｜锁屏：%1$s</string>
+    <string name="notify_ok_home_skipped">｜桌面：未切换</string>
+    <string name="notify_ok_lock_skipped">｜锁屏：未切换</string>
+    <string name="notify_fail_title">自动切换失败</string>
+    <!-- 壁纸标题 -->
+    <string name="untitled">未命名</string>
+    <string name="title_label">标题：%1$s</string>
+    <string name="rename_title">改标题</string>
+    <string name="rename_hint">壁纸标题（留空即未命名）</string>
+    <string name="notify_disabled_hint">通知权限未开启，自动切换提示无法显示（华为/荣耀关闭通知权限后连 Toast 也会失效）</string>
+    <string name="notify_permission_denied">未授予通知权限，自动切换提示将无法显示</string>
 </resources>

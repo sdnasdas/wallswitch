@@ -10,8 +10,9 @@ android {
         applicationId "com.example.wallswitch"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        // 版本约定：每次提交都递增（versionCode +1，versionName 次版本 +1，如 1.0 -> 1.1 -> 1.2）
+        versionCode 2
+        versionName "1.1"
     }
 
     buildTypes {

@@ -143,6 +143,9 @@ public class TimerScheduler {
         boolean ok = okHome || okLock;
         long now = System.currentTimeMillis();
         String result = ok ? RESULT_OK : Switcher.lastError();
+        // 自动切换提示：用户通常不在场，统一发系统通知（成功静音留痕、失败弹横幅），
+        // 手动切换/小组件点击仍由界面侧用 Toast 即时反馈，不走这里
+        SwitchNotifier.notifyResult(ctx, lib, ok, result);
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_LAST_RUN_PREFIX + libId, now)
