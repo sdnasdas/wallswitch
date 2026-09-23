@@ -6,10 +6,12 @@ import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 /**
  * 手势裁剪视图：双指捏合缩放（ScaleGestureDetector）+ 单指拖动。
@@ -36,6 +38,23 @@ public class CropView extends View {
     private float lastX = 0f;
     private float lastY = 0f;
     private final ScaleGestureDetector scaleDetector;
+    // 单击判定：区分「轻点」与「拖动/缩放」，轻点用于切换桌面图标预览叠加
+    private static final long TAP_MAX_MS = 300L;
+    private final int touchSlop;
+    private float downX = 0f;
+    private float downY = 0f;
+    private long downTime = 0L;
+    private boolean tapMoved = false;
+    private OnTapListener tapListener;
+
+    /** 单击回调（一次没有拖动、没有缩放的轻点）。 */
+    public interface OnTapListener {
+        void onTap();
+    }
+
+    public void setOnTapListener(OnTapListener listener) {
+        this.tapListener = listener;
+    }
 
     public CropView(Context context) {
         this(context, null);
@@ -45,6 +64,7 @@ public class CropView extends View {
         super(context, attrs);
         ScaleGestureDetector.SimpleOnScaleGestureListener listener = new ScaleListener();
         scaleDetector = new ScaleGestureDetector(context, listener);
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
     }
 
     /** 设置待编辑图片并按 fit-cover 重置。 */
@@ -106,9 +126,17 @@ public class CropView extends View {
             case MotionEvent.ACTION_DOWN:
                 lastX = event.getX();
                 lastY = event.getY();
+                downX = lastX;
+                downY = lastY;
+                downTime = SystemClock.uptimeMillis();
+                tapMoved = false;
                 handled = true;
                 break;
             case MotionEvent.ACTION_MOVE:
+                if (Math.abs(event.getX() - downX) > touchSlop
+                        || Math.abs(event.getY() - downY) > touchSlop) {
+                    tapMoved = true;
+                }
                 // 双指缩放进行中不做拖动
                 if (!scaleDetector.isInProgress()) {
                     float dx = event.getX() - lastX;
@@ -120,6 +148,13 @@ public class CropView extends View {
                 lastX = event.getX();
                 lastY = event.getY();
                 handled = true;
+                break;
+            case MotionEvent.ACTION_UP:
+                // 轻点（没移动、没缩放、时间够短）→ 通知外层切换预览叠加
+                if (!tapMoved && !scaleDetector.isInProgress() && tapListener != null
+                        && SystemClock.uptimeMillis() - downTime < TAP_MAX_MS) {
+                    tapListener.onTap();
+                }
                 break;
             default:
                 break;
@@ -187,6 +222,35 @@ public class CropView extends View {
         if (dx != 0f || dy != 0f) {
             matrix.postTranslate(dx, dy);
         }
+    }
+
+    /** 当前位图的宽度（解码后尺寸，不是原图尺寸）。 */
+    public int getSourceWidth() {
+        return bitmap == null ? 0 : bitmap.getWidth();
+    }
+
+    /** 当前位图的高度（解码后尺寸，不是原图尺寸）。 */
+    public int getSourceHeight() {
+        return bitmap == null ? 0 : bitmap.getHeight();
+    }
+
+    /**
+     * 当前可见区域在<b>当前位图</b>坐标下的矩形。
+     * 导出时用它映射回原图坐标去做区域解码，这样放大多少倍都能拿到原图分辨率。
+     * 位图未就绪或矩阵不可逆时返回 false。
+     */
+    public boolean getVisibleSourceRect(RectF out) {
+        if (bitmap == null || out == null) {
+            return false;
+        }
+        ensureMatrixReady();
+        Matrix inverse = new Matrix();
+        if (!matrix.invert(inverse)) {
+            return false;
+        }
+        out.set(0f, 0f, getWidth(), getHeight());
+        inverse.mapRect(out);
+        return out.intersect(0f, 0f, bitmap.getWidth(), bitmap.getHeight()) && !out.isEmpty();
     }
 
     /**

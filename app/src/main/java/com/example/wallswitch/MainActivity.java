@@ -171,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshBatteryButton();
                 refreshLauncherOverlayRow();
                 refreshExportRows();
+                setupEngineSwitch();
             }
         });
         // 「桌面图标预览底图」：点按选/换一张自己的首页截图，长按清除。全局只设一次。
@@ -219,6 +220,8 @@ public class MainActivity extends AppCompatActivity {
         // 引擎模式状态（桌面是否由本 App 的动态壁纸引擎直接渲染）
         ((TextView) findViewById(R.id.tv_engine)).setText(
                 WallSwitchService.isActive(this) ? R.string.engine_active : R.string.engine_hint);
+        // 从系统选择器返回后同步引擎开关（用户可能点了取消）
+        setupEngineSwitch();
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理
@@ -334,8 +337,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_add).setOnClickListener(v -> launchPicker());
         findViewById(R.id.btn_switch).setOnClickListener(v -> onSwitchClicked());
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
-        // v2.0：引擎模式引导——打开系统动态壁纸选择器并预选本引擎
-        findViewById(R.id.btn_engine).setOnClickListener(v -> WallSwitchService.openActivator(this));
+        // 引擎开关（真值取系统实际状态，见 setupEngineSwitch）
         // 电池优化是否已允许，直接显示在按钮上（决定后台定时能否被系统唤醒）
         refreshBatteryButton();
         refreshSwitchButton();
@@ -785,6 +787,61 @@ public class MainActivity extends AppCompatActivity {
                 .setNeutralButton(R.string.app_details, (dialog, which) -> openAppDetails())
                 .setNegativeButton(R.string.cancel, null)
                 .show();
+    }
+
+    /**
+     * 「启用动态壁纸引擎」开关。真值取<b>系统实际状态</b>（我们的引擎当前是不是系统壁纸），
+     * 不存偏好值 —— 否则用户在系统选择器里点了取消，开关还显示"开"，点切换却毫无反应。
+     */
+    private void setupEngineSwitch() {
+        CompoundButton sw = findViewById(R.id.sw_engine);
+        if (sw == null) {
+            return;
+        }
+        sw.setOnCheckedChangeListener(null);
+        sw.setChecked(WallSwitchService.isActive(this));
+        sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                enableEngine();
+            } else {
+                disableEngine();
+            }
+        });
+    }
+
+    /**
+     * 打开引擎：先把当前桌面壁纸存一份（关掉时用来还原），再拉起系统动态壁纸选择器。
+     * 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，设置动态壁纸必须由用户在系统界面确认一次。
+     */
+    private void enableEngine() {
+        Toast.makeText(this, R.string.engine_saving, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final boolean saved = WallSwitchService.saveCurrentWallpaper(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                WallSwitchService.openActivator(this);
+                if (!saved) {
+                    Toast.makeText(this, R.string.engine_previous_save_failed, Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "engine-save").start();
+    }
+
+    /** 关掉引擎：把存档的桌面壁纸设回去（setBitmap 会同时解除动态壁纸）。 */
+    private void disableEngine() {
+        new Thread(() -> {
+            final boolean ok = WallSwitchService.restoreSavedWallpaper(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this, ok ? R.string.engine_restored : R.string.engine_restore_failed,
+                        Toast.LENGTH_SHORT).show();
+                setupEngineSwitch();
+            });
+        }, "engine-restore").start();
     }
 
     /** 打开本应用的系统详情页（荣耀/华为在此开启自启动、后台运行白名单）。 */

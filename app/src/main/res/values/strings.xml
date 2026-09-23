@@ -75,13 +75,16 @@
     <!-- 壁纸应用失败的具体原因（定时状态行/手动切换/小组件提示共用） -->
     <string name="status_decode_failed">图片解码失败，已跳过</string>
     <string name="status_not_applied">系统未应用新壁纸（可能被主题/杂志锁屏/省电策略拦截）</string>
-    <string name="status_apply_mismatch">壁纸已写入但系统未正确显示（重试无效），请手动切换一次</string>
 
     <!-- v2.0：引擎模式（动态壁纸直渲，借鉴 Muzei：不走系统静态壁纸链路，根治"幽灵图"） -->
-    <string name="engine_activate">设为动态壁纸引擎（推荐，根治幽灵图）</string>
+    <string name="engine_toggle">启用动态壁纸引擎</string>
+    <string name="engine_saving">正在保存当前壁纸…</string>
+    <string name="engine_previous_save_failed">没能保存当前壁纸，关掉引擎时将退回系统默认</string>
+    <string name="engine_restored">已关掉引擎，桌面壁纸已还原</string>
+    <string name="engine_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
+    <string name="status_engine_inactive">未启用动态壁纸引擎，桌面无法切换（请到设置抽屉打开引擎开关）</string>
     <string name="engine_hint">引擎模式未启用：启用后桌面由本 App 直接渲染，不再有"幽灵图"</string>
     <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
-    <string name="status_live_wallpaper">桌面被动态壁纸「%1$s」占用，请先在系统设置中换成静态壁纸</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
 
     <!-- 缩略图点击预览 -->
@@ -131,7 +134,8 @@
     <string name="empty_wallpapers_hint">点右下角「添加壁纸」从相册导入</string>
     <string name="manual_switch">手动切换</string>
     <string name="section_engine">引擎与后台</string>
-    <string name="edit_hint">双指缩放 · 单指拖动调整构图</string>
+    <string name="edit_hint">单击画面预览桌面图标 · 双指缩放 · 单指拖动</string>
+    <string name="loading">加载中…</string>
     <string name="launcher_shot_desc">叠加我的首页截图（精确预览）</string>
     <string name="section_launcher_preview">桌面图标预览</string>
     <string name="launcher_overlay_title">桌面图标预览底图</string>

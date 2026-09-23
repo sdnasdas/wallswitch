@@ -3,6 +3,8 @@ package com.example.wallswitch;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapRegionDecoder;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.util.DisplayMetrics;
 
@@ -461,6 +463,52 @@ public class WallpaperStore {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inSampleSize = sample;
         return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+    }
+
+    /**
+     * 只解码原图里的某个区域：导出时按实际取景框回原图取那一块，
+     * 这样「放大多少倍」都能拿到原图分辨率，不再依赖事先猜测的放大余量。
+     *
+     * 采样取「该区域最长边不低于 maxDim」的最小 2 的幂（越小越清晰），解完再精确缩到 maxDim。
+     * 格式不支持、区域越界等情况下返回 null，调用方回退到「从内存位图裁」。
+     */
+    public static Bitmap decodeRegion(File file, Rect region, int maxDim) {
+        if (file == null || region == null || region.width() <= 0 || region.height() <= 0) {
+            return null;
+        }
+        BitmapRegionDecoder decoder = null;
+        try {
+            decoder = BitmapRegionDecoder.newInstance(file.getAbsolutePath(), false);
+            if (decoder == null) {
+                return null;
+            }
+            int longest = Math.max(region.width(), region.height());
+            int sample = 1;
+            while (sample * 2L * maxDim <= longest) {
+                sample *= 2;
+            }
+            long budget = decodePixelBudget();
+            while (pixelsAt(region.width(), region.height(), sample) > budget) {
+                sample *= 2;
+            }
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            Bitmap regionBitmap = decoder.decodeRegion(region, opts);
+            if (regionBitmap == null) {
+                return null;
+            }
+            Bitmap scaled = scaleToFit(regionBitmap, maxDim);
+            if (scaled != regionBitmap && !regionBitmap.isRecycled()) {
+                regionBitmap.recycle();
+            }
+            return scaled;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        } finally {
+            if (decoder != null) {
+                decoder.recycle();
+            }
+        }
     }
 
     /** 按采样倍数估算解码后的像素数（向上取整，宁可保守）。 */
