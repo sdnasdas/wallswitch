@@ -1,5 +1,6 @@
 package com.example.wallswitch;
 
+import android.app.WallpaperInfo;
 import android.app.WallpaperManager;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -138,7 +139,13 @@ public class Switcher {
         return nextId;
     }
 
-    /** 应用到系统壁纸：必须用带 which 的重载分别指定范围（简化版 setBitmap(bitmap) 会同时改桌面+锁屏）；返回是否成功。 */
+    /**
+     * 应用到系统壁纸：必须用带 which 的重载分别指定范围（简化版 setBitmap(bitmap) 会同时改桌面+锁屏）。
+     * 成功判定做三重校验，避免「返回成功但桌面没变」的假象：
+     * 1. setBitmap 返回的新壁纸 ID 为 0 → 系统未接受；
+     * 2. 设置前后系统壁纸 ID 不变 → 被 ROM 静默忽略（主题/杂志锁屏/省电策略拦截）；
+     * 3. 设置后动态壁纸仍在运行 → 静态图被动态壁纸盖住（如 Muzei 卸载残留/其他动态壁纸）。
+     */
     private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
         Bitmap bitmap = loadBitmap(file);
         if (bitmap == null) {
@@ -147,11 +154,22 @@ public class Switcher {
         }
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
+            int which = forHome ? WallpaperManager.FLAG_SYSTEM : WallpaperManager.FLAG_LOCK;
+            // 设置前的系统壁纸 ID：用于校验系统是否真的换上了新图
+            int beforeId = wm.getWallpaperId(which);
             // 注意：wm.setBitmap(bitmap) 内部等价于 FLAG_SYSTEM | FLAG_LOCK，会连锁屏一起改，所以必须显式传 which
-            if (forHome) {
-                wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_SYSTEM);
-            } else {
-                wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
+            int newId = wm.setBitmap(bitmap, null, true, which);
+            if (newId == 0 || wm.getWallpaperId(which) == beforeId) {
+                // 系统没接受或静默忽略：若当前挂着动态壁纸（Muzei 等），它大概率是元凶
+                WallpaperInfo live = wm.getWallpaperInfo();
+                lastError = live != null ? "live_wallpaper:" + live.getPackageName() : "not_applied";
+                return false;
+            }
+            WallpaperInfo live = wm.getWallpaperInfo();
+            if (live != null) {
+                // 壁纸已写入系统，但桌面仍被动态壁纸接管渲染，用户看不到静态图
+                lastError = "live_wallpaper:" + live.getPackageName();
+                return false;
             }
             lastError = null;
             return true;
@@ -160,6 +178,25 @@ public class Switcher {
             lastError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
             return false;
         }
+    }
+
+    /** 把内部错误码转成可读文案（定时状态行与手动/小组件切换失败提示共用）。 */
+    public static String errorText(Context ctx, String code) {
+        if (code == null || "failed".equals(code)) {
+            return ctx.getString(R.string.status_failed_unknown);
+        }
+        if ("decode_failed".equals(code)) {
+            return ctx.getString(R.string.status_decode_failed);
+        }
+        if ("not_applied".equals(code)) {
+            return ctx.getString(R.string.status_not_applied);
+        }
+        if (code.startsWith("live_wallpaper:")) {
+            return ctx.getString(R.string.status_live_wallpaper,
+                    code.substring("live_wallpaper:".length()));
+        }
+        // 异常类名等原始信息直接透出，便于定位
+        return code;
     }
 
     /** 解码壁纸并做单张缓存（超采样防 OOM，复用存储层实现）。 */

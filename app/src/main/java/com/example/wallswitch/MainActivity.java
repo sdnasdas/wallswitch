@@ -360,7 +360,8 @@ public class MainActivity extends AppCompatActivity {
         } else if (result == null) {
             resultText = getString(R.string.status_never);
         } else {
-            resultText = result;
+            // 失败原因统一走可读文案映射（解码失败/系统未应用/被动态壁纸占用等）
+            resultText = Switcher.errorText(this, result);
         }
         long now = System.currentTimeMillis();
         if (next <= now) {
@@ -448,11 +449,15 @@ public class MainActivity extends AppCompatActivity {
     /** 手动切换：作用于该范围当前启用的库（与小组件、定时行为一致）。 */
     private void switchAndToast(boolean forHome) {
         LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, forHome);
-        boolean ok = lib != null && Switcher.next(this, lib.id, forHome);
-        if (ok) {
+        if (lib == null) {
+            Toast.makeText(this, R.string.switch_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (Switcher.next(this, lib.id, forHome)) {
             Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, R.string.switch_failed, Toast.LENGTH_SHORT).show();
+            // 带上具体失败原因（如桌面被动态壁纸占用），方便用户对症处理
+            Toast.makeText(this, Switcher.errorText(this, Switcher.lastError()), Toast.LENGTH_LONG).show();
         }
     }
 

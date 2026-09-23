@@ -69,4 +69,10 @@
         <item>@string/timer_daily</item>
         <item>@string/timer_custom</item>
     </string-array>
+
+    <!-- 壁纸应用失败的具体原因（定时状态行/手动切换/小组件提示共用） -->
+    <string name="status_decode_failed">图片解码失败，已跳过</string>
+    <string name="status_not_applied">系统未应用新壁纸（可能被主题/杂志锁屏/省电策略拦截）</string>
+    <string name="status_live_wallpaper">桌面被动态壁纸「%1$s」占用，请先在系统设置中换成静态壁纸</string>
+    <string name="status_failed_unknown">失败（未记录原因）</string>
 </resources>

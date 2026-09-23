@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
+import android.widget.Toast;
 
 /**
  * 桌面小组件：1x1 显示切换图标与「下次定时切换倒计时」，点击直接切换（无确认弹窗）。
@@ -33,13 +34,22 @@ public class WidgetProvider extends AppWidgetProvider {
         String action = intent.getAction();
         if (ACTION_SWITCH.equals(action)) {
             // 切换桌面与锁屏各自的启用库（没有则跳过）
+            boolean attempted = false;
+            boolean ok = false;
             LibraryStore.Library home = LibraryStore.enabledLibForScope(context, true);
             if (home != null) {
-                Switcher.next(context, home.id, true);
+                attempted = true;
+                ok |= Switcher.next(context, home.id, true);
             }
             LibraryStore.Library lock = LibraryStore.enabledLibForScope(context, false);
             if (lock != null) {
-                Switcher.next(context, lock.id, false);
+                attempted = true;
+                ok |= Switcher.next(context, lock.id, false);
+            }
+            // 全部失败时提示具体原因（此前静默失败，用户会误以为已切换）
+            if (attempted && !ok) {
+                Toast.makeText(context, Switcher.errorText(context, Switcher.lastError()),
+                        Toast.LENGTH_LONG).show();
             }
             updateWidget(context);
             return;
