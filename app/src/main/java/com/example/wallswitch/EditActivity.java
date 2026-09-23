@@ -31,6 +31,8 @@ public class EditActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit);
+        // 全面屏/刘海屏适配：裁剪页按钮区避开底部手势条、顶部避开状态栏
+        InsetsHelper.apply(this, R.id.edit_root);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         libId = getIntent().getStringExtra(EXTRA_LIB_ID);
         if (libId == null || LibraryStore.get(this, libId) == null) {

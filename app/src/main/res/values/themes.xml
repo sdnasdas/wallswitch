@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 简洁浅色 Material3 主题：浅灰页面底 + 白色卡片，圆角按钮，深色状态栏图标，主色与启动图标统一 -->
+    <!-- 简洁浅色 Material3 主题：浅灰页面底 + 白色卡片，圆角按钮，深色状态栏图标，主色与启动图标统一。
+         边到边（全面屏/刘海屏）适配：状态栏与页面底色一致实现无缝；导航栏透明 + 深色导航按钮；
+         关闭系统自动对比度遮罩（Android 15 起忽略系统条颜色，此时透出 windowBackground，行为仍一致）。 -->
     <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
         <item name="colorPrimary">@color/brand</item>
-        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:statusBarColor">@color/page_bg</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowStatusBarContrastEnforced">false</item>
+        <item name="android:windowNavigationBarContrastEnforced">false</item>
         <item name="android:windowBackground">@color/page_bg</item>
     </style>
 

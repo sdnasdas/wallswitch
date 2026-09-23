@@ -76,6 +76,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        // 全面屏/刘海屏适配：内容避开状态栏、刘海与底部手势条（Android 15 强制边到边）
+        InsetsHelper.apply(this, R.id.main_root);
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         // 注册系统相册多选（PickVisualMedia，无需存储权限）
         pickLauncher = registerForActivityResult(
