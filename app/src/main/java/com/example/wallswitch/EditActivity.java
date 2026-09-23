@@ -3,7 +3,6 @@ package com.example.wallswitch;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.widget.Button;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -32,8 +31,9 @@ public class EditActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit);
-        // 全面屏/刘海屏适配：裁剪页按钮区避开底部手势条、顶部避开状态栏
-        InsetsHelper.apply(this, R.id.edit_root);
+        // 全面屏/刘海屏适配：只让浮层（提示与按钮）避开状态栏与底部手势条；
+        // 裁剪区本身保持满屏，取景框比例才等于壁纸上屏区域（否则预览与实况不一致）
+        InsetsHelper.apply(this, R.id.edit_controls);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         libId = getIntent().getStringExtra(EXTRA_LIB_ID);
         if (libId == null || LibraryStore.get(this, libId) == null) {
@@ -52,7 +52,6 @@ public class EditActivity extends AppCompatActivity {
             return;
         }
         cropView.setBitmap(bitmap);
-        reportCropInitIfBroken(bitmap);
         Button btnConfirm = findViewById(R.id.btn_confirm);
         btnConfirm.setOnClickListener(v -> onConfirm());
         Button btnCancel = findViewById(R.id.btn_cancel);
@@ -80,29 +79,5 @@ public class EditActivity extends AppCompatActivity {
     private void onCancel() {
         WallpaperStore.cancelImport(this, inboxId);
         finish();
-    }
-
-    /**
-     * 临时诊断：只有在裁剪视图的矩阵没能初始化时才把「视图尺寸 / 图片尺寸 / 缩放区间」
-     * 追加到顶部提示行；正常情况下这行文案原样不变。
-     * 用于定位「捏合无反应 + 拖动挪不动 + 导出等于原图」这类静默失效（无任何报错）。
-     * 确认问题解决后可以整段删掉。
-     */
-    private void reportCropInitIfBroken(Bitmap bitmap) {
-        TextView hint = findViewById(R.id.tv_edit_hint);
-        if (hint == null) {
-            return;
-        }
-        final int bmpW = bitmap.getWidth();
-        final int bmpH = bitmap.getHeight();
-        hint.postDelayed(() -> {
-            if (isFinishing() || cropView.isMatrixReady()) {
-                return;
-            }
-            hint.setText(getString(R.string.edit_hint)
-                    + "\n[诊断] 裁剪未初始化：视图 " + cropView.getWidth() + "×" + cropView.getHeight()
-                    + "，图片 " + bmpW + "×" + bmpH
-                    + "，缩放 " + cropView.debugScaleRange());
-        }, 500L);
     }
 }

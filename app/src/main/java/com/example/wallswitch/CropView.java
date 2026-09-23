@@ -91,16 +91,6 @@ public class CropView extends View {
         }
     }
 
-    /** 诊断用：矩阵是否已初始化成功。未成功时 minScale/maxScale 会停在 1f/1f。 */
-    public boolean isMatrixReady() {
-        return matrixReady;
-    }
-
-    /** 诊断用：当前缩放区间，未初始化时会是 1.000~1.000。 */
-    public String debugScaleRange() {
-        return minScale + "~" + maxScale;
-    }
-
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (bitmap == null) {

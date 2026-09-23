@@ -1,56 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 添加壁纸的裁剪页（v3.0）：顶部操作提示 + 全屏手势裁剪区 + 底部操作条（与页面底分离） -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 添加壁纸的裁剪页（v3.4）：手势裁剪区铺满整屏。
+     取景框比例 = 屏幕比例 = 壁纸上屏区域，这样引擎/Launcher 那一次「居中裁剪铺满」就变成
+     空操作，裁剪页里看到的效果与实际设为壁纸后的效果一致（v3.3 之前取景框只有屏幕高减去
+     顶部提示与底部按钮条，比例偏窄，上屏后左右还会被再裁掉一截、整体放大 —— 预览与实况不符）。
+     因此提示与按钮改为浮层（layout_gravity + margin），不再占用布局高度；
+     系统栏（状态栏/刘海/手势条）避让只施加在浮层容器 edit_controls 上，裁剪区本身保持满屏。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/edit_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/page_bg"
-    android:orientation="vertical">
+    android:background="@color/page_bg">
 
-    <TextView
-        android:id="@+id/tv_edit_hint"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/card_bg"
-        android:paddingStart="20dp"
-        android:paddingTop="14dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="14dp"
-        android:text="@string/edit_hint"
-        android:textColor="@color/text_secondary"
-        android:textSize="13sp" />
-
+    <!-- 手势裁剪区：满屏，不避让系统栏（壁纸本来就铺满整屏，含状态栏与手势条区域） -->
     <com.example.wallswitch.CropView
         android:id="@+id/crop_view"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_height="match_parent" />
 
-    <LinearLayout
+    <!-- 浮层容器：只有它避让状态栏/刘海/手势条，裁剪区不受影响 -->
+    <FrameLayout
+        android:id="@+id/edit_controls"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/card_bg"
-        android:elevation="6dp"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="10dp">
+        android:layout_height="match_parent">
 
-        <com.google.android.material.button.MaterialButton
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:id="@+id/btn_cancel"
-            android:layout_width="0dp"
+        <!-- 操作提示：半透明胶囊，尽量少遮挡取景内容 -->
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/cancel" />
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/overlay_pill_bg"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:text="@string/edit_hint"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_confirm"
-            android:layout_width="0dp"
+        <!-- 操作按钮：浮在取景框之上，各占一半宽，不用整条背景 -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:text="@string/confirm" />
-    </LinearLayout>
-</LinearLayout>
+            android:layout_gravity="bottom"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="16dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_cancel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/cancel"
+                android:textColor="@android:color/white"
+                app:backgroundTint="#8C000000" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_confirm"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="@string/confirm" />
+        </LinearLayout>
+    </FrameLayout>
+</FrameLayout>

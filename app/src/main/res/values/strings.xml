@@ -131,7 +131,7 @@
     <string name="empty_wallpapers_hint">点右下角「添加壁纸」从相册导入</string>
     <string name="manual_switch">手动切换</string>
     <string name="section_engine">引擎与后台</string>
-    <string name="edit_hint">双指缩放、单指拖动调整裁剪范围，确认后保存到当前壁纸库</string>
+    <string name="edit_hint">双指缩放 · 单指拖动调整构图</string>
 
     <!-- v3.2：设置改为左侧滑出抽屉；两个手动切换按钮合并为一个 -->
     <string name="switch_pick">切换壁纸</string>
