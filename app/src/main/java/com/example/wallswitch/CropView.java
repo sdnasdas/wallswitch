@@ -24,6 +24,11 @@ public class CropView extends View {
     private final Matrix matrix = new Matrix();
     private float minScale = 1f;
     private float maxScale = 1f;
+    // 矩阵是否已按当前位图与视图尺寸初始化过。
+    // 这个标记是必需的：resetLayout 一旦在位图/尺寸还没就绪时提前返回，
+    // minScale/maxScale 会停在字段初值 1f/1f、matrix 停在单位矩阵，
+    // 表现就是「捏合被钳死在 1 倍、拖动挪不动、导出等于原图」且完全无报错。
+    private boolean matrixReady = false;
     // 上一次触点坐标（拖动用）
     private float lastX = 0f;
     private float lastY = 0f;
@@ -42,18 +47,25 @@ public class CropView extends View {
     /** 设置待编辑图片并按 fit-cover 重置。 */
     public void setBitmap(Bitmap bitmap) {
         this.bitmap = bitmap;
+        matrixReady = false;
         resetLayout();
+        // 尺寸可能已经就绪但位图是后到的，主动走一次布局，保证 resetLayout 能拿到有效尺寸
+        requestLayout();
+        invalidate();
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
+        matrixReady = false;
         resetLayout();
     }
 
     /** fit-cover 初始化：等比放大到覆盖视图并居中，确定缩放范围。 */
     private void resetLayout() {
         if (bitmap == null || getWidth() == 0 || getHeight() == 0) {
+            // 条件不满足时明确标记为「未就绪」，交给 onDraw / onTouchEvent 兜底重试
+            matrixReady = false;
             return;
         }
         float viewW = getWidth();
@@ -68,7 +80,25 @@ public class CropView extends View {
         float drawW = bmpW * coverScale;
         float drawH = bmpH * coverScale;
         matrix.postTranslate((viewW - drawW) / 2f, (viewH - drawH) / 2f);
+        matrixReady = true;
         invalidate();
+    }
+
+    /** 兜底：只要位图与视图尺寸都就绪，就一定把矩阵初始化好（幂等）。 */
+    private void ensureMatrixReady() {
+        if (!matrixReady) {
+            resetLayout();
+        }
+    }
+
+    /** 诊断用：矩阵是否已初始化成功。未成功时 minScale/maxScale 会停在 1f/1f。 */
+    public boolean isMatrixReady() {
+        return matrixReady;
+    }
+
+    /** 诊断用：当前缩放区间，未初始化时会是 1.000~1.000。 */
+    public String debugScaleRange() {
+        return minScale + "~" + maxScale;
     }
 
     @Override
@@ -76,6 +106,8 @@ public class CropView extends View {
         if (bitmap == null) {
             return false;
         }
+        // 手势进来时先自查一次，避免首次绘制前触摸导致整页手势失效
+        ensureMatrixReady();
         boolean handled = scaleDetector.onTouchEvent(event);
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -105,9 +137,13 @@ public class CropView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (bitmap != null) {
-            canvas.drawBitmap(bitmap, matrix, null);
+        if (bitmap == null) {
+            return;
         }
+        // 兜底：不论什么原因导致矩阵没初始化，在真正绘制前补上，
+        // 否则会出现「图片不铺满 + 捏合无反应 + 导出等于原图」这种静默失效
+        ensureMatrixReady();
+        canvas.drawBitmap(bitmap, matrix, null);
     }
 
     /** 双指缩放回调：围绕手势焦点缩放并钳制范围与边界。 */
@@ -168,6 +204,8 @@ public class CropView extends View {
         if (bitmap == null) {
             return null;
         }
+        // 导出前再确认一次矩阵已就绪，保证导出的就是用户当前看到的构图
+        ensureMatrixReady();
         Matrix inverse = new Matrix();
         matrix.invert(inverse);
         RectF visible = new RectF(0f, 0f, getWidth(), getHeight());

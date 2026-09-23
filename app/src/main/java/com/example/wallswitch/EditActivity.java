@@ -3,6 +3,7 @@ package com.example.wallswitch;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -51,6 +52,7 @@ public class EditActivity extends AppCompatActivity {
             return;
         }
         cropView.setBitmap(bitmap);
+        reportCropInitIfBroken(bitmap);
         Button btnConfirm = findViewById(R.id.btn_confirm);
         btnConfirm.setOnClickListener(v -> onConfirm());
         Button btnCancel = findViewById(R.id.btn_cancel);
@@ -78,5 +80,29 @@ public class EditActivity extends AppCompatActivity {
     private void onCancel() {
         WallpaperStore.cancelImport(this, inboxId);
         finish();
+    }
+
+    /**
+     * 临时诊断：只有在裁剪视图的矩阵没能初始化时才把「视图尺寸 / 图片尺寸 / 缩放区间」
+     * 追加到顶部提示行；正常情况下这行文案原样不变。
+     * 用于定位「捏合无反应 + 拖动挪不动 + 导出等于原图」这类静默失效（无任何报错）。
+     * 确认问题解决后可以整段删掉。
+     */
+    private void reportCropInitIfBroken(Bitmap bitmap) {
+        TextView hint = findViewById(R.id.tv_edit_hint);
+        if (hint == null) {
+            return;
+        }
+        final int bmpW = bitmap.getWidth();
+        final int bmpH = bitmap.getHeight();
+        hint.postDelayed(() -> {
+            if (isFinishing() || cropView.isMatrixReady()) {
+                return;
+            }
+            hint.setText(getString(R.string.edit_hint)
+                    + "\n[诊断] 裁剪未初始化：视图 " + cropView.getWidth() + "×" + cropView.getHeight()
+                    + "，图片 " + bmpW + "×" + bmpH
+                    + "，缩放 " + cropView.debugScaleRange());
+        }, 500L);
     }
 }
