@@ -25,6 +25,11 @@ public final class InsetsHelper {
     public static void apply(Activity activity, int rootId) {
         // 统一关闭 decor 自动避让：任何版本下内容都按边到边布局，
         // 安全区完全由下面的 insets padding 处理，避免新旧版本行为不一致/重复内边距
+        // 导航栏透明时系统会默认叠加半透明对比度遮罩（API 29+），关闭以保持与页面底色一致。
+        // 状态栏无对应 API，不需要处理。
+        if (Build.VERSION.SDK_INT >= 29) {
+            activity.getWindow().setNavigationBarContrastEnforced(false);
+        }
         if (Build.VERSION.SDK_INT >= 30) {
             activity.getWindow().setDecorFitsSystemWindows(false);
         } else {

@@ -9,8 +9,8 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:windowStatusBarContrastEnforced">false</item>
-        <item name="android:windowNavigationBarContrastEnforced">false</item>
+        <!-- 导航栏对比度遮罩在 InsetsHelper 里按 API 29+ 代码关闭（主题属性 android:windowNavigationBarContrastEnforced
+             链接期不可靠，windowStatusBarContrastEnforced 属性并不存在，勿写进主题） -->
         <item name="android:windowBackground">@color/page_bg</item>
     </style>
 
