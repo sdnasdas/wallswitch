@@ -25,8 +25,21 @@ jobs:
         with:
           gradle-version: 8.7
 
+      - name: Decode signing keystore
+        # 固定签名：keystore 以 base64 存于 GitHub Secrets，保证每次 CI 构建签名一致、可覆盖安装
+        run: |
+          if [ -z "${{ secrets.WALLSWITCH_KEYSTORE_BASE64 }}" ]; then
+            echo "::error::Secret WALLSWITCH_KEYSTORE_BASE64 未配置，无法固定签名"
+            exit 1
+          fi
+          echo "${{ secrets.WALLSWITCH_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/wallswitch.keystore"
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
+        env:
+          WALLSWITCH_KEYSTORE_PATH: ${{ runner.temp }}/wallswitch.keystore
+          WALLSWITCH_KEYSTORE_PASSWORD: ${{ secrets.WALLSWITCH_KEYSTORE_PASSWORD }}
+          WALLSWITCH_KEY_ALIAS: ${{ secrets.WALLSWITCH_KEY_ALIAS }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
