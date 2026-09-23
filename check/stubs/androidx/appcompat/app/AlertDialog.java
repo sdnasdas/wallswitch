@@ -31,6 +31,14 @@ public class AlertDialog {
             return this;
         }
 
+        public Builder setCustomTitle(View customTitleView) {
+            return this;
+        }
+
+        public Builder setItems(CharSequence[] items, DialogInterface.OnClickListener listener) {
+            return this;
+        }
+
         public Builder setPositiveButton(int textId, DialogInterface.OnClickListener listener) {
             return this;
         }

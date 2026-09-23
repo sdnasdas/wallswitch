@@ -12,6 +12,9 @@ public class Toolbar extends android.view.View {
     public void setTitle(CharSequence title) {
     }
 
+    public void setNavigationOnClickListener(android.view.View.OnClickListener listener) {
+    }
+
     public void setOnMenuItemClickListener(OnMenuItemClickListener listener) {
     }
 

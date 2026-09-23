@@ -17,6 +17,20 @@ public class RecyclerView extends android.view.ViewGroup {
     public void setAdapter(Adapter adapter) {
     }
 
+    public void addOnScrollListener(OnScrollListener listener) {
+    }
+
+    public static final int SCROLL_STATE_DRAGGING = 1;
+
+    /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.OnScrollListener。 */
+    public abstract static class OnScrollListener {
+        public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+        }
+
+        public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+        }
+    }
+
     public abstract static class LayoutManager {
     }
 

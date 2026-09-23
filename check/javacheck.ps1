@@ -19,7 +19,7 @@ if (-not (Test-Path $androidJar)) {
 }
 
 # 1) 从源码收集 R.* 引用，生成 R 桩（真实 R 由构建工具生成，本地用桩代替）
-$types = 'id', 'string', 'layout', 'style', 'drawable', 'array'
+$types = 'id', 'string', 'layout', 'style', 'drawable', 'array', 'color', 'dimen', 'bool'
 $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('package com.example.wallswitch;')
 [void]$sb.AppendLine('public final class R {')

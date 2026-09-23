@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -14,6 +15,7 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
 import android.util.LruCache;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,7 +25,6 @@ import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Filter;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
@@ -37,10 +38,10 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -84,6 +85,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         // 全面屏/刘海屏适配：内容避开状态栏、刘海与底部手势条（Android 15 强制边到边）
         InsetsHelper.apply(this, R.id.main_root);
+        // 左侧抽屉是独立面板（不在 main_root 里），也要避开状态栏与底部手势条，
+        // 否则抽屉顶部的版本行会被状态栏压住
+        InsetsHelper.apply(this, R.id.drawer_content);
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         // 注册系统相册多选（PickVisualMedia，无需存储权限）
         pickLauncher = registerForActivityResult(
@@ -94,54 +98,71 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.RequestPermission(),
                 this::onNotifyPermissionResult);
         recycler = findViewById(R.id.recycler);
-        // 2 列网格：缩略图更大更直观（v2.1 是单列小图列表，一屏看不了几张）
-        recycler.setLayoutManager(new GridLayoutManager(this, 2));
+        // 单列长条：横向长条卡片垂直排布（v3.1 的 2 列网格每一格太小，删除按钮也难看）
+        recycler.setLayoutManager(new LinearLayoutManager(this));
         adapter = new Adapter();
         recycler.setAdapter(adapter);
-        setupTabs();
+        // 列表一开始滚动就收起滑开的行，避免滑开状态一直留在屏幕上
+        recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    adapter.closeRevealed();
+                }
+            }
+        });
+        setupDrawer();
         setupLibViews();
         setupButtons();
         setupTimerSwitch();
         setupNotifySwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
-        // 标题显示版本号：便于确认手机上安装的是哪一版（每次提交都会递增）
-        showVersionInTitle();
+        // 顶栏标题＝当前壁纸库名字（版本号移到设置抽屉顶部）
+        refreshTitle();
     }
 
-    /** 标题栏显示「应用名 v版本名」，版本取自安装包信息（与 build.gradle 的 versionName 一致）。 */
-    private void showVersionInTitle() {
-        String version = null;
-        try {
-            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception ignored) {
-        }
-        if (version == null || version.isEmpty()) {
-            return;
-        }
+    /**
+     * 顶栏标题＝当前壁纸库名字（替代原先的「应用名 v版本号」）。
+     * 版本号移到设置抽屉顶部的版本行，保留「确认手机上装的是哪一版」这个用途。
+     */
+    private void refreshTitle() {
         Toolbar toolbar = findViewById(R.id.toolbar);
         if (toolbar != null) {
-            toolbar.setTitle(getString(R.string.title_with_version, getString(R.string.app_name), version));
+            LibraryStore.Library lib = currentLib();
+            toolbar.setTitle(lib == null || lib.name == null || lib.name.isEmpty()
+                    ? getString(R.string.app_name) : lib.name);
+        }
+        TextView version = findViewById(R.id.tv_version);
+        if (version == null) {
+            return;
+        }
+        String name = null;
+        try {
+            name = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {
+        }
+        if (name != null && !name.isEmpty()) {
+            version.setText(getString(R.string.title_with_version, getString(R.string.app_name), name));
         }
     }
 
-    /** 底部双 Tab：壁纸 / 设置。两个页面用 visibility 切换，不引入 ViewPager2 依赖。 */
-    private void setupTabs() {
-        BottomNavigationView nav = findViewById(R.id.bottom_nav);
-        if (nav == null) {
+    /** 左侧设置抽屉：点顶栏左侧图标打开，右滑手势由 DrawerLayout 自带。 */
+    private void setupDrawer() {
+        DrawerLayout drawer = findViewById(R.id.drawer_layout);
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        if (drawer == null || toolbar == null) {
             return;
         }
-        nav.setOnItemSelectedListener(item -> {
-            boolean showWallpapers = item.getItemId() == R.id.nav_wallpapers;
-            findViewById(R.id.page_wallpapers).setVisibility(showWallpapers ? View.VISIBLE : View.GONE);
-            findViewById(R.id.page_settings).setVisibility(showWallpapers ? View.GONE : View.VISIBLE);
-            // 切到设置页时同步一次状态（可能刚在壁纸页改动过库/壁纸）
-            if (!showWallpapers) {
+        toolbar.setNavigationOnClickListener(v -> drawer.openDrawer(Gravity.START));
+        // 抽屉每次打开都同步一次设置状态（可能在壁纸页改过库或壁纸）
+        drawer.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
+            @Override
+            public void onDrawerOpened(View drawerView) {
                 refreshLibSettings();
                 refreshTimerStatus();
                 refreshBatteryButton();
             }
-            return true;
         });
     }
 
@@ -229,6 +250,9 @@ public class MainActivity extends AppCompatActivity {
         }
         refreshLibSettings();
         refreshList();
+        // 顶栏标题＝库名；底部切换按钮文案随当前库范围变化
+        refreshTitle();
+        refreshSwitchButton();
         // 定时状态行与电池优化状态（判断后台是否能被唤醒）
         refreshTimerStatus();
         refreshBatteryButton();
@@ -272,16 +296,59 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 手动切换/添加/电池按钮。 */
+    /** 添加/切换/电池/引擎按钮。 */
     private void setupButtons() {
         findViewById(R.id.btn_add).setOnClickListener(v -> launchPicker());
-        findViewById(R.id.btn_switch_home).setOnClickListener(v -> switchAndToast(true));
-        findViewById(R.id.btn_switch_lock).setOnClickListener(v -> switchAndToast(false));
+        findViewById(R.id.btn_switch).setOnClickListener(v -> onSwitchClicked());
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
         // v2.0：引擎模式引导——打开系统动态壁纸选择器并预选本引擎
         findViewById(R.id.btn_engine).setOnClickListener(v -> WallSwitchService.openActivator(this));
         // 电池优化是否已允许，直接显示在按钮上（决定后台定时能否被系统唤醒）
         refreshBatteryButton();
+        refreshSwitchButton();
+    }
+
+    /**
+     * 合并后的手动切换入口（原来「切换桌面 / 切换锁屏」两个按钮合一）：
+     * 当前库只勾了桌面就直接切桌面，只勾了锁屏就直接切锁屏；
+     * 桌面+锁屏都勾（或都没勾）时先弹出范围选择，避免误切到用户没想要的那一边。
+     */
+    private void onSwitchClicked() {
+        LibraryStore.Library lib = currentLib();
+        boolean home = lib != null && lib.home;
+        boolean lock = lib != null && lib.lock;
+        if (home && !lock) {
+            switchAndToast(true);
+            return;
+        }
+        if (lock && !home) {
+            switchAndToast(false);
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.switch_pick_scope)
+                .setItems(new CharSequence[]{getString(R.string.scope_home), getString(R.string.scope_lock)},
+                        (dialog, which) -> switchAndToast(which == 0))
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 切换按钮文案随当前库范围变化：单一范围直接切，多范围走选择。 */
+    private void refreshSwitchButton() {
+        Button btn = findViewById(R.id.btn_switch);
+        if (btn == null) {
+            return;
+        }
+        LibraryStore.Library lib = currentLib();
+        boolean home = lib != null && lib.home;
+        boolean lock = lib != null && lib.lock;
+        if (home && !lock) {
+            btn.setText(R.string.switch_home);
+        } else if (lock && !home) {
+            btn.setText(R.string.switch_lock);
+        } else {
+            btn.setText(R.string.switch_pick);
+        }
     }
 
     /** 定时切换总开关：关闭时不排定任何定时任务（手动切换与小组件不受影响）。 */
@@ -731,12 +798,14 @@ public class MainActivity extends AppCompatActivity {
         View content = LayoutInflater.from(this).inflate(R.layout.dialog_preview, null, false);
         ImageView preview = content.findViewById(R.id.img_preview);
         TextView info = content.findViewById(R.id.tv_preview_info);
+        // 弹窗标题直接就是壁纸标题（不再是「预览」+「改标题」按钮）：点标题即可改名
+        final TextView titleView = buildEditableTitle(itemTitle(item));
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.preview_title)
+                .setCustomTitle(titleView)
                 .setView(content)
-                .setNeutralButton(R.string.rename_title, (d, which) -> showRenameDialog(item))
                 .setPositiveButton(R.string.close, null)
                 .create();
+        titleView.setOnClickListener(v -> showRenameDialog(item, titleView));
         dialog.show();
         // 大图解码要几百毫秒，放后台线程，避免点一下卡住列表
         new Thread(() -> {
@@ -758,19 +827,36 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 preview.setImageBitmap(bitmap);
-                info.setText(previewInfoText(item, width, height));
+                info.setText(getString(R.string.preview_info, width, height));
             });
         }, "thumb-preview").start();
     }
 
-    /** 预览信息行：标题 + 实际像素尺寸。 */
-    private String previewInfoText(WallpaperStore.Item item, int width, int height) {
-        String title = item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
-        return getString(R.string.title_label, title) + "\n" + getString(R.string.preview_info, width, height);
+    /** 预览弹窗标题：壁纸标题 + 铅笔图标，点击即可改名（不再单设「改标题」按钮）。 */
+    private TextView buildEditableTitle(String text) {
+        int density = (int) getResources().getDisplayMetrics().density;
+        TextView title = new TextView(this);
+        title.setText(text);
+        title.setTextSize(20);
+        title.setTextColor(getColor(R.color.text_primary));
+        title.setTypeface(null, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_edit, 0);
+        title.setCompoundDrawablePadding(8 * density);
+        title.setPadding(24 * density, 20 * density, 24 * density, 0);
+        return title;
     }
 
-    /** 重命名壁纸标题（通知里会带上这个标题，便于区分切到了哪张）。 */
-    private void showRenameDialog(WallpaperStore.Item item) {
+    /** 壁纸显示名（未命名则用占位文案）。 */
+    private String itemTitle(WallpaperStore.Item item) {
+        return item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
+    }
+
+    /**
+     * 重命名壁纸标题（通知里会带上这个标题，便于区分切到了哪张）。
+     * 从预览弹窗点标题直接进来，改完顺手把弹窗标题一起刷新。
+     */
+    private void showRenameDialog(WallpaperStore.Item item, TextView dialogTitle) {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setText(item.title == null ? "" : item.title);
@@ -778,8 +864,14 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.rename_title)
                 .setView(wrapInput(input, R.string.rename_hint))
                 .setPositiveButton(R.string.confirm, (dialog, which) -> {
-                    WallpaperStore.setTitle(MainActivity.this, item.id, input.getText().toString().trim());
+                    String newTitle = input.getText().toString().trim();
+                    WallpaperStore.setTitle(MainActivity.this, item.id, newTitle);
+                    // 本地快照同步，避免在同一弹窗里再次改名时回填旧值
+                    item.title = newTitle;
                     refreshList();
+                    if (dialogTitle != null) {
+                        dialogTitle.setText(itemTitle(item));
+                    }
                 })
                 .setNegativeButton(R.string.cancel, null)
                 .show();
@@ -825,6 +917,9 @@ public class MainActivity extends AppCompatActivity {
 
         private List<WallpaperStore.Item> items = new ArrayList<>();
 
+        // 当前处于「左滑露出删除」状态的行（同一时间只允许一行滑开）
+        private SwipeRevealLayout revealed;
+
         // 缩略图内存缓存（上限 4MB）：网格一屏要绑 6~8 张，每次刷新都重新解码会掉帧
         private final LruCache<String, Bitmap> thumbs = new LruCache<String, Bitmap>(4 * 1024 * 1024) {
             @Override
@@ -848,7 +943,17 @@ public class MainActivity extends AppCompatActivity {
 
         void setItems(List<WallpaperStore.Item> newItems) {
             items = newItems;
+            // 数据已换，之前滑开的行不复存在（视图会被回收），引用一并清掉
+            revealed = null;
             notifyDataSetChanged();
+        }
+
+        /** 收起当前滑开的行（列表开始滚动时调用，避免滑开状态留在屏幕上）。 */
+        void closeRevealed() {
+            if (revealed != null) {
+                revealed.close();
+                revealed = null;
+            }
         }
 
         @NonNull
@@ -864,13 +969,29 @@ public class MainActivity extends AppCompatActivity {
             final WallpaperStore.Item item = items.get(position);
             holder.imgThumb.setImageBitmap(thumbFor(item.id));
             // 缩略图旁显示壁纸标题（未命名则用占位文案）
-            holder.tvTitle.setText(item.title == null || item.title.isEmpty()
-                    ? getString(R.string.untitled) : item.title);
-            // 整卡（含缩略图）点击都进预览：网格里缩略图更小，只有全图才能判断比例/是否被裁过
-            View.OnClickListener open = v -> showPreview(item);
-            holder.itemView.setOnClickListener(open);
-            holder.imgThumb.setOnClickListener(open);
-            holder.btnDelete.setOnClickListener(v -> confirmDelete(item));
+            holder.tvTitle.setText(itemTitle(item));
+            // 视图复用：先收起，避免上一行的滑开状态串到新数据上
+            holder.row.close();
+            holder.row.setOnRevealListener(layout -> {
+                // 同一时间只允许一行处于滑开状态
+                if (revealed != null && revealed != layout) {
+                    revealed.close();
+                }
+                revealed = layout;
+            });
+            // 内容区单击进预览；已经滑开时单击先收起（相当于取消）
+            holder.content.setOnClickListener(v -> {
+                if (holder.row.isOpen()) {
+                    holder.row.close();
+                } else {
+                    showPreview(item);
+                }
+            });
+            // 左滑露出的删除按钮
+            holder.actions.setOnClickListener(v -> {
+                holder.row.close();
+                confirmDelete(item);
+            });
         }
 
         @Override
@@ -882,15 +1003,19 @@ public class MainActivity extends AppCompatActivity {
     /** 列表项视图持有者。 */
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
+        final SwipeRevealLayout row;
+        final View content;
+        final View actions;
         final ImageView imgThumb;
         final TextView tvTitle;
-        final ImageButton btnDelete;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
+            row = (SwipeRevealLayout) itemView;
+            content = itemView.findViewById(R.id.item_content);
+            actions = itemView.findViewById(R.id.item_actions);
             imgThumb = itemView.findViewById(R.id.img_thumb);
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
-            btnDelete = itemView.findViewById(R.id.btn_delete);
         }
     }
 }

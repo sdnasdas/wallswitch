@@ -1,60 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 壁纸网格项（v3.0）：1:1 圆角缩略图 + 标题 + 删除按钮。
-     整卡可点开预览（缩略图太小，只有全图才能判断比例/是否被裁过）。 -->
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 壁纸行（v3.2）：外层 SwipeRevealLayout 支持左滑露出删除按钮。
+     子 View 顺序固定：0 = 右侧操作区（在下层，滑开后露出），1 = 整行内容卡片（在上层，可左移）。
+     缩略图缩成 44dp 小方块（约一行文字大小），行内以标题文字为主，不再让图片占满整行。 -->
+<com.example.wallswitch.SwipeRevealLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginHorizontal="6dp"
-    android:layout_marginVertical="6dp"
-    android:clickable="true"
-    android:focusable="true"
-    app:cardBackgroundColor="@color/card_bg"
-    app:cardCornerRadius="16dp"
-    app:cardElevation="1dp">
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginVertical="4dp">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="8dp">
+    <!-- 操作区：左滑后露出的删除按钮 -->
+    <LinearLayout
+        android:id="@+id/item_actions"
+        android:layout_width="88dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/item_action_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:orientation="vertical">
 
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/img_thumb"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:contentDescription="@string/thumb_desc"
-            android:scaleType="centerCrop"
-            app:layout_constraintDimensionRatio="1:1"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:shapeAppearanceOverlay="@style/RoundedThumb"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp" />
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:contentDescription="@string/delete"
+            android:src="@drawable/ic_delete"
+            android:tint="@android:color/white" />
 
         <TextView
-            android:id="@+id/tv_wallpaper_title"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp"
-            app:layout_constraintEnd_toStartOf="@+id/btn_delete"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/img_thumb" />
+            android:layout_marginTop="4dp"
+            android:text="@string/delete"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+    </LinearLayout>
 
-        <ImageButton
-            android:id="@+id/btn_delete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/delete"
-            android:src="@android:drawable/ic_menu_delete"
-            android:tint="@color/danger"
-            app:layout_constraintBottom_toBottomOf="@+id/tv_wallpaper_title"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@+id/tv_wallpaper_title" />
-    </androidx.constraintlayout.widget.ConstraintLayout>
-</com.google.android.material.card.MaterialCardView>
+    <!-- 内容区：整行卡片 -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/item_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clickable="true"
+        android:focusable="true"
+        app:cardBackgroundColor="@color/card_bg"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="1dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:minHeight="64dp"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="10dp">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/img_thumb"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="@string/thumb_desc"
+                android:scaleType="centerCrop"
+                app:shapeAppearanceOverlay="@style/RoundedThumb"
+                app:strokeColor="@color/divider"
+                app:strokeWidth="1dp" />
+
+            <TextView
+                android:id="@+id/tv_wallpaper_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</com.example.wallswitch.SwipeRevealLayout>
