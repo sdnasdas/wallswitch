@@ -6,6 +6,8 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
@@ -33,25 +35,17 @@ public class WidgetProvider extends AppWidgetProvider {
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         if (ACTION_SWITCH.equals(action)) {
-            // 切换桌面与锁屏各自的启用库（没有则跳过）
-            boolean attempted = false;
-            boolean ok = false;
-            LibraryStore.Library home = LibraryStore.enabledLibForScope(context, true);
-            if (home != null) {
-                attempted = true;
-                ok |= Switcher.next(context, home.id, true);
-            }
-            LibraryStore.Library lock = LibraryStore.enabledLibForScope(context, false);
-            if (lock != null) {
-                attempted = true;
-                ok |= Switcher.next(context, lock.id, false);
-            }
-            // 全部失败时提示具体原因（此前静默失败，用户会误以为已切换）
-            if (attempted && !ok) {
-                Toast.makeText(context, Switcher.errorText(context, Switcher.lastError()),
-                        Toast.LENGTH_LONG).show();
-            }
-            updateWidget(context);
+            // 切换含大图解码、系统调用与失败时的延迟重试（Switcher 内部），不能放主线程
+            final PendingResult pending = goAsync();
+            final Context app = context.getApplicationContext();
+            new Thread(() -> {
+                try {
+                    switchNow(app);
+                } catch (Exception ignored) {
+                } finally {
+                    pending.finish();
+                }
+            }, "widget-switch").start();
             return;
         }
         if (AppWidgetManager.ACTION_APPWIDGET_UPDATE.equals(action)) {
@@ -75,6 +69,29 @@ public class WidgetProvider extends AppWidgetProvider {
                 }
             }
         }, "widget-catchup").start();
+    }
+
+    /** 点按小组件（后台线程执行）：切换桌面与锁屏各自的启用库（没有则跳过），全部失败时提示具体原因。 */
+    private static void switchNow(final Context app) {
+        boolean attempted = false;
+        boolean ok = false;
+        LibraryStore.Library home = LibraryStore.enabledLibForScope(app, true);
+        if (home != null) {
+            attempted = true;
+            ok |= Switcher.next(app, home.id, true);
+        }
+        LibraryStore.Library lock = LibraryStore.enabledLibForScope(app, false);
+        if (lock != null) {
+            attempted = true;
+            ok |= Switcher.next(app, lock.id, false);
+        }
+        // 全部失败时提示具体原因（此前静默失败，用户会误以为已切换）；Toast 必须回到主线程弹
+        if (attempted && !ok) {
+            final String reason = Switcher.errorText(app, Switcher.lastError());
+            new Handler(Looper.getMainLooper()).post(() ->
+                    Toast.makeText(app, reason, Toast.LENGTH_LONG).show());
+        }
+        updateWidget(app);
     }
 
     /** 渲染所有已放置的小组件（切换完成后由 Switcher 调用刷新缩略图）。 */

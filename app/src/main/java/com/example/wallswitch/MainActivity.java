@@ -531,19 +531,27 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
-    /** 手动切换：作用于该范围当前启用的库（与小组件、定时行为一致）。 */
-    private void switchAndToast(boolean forHome) {
-        LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, forHome);
+    /** 手动切换：作用于该范围当前启用的库（与小组件、定时行为一致）。
+     *  切换含大图解码、系统调用与失败时的延迟重试（Switcher 内部），放后台线程避免卡 UI。 */
+    private void switchAndToast(final boolean forHome) {
+        final LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, forHome);
         if (lib == null) {
             Toast.makeText(this, R.string.switch_failed, Toast.LENGTH_SHORT).show();
             return;
         }
-        if (Switcher.next(this, lib.id, forHome)) {
-            Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
-        } else {
-            // 带上具体失败原因（如桌面被动态壁纸占用），方便用户对症处理
-            Toast.makeText(this, Switcher.errorText(this, Switcher.lastError()), Toast.LENGTH_LONG).show();
-        }
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            final boolean ok = Switcher.next(app, lib.id, forHome);
+            runOnUiThread(() -> {
+                if (ok) {
+                    Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
+                } else {
+                    // 带上具体失败原因（如桌面被动态壁纸占用），方便用户对症处理
+                    Toast.makeText(this, Switcher.errorText(this, Switcher.lastError()),
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "manual-switch").start();
     }
 
     /** 打开系统相册多选。 */
