@@ -405,17 +405,67 @@ public class WallpaperStore {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inSampleSize = calcSampleSize(bounds.outWidth, bounds.outHeight, maxDim);
         Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
-        return scaleToFit(bitmap, maxDim);
+        Bitmap scaled = scaleToFit(bitmap, maxDim);
+        // 缩放会产生第二份位图，原始那份要立刻回收，否则大图会瞬时占两份内存
+        if (scaled != bitmap && bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
+        return scaled;
     }
 
     /** 计算 inSampleSize（2 的幂），保证解码后最长边不超过 maxDim。 */
     private static int calcSampleSize(int width, int height, int maxDim) {
+        long longest = Math.max(width, height);
         int sample = 1;
-        int longest = Math.max(width, height);
-        while (longest / sample > maxDim) {
+        // 只要「再放粗一倍后最长边仍不低于 maxDim」就继续放粗，保证解码结果不小于目标分辨率。
+        // 老逻辑是「一旦低于 maxDim 就停」，会把 8981 的源图解成 2245（2 的幂只能取 1/2/4…，
+        // 4 就掉到 2245、2 又太大），于是裁剪取景框被放大、导出连屏幕分辨率都达不到。
+        while (sample * 2L * maxDim <= longest) {
+            sample *= 2;
+        }
+        // 像素预算兜底：超过堆预算就继续放粗，宁可略糊也不能 OOM
+        long budget = decodePixelBudget();
+        while ((long) (width / sample) * (height / sample) > budget) {
             sample *= 2;
         }
         return sample;
+    }
+
+    /** 解码像素预算：应用堆上限的 1/4 再按 4 字节/像素折算，下限 4MP、上限 24MP。 */
+    private static long decodePixelBudget() {
+        long pixels = Runtime.getRuntime().maxMemory() / 16;
+        if (pixels < 4L * 1024 * 1024) {
+            return 4L * 1024 * 1024;
+        }
+        return Math.min(pixels, 24L * 1024 * 1024);
+    }
+
+    /**
+     * 解码裁剪页源图：在像素预算内取<b>最小</b>的 2 的幂采样（采样越小越清晰），解码后不再二次缩小。
+     * 原来的 decodeBounded 会在采样之后再用 scaleToFit 缩到一个固定上限，等于把预算里还剩的
+     * 清晰度又扔掉一次 —— 这是「尽可能清晰」的关键一步。
+     * 返回位图像素数不超过 decodePixelBudget()，因此内存可控。
+     */
+    public static Bitmap decodeCropSource(File file) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        long budget = decodePixelBudget();
+        int sample = 1;
+        while (pixelsAt(bounds.outWidth, bounds.outHeight, sample) > budget) {
+            sample *= 2;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = sample;
+        return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+    }
+
+    /** 按采样倍数估算解码后的像素数（向上取整，宁可保守）。 */
+    private static long pixelsAt(int width, int height, int sample) {
+        return (long) Math.ceil(width / (double) sample) * (long) Math.ceil(height / (double) sample);
     }
 
     /** 等比缩放位图使最长边不超过 maxDim；位图为空或无需缩放时原样返回。 */

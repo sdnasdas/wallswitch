@@ -22,11 +22,9 @@ import java.util.List;
  * 取消则丢弃收件箱文件。
  *
  * v3.4 起裁剪区铺满整屏：取景框比例 = 屏幕比例 = 壁纸上屏区域，预览与实况一致。
- * v3.5 起右上角提供两个「桌面图标预览」开关：
- *   网格图标 = 内置示意网格（无需准备，近似）；
- *   图片图标 = 叠加自己的首页截图（已抠图，只留图标与文字）。首页截图是<b>全局设置</b>，
- *   只需在设置抽屉里设一次并保存在应用目录，这里直接读取，不用每次重选；
- *   若还没设过，点该按钮会直接让你选一张，选完也会顺手存成全局底图。
+ * 右上角一个「桌面图标预览」开关：叠加自己的首页截图（已抠图，只留图标与文字），
+ * 用来判断构图主体会不会被桌面图标挡住。首页截图是**全局设置**，只需在设置抽屉里设一次并保存在
+ * 应用目录，这里直接读取；若还没设过，点该按钮会直接让你选一张，选完也会顺手存成全局底图。
  */
 public class EditActivity extends AppCompatActivity {
 
@@ -34,18 +32,19 @@ public class EditActivity extends AppCompatActivity {
     public static final String EXTRA_INBOX_ID = "inbox_id";
     // 目标壁纸库 id 的 Intent extra key
     public static final String EXTRA_LIB_ID = "lib_id";
-    // 解码与导出尺寸上限见 WallpaperStore.maxWallpaperDim（按屏幕长边自适应，避免上屏被放大）
+    // 导出尺寸上限：按屏幕长边自适应（见 WallpaperStore.maxWallpaperDim）
+    private static final int MAX_DIM_FALLBACK = 2048;
     // 预览开关的关闭态底色（半透明黑）；开启态用品牌色
     private static final int TOGGLE_OFF_COLOR = 0x8C000000;
 
     private CropView cropView;
-    // 本次编辑用的分辨率上限（onCreate 里按屏幕长边算好，解码与导出共用同一个值）
-    private int maxDim;
     private String inboxId;
     private String libId;
 
+    // 导出上限（onCreate 里按屏幕长边算好；导出比屏幕分辨率更大没有意义，系统还要再缩一次）
+    private int maxDim = MAX_DIM_FALLBACK;
+
     private LauncherPreviewOverlay overlay;
-    private ImageButton toggleMock;
     private ImageButton toggleShot;
     private ActivityResultLauncher<PickVisualMediaRequest> shotLauncher;
 
@@ -53,23 +52,17 @@ public class EditActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit);
-        // 桌面图标预览浮层：需要真实系统栏高度，才能把状态栏与 Dock 画在实际上屏的位置
         overlay = findViewById(R.id.launcher_overlay);
-        toggleMock = findViewById(R.id.btn_icon_preview);
         toggleShot = findViewById(R.id.btn_shot_overlay);
         shotLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onShotPicked);
         // 全面屏/刘海屏适配：只让浮层（提示与按钮）避开状态栏与底部手势条；
         // 裁剪区本身保持满屏，取景框比例才等于壁纸上屏区域（否则预览与实况不一致）
-        InsetsHelper.apply(this, R.id.edit_controls,
-                (left, top, right, bottom) -> {
-                    if (overlay != null) {
-                        overlay.setInsets(top, bottom);
-                    }
-                });
+        InsetsHelper.apply(this, R.id.edit_controls);
         setupLauncherPreview();
         // 已设过全局底图就直接加载好，右上角按钮一点即可叠加，不用再选图
         loadSavedOverlayAsync();
+        maxDim = WallpaperStore.maxWallpaperDim(this);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         libId = getIntent().getStringExtra(EXTRA_LIB_ID);
         if (libId == null || LibraryStore.get(this, libId) == null) {
@@ -77,11 +70,11 @@ public class EditActivity extends AppCompatActivity {
             List<LibraryStore.Library> libs = LibraryStore.load(this);
             libId = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
         }
-        maxDim = WallpaperStore.maxWallpaperDim(this);
         cropView = findViewById(R.id.crop_view);
-        // 解码收件箱原图（超采样防 OOM）交给手势视图
+        // 源图按「像素预算内尽量解大」解码（见 decodeCropSource）：这是清晰度的关键，
+        // 用固定上限解码会把大图的信息白白扔掉一大半
         File inboxFile = WallpaperStore.getInboxFile(this, inboxId);
-        Bitmap bitmap = WallpaperStore.decodeBounded(inboxFile, maxDim);
+        Bitmap bitmap = WallpaperStore.decodeCropSource(inboxFile);
         if (bitmap == null) {
             Toast.makeText(this, R.string.decode_failed, Toast.LENGTH_SHORT).show();
             WallpaperStore.cancelImport(this, inboxId);
@@ -119,40 +112,24 @@ public class EditActivity extends AppCompatActivity {
     }
 
     /**
-     * 「桌面图标预览」两个开关：
-     * 左（网格）= 显示/隐藏内置示意网格；
-     * 右（图片）= 显示/隐藏首页图标层的叠加；全局底图还没设过时，先去相册选一张。
+     * 「桌面图标预览」开关：显示/隐藏首页图标层的叠加；
+     * 全局底图还没设过时，先去相册选一张（选完会存成全局底图，以后不用再选）。
      */
     private void setupLauncherPreview() {
-        if (overlay == null || toggleMock == null || toggleShot == null) {
+        if (overlay == null || toggleShot == null) {
             return;
         }
-        refreshPreviewToggles();
-        toggleMock.setOnClickListener(v -> {
-            boolean mockShowing = overlay.getVisibility() == View.VISIBLE
-                    && overlay.getMode() == LauncherPreviewOverlay.MODE_MOCK;
-            if (mockShowing) {
-                overlay.setVisibility(View.GONE);
-            } else {
-                overlay.setMode(LauncherPreviewOverlay.MODE_MOCK);
-                overlay.setVisibility(View.VISIBLE);
-            }
-            refreshPreviewToggles();
-        });
+        refreshShotToggle();
         toggleShot.setOnClickListener(v -> {
-            boolean shotShowing = overlay.getVisibility() == View.VISIBLE
-                    && overlay.getMode() == LauncherPreviewOverlay.MODE_SCREENSHOT
-                    && overlay.hasScreenshot();
-            if (shotShowing) {
+            if (overlay.getVisibility() == View.VISIBLE) {
                 overlay.setVisibility(View.GONE);
-                refreshPreviewToggles();
+                refreshShotToggle();
                 return;
             }
             if (overlay.hasScreenshot()) {
                 // 已经加载好全局底图，直接叠上
-                overlay.setMode(LauncherPreviewOverlay.MODE_SCREENSHOT);
                 overlay.setVisibility(View.VISIBLE);
-                refreshPreviewToggles();
+                refreshShotToggle();
                 return;
             }
             PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
@@ -161,19 +138,14 @@ public class EditActivity extends AppCompatActivity {
         });
     }
 
-    /** 开关底色反映当前叠加状态：网格亮 = 示意网格模式；图片亮 = 首页图标层模式。 */
-    private void refreshPreviewToggles() {
-        if (overlay == null || toggleMock == null || toggleShot == null) {
+    /** 开关底色反映当前是否在叠加：亮 = 正在叠加首页图标层。 */
+    private void refreshShotToggle() {
+        if (overlay == null || toggleShot == null) {
             return;
         }
-        boolean showing = overlay.getVisibility() == View.VISIBLE;
-        boolean shotMode = showing && overlay.getMode() == LauncherPreviewOverlay.MODE_SCREENSHOT
-                && overlay.hasScreenshot();
-        int onColor = getColor(R.color.brand);
-        toggleMock.setBackgroundTintList(
-                ColorStateList.valueOf(showing && !shotMode ? onColor : TOGGLE_OFF_COLOR));
-        toggleShot.setBackgroundTintList(
-                ColorStateList.valueOf(shotMode ? onColor : TOGGLE_OFF_COLOR));
+        boolean showing = overlay.getVisibility() == View.VISIBLE && overlay.hasScreenshot();
+        toggleShot.setBackgroundTintList(ColorStateList.valueOf(
+                showing ? getColor(R.color.brand) : TOGGLE_OFF_COLOR));
     }
 
     /** 读取全局底图（解码可能几十毫秒，放后台线程）。 */
@@ -192,7 +164,7 @@ public class EditActivity extends AppCompatActivity {
                     return;
                 }
                 overlay.setScreenshot(saved);
-                refreshPreviewToggles();
+                refreshShotToggle();
             });
         }, "overlay-load").start();
     }
@@ -205,7 +177,7 @@ public class EditActivity extends AppCompatActivity {
         Toast.makeText(this, R.string.launcher_overlay_processing, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             final Bitmap keyed = LauncherPreviewOverlay.keyedFromUri(this, uri);
-            // 顺手存成全局底图：以后进裁剪页（或换设备重装后重设一次）都不用再选
+            // 顺手存成全局底图：以后进裁剪页就不用再选
             final boolean saved = keyed != null && LauncherPreviewOverlay.save(this, keyed);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || overlay == null) {
@@ -219,9 +191,8 @@ public class EditActivity extends AppCompatActivity {
                     return;
                 }
                 overlay.setScreenshot(keyed);
-                overlay.setMode(LauncherPreviewOverlay.MODE_SCREENSHOT);
                 overlay.setVisibility(View.VISIBLE);
-                refreshPreviewToggles();
+                refreshShotToggle();
                 if (saved) {
                     Toast.makeText(this, R.string.launcher_overlay_saved, Toast.LENGTH_SHORT).show();
                 }

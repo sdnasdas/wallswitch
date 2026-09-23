@@ -16,11 +16,6 @@ public final class InsetsHelper {
     private InsetsHelper() {
     }
 
-    /** insets 回调：裁剪页的「桌面图标预览」浮层需要知道状态栏/手势条高度才能画准位置。 */
-    public interface OnInsetsListener {
-        void onInsets(int left, int top, int right, int bottom);
-    }
-
     /**
      * 在 setContentView 之后调用。
      *
@@ -28,17 +23,6 @@ public final class InsetsHelper {
      * @param rootId   内容根布局 id（安全区 padding 加在它上面）
      */
     public static void apply(Activity activity, int rootId) {
-        apply(activity, rootId, null);
-    }
-
-    /**
-     * 在 setContentView 之后调用，并额外把计算出的 insets 回调出去。
-     *
-     * @param activity 目标 Activity
-     * @param rootId   内容根布局 id（安全区 padding 加在它上面）
-     * @param listener 可选；每次 insets 变化都会回调
-     */
-    public static void apply(Activity activity, int rootId, OnInsetsListener listener) {
         // 统一关闭 decor 自动避让：任何版本下内容都按边到边布局，
         // 安全区完全由下面的 insets padding 处理，避免新旧版本行为不一致/重复内边距
         // 导航栏透明时系统会默认叠加半透明对比度遮罩（API 29+），关闭以保持与页面底色一致。
@@ -75,9 +59,6 @@ public final class InsetsHelper {
                 bottom = insets.getSystemWindowInsetBottom();
             }
             v.setPadding(left, top, right, bottom);
-            if (listener != null) {
-                listener.onInsets(left, top, right, bottom);
-            }
             // 不消费，继续分发给子视图（如列表需要可自行再用）
             return insets;
         });

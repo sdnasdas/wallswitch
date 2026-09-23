@@ -47,39 +47,20 @@
             android:textColor="@android:color/white"
             android:textSize="12sp" />
 
-        <!-- 右上角：两个桌面图标预览开关。
-             左（网格）＝内置示意网格，不需要任何准备；右（图片）＝选一张自己的首页截图叠加，完全准确 -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+        <!-- 右上角：桌面图标预览开关（叠加自己的首页截图；未设置时点按去相册选一张并全局保存） -->
+        <ImageButton
+            android:id="@+id/btn_shot_overlay"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_gravity="top|end"
             android:layout_marginTop="10dp"
             android:layout_marginEnd="12dp"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/btn_icon_preview"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@drawable/overlay_pill_bg"
-                android:contentDescription="@string/launcher_preview_desc"
-                android:padding="13dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_grid"
-                android:tint="@android:color/white" />
-
-            <ImageButton
-                android:id="@+id/btn_shot_overlay"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="10dp"
-                android:background="@drawable/overlay_pill_bg"
-                android:contentDescription="@string/launcher_shot_desc"
-                android:padding="13dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_tab_wallpaper"
-                android:tint="@android:color/white" />
-        </LinearLayout>
+            android:background="@drawable/overlay_pill_bg"
+            android:contentDescription="@string/launcher_shot_desc"
+            android:padding="13dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_tab_wallpaper"
+            android:tint="@android:color/white" />
 
         <!-- 操作按钮：浮在取景框之上，各占一半宽，不用整条背景 -->
         <LinearLayout

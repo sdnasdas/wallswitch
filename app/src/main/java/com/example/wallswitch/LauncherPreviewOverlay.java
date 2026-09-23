@@ -1,13 +1,11 @@
 package com.example.wallswitch;
 
-import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.net.Uri;
 import android.util.AttributeSet;
 import android.view.View;
@@ -18,37 +16,20 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * 「桌面图标预览」浮层：在裁剪页的取景框上叠加「首页会占掉哪些区域」，用来判断构图主体
- * 会不会被桌面图标挡住。两种模式：
+ * 「桌面图标预览」浮层：把用户自己的首页截图（已抠图，只留图标与文字）按整屏比例叠在裁剪取景框上，
+ * 用来判断构图主体会不会被桌面图标挡住。
  *
- * <ul>
- *   <li>{@link #MODE_MOCK}：内置示意网格 —— 不需要任何准备，但只是近似。</li>
- *   <li>{@link #MODE_SCREENSHOT}：叠加用户自己的首页截图（已抠图）—— 准确。
- *       截图自带的壁纸会被 {@link #extractForeground} 抠成透明，只留图标与文字，
- *       否则两层壁纸叠在一起会发灰。截图与取景框同为整屏同比例，按 centerCrop 铺满后像素对齐。</li>
- * </ul>
+ * 为什么只有截图这一种模式：早期还有一个「内置示意网格」，但它的列数/行距只能靠猜（那 4 列是从一张
+ * 截图量出来的），换设备或换桌面布局就不准；而截图叠加是按整屏同比例对齐的，像素级准确 —— 索性去掉。
  *
- * <b>全局底图</b>：首页截图只需设置一次。选好的图抠完后保存到应用私有目录
- * （见 {@link #save}/{@link #loadSaved}/{@link #clear}），之后每次进裁剪页直接可用，
- * 不需要重复选图。
+ * 截图自带的壁纸会被 {@link #extractForeground} 抠成透明，只留图标与文字，
+ * 否则两层壁纸叠在一起会发灰。截图与取景框同为整屏同比例，按 centerCrop 铺满后像素对齐。
  *
- * 示意网格的准确度说明：状态栏与 Dock 的纵向位置用真实系统栏 inset 计算（准）；
- * 列数按实测的 4 列（格宽 = 屏宽/4，图标格内居中）；行数由可用高度推算。
- * 真实首页顶部往往还有时钟小组件、底部还有 Dock，所以只是示意 —— 要精确就用截图模式。
+ * 首页截图是全局设置，只需设一次（见 {@link #save}／{@link #loadSaved}），之后每次进裁剪页直接可用。
  *
  * 本 View 不可点击，不会拦截触摸，裁剪区的捏合/拖动照常可用。
  */
 public class LauncherPreviewOverlay extends View {
-
-    /** 示意网格模式。 */
-    public static final int MODE_MOCK = 0;
-    /** 用户首页截图模式（已抠图，只留图标与文字）。 */
-    public static final int MODE_SCREENSHOT = 1;
-
-    /** 实测列数：荣耀 MagicOS 首页为 4 列（格宽 = 屏宽/4，图标在格内居中）。 */
-    private static final int COLUMNS = 4;
-    /** Dock 栏图标个数。 */
-    private static final int DOCK_ITEMS = 4;
 
     /**
      * 抠图用的工作分辨率（长边）。与小尺寸原型验证过的分辨率一致：
@@ -67,17 +48,10 @@ public class LauncherPreviewOverlay extends View {
     /** 全局预览底图的文件名（应用私有目录，卸载即清除）。 */
     private static final String OVERLAY_FILE = "launcher_overlay.png";
 
-    private final Paint iconFill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint iconStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint bandFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-    private final RectF rect = new RectF();
     private final Rect dst = new Rect();
 
-    private int mode = MODE_MOCK;
     private Bitmap screenshot;
-    private int statusBarInset;
-    private int navBarInset;
 
     public LauncherPreviewOverlay(Context context) {
         this(context, null);
@@ -89,13 +63,6 @@ public class LauncherPreviewOverlay extends View {
 
     public LauncherPreviewOverlay(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        float density = getResources().getDisplayMetrics().density;
-        // 半透明白 + 深色描边：在任何明暗照片上都看得清
-        iconFill.setColor(0x40FFFFFF);
-        iconStroke.setColor(0x99000000);
-        iconStroke.setStyle(Paint.Style.STROKE);
-        iconStroke.setStrokeWidth(density);
-        bandFill.setColor(0x2EFFFFFF);
     }
 
     // ==================== 全局底图的存取 ====================
@@ -127,11 +94,11 @@ public class LauncherPreviewOverlay extends View {
         } catch (Exception e) {
             return false;
         }
-        File dst = overlayFile(context);
-        if (dst.exists() && !dst.delete()) {
+        File dstFile = overlayFile(context);
+        if (dstFile.exists() && !dstFile.delete()) {
             return false;
         }
-        return tmp.renameTo(dst);
+        return tmp.renameTo(dstFile);
     }
 
     /** 清除全局预览底图。 */
@@ -176,23 +143,7 @@ public class LauncherPreviewOverlay extends View {
 
     // ==================== 视图状态 ====================
 
-    /** 传入真实系统栏高度，保证状态栏与 Dock 的纵向位置与实际上屏一致。 */
-    public void setInsets(int statusBar, int navBar) {
-        statusBarInset = statusBar;
-        navBarInset = navBar;
-        invalidate();
-    }
-
-    public void setMode(int newMode) {
-        mode = newMode;
-        invalidate();
-    }
-
-    public int getMode() {
-        return mode;
-    }
-
-    /** 设置抠好的首页图标层（MODE_SCREENSHOT 下生效）；传 null 表示清除。 */
+    /** 设置抠好的首页图标层；传 null 表示清除。 */
     public void setScreenshot(Bitmap bitmap) {
         Bitmap old = screenshot;
         screenshot = bitmap;
@@ -317,36 +268,16 @@ public class LauncherPreviewOverlay extends View {
 
     // ==================== 绘制 ====================
 
-    /** 图标边长：优先用 Launcher 偏好尺寸，并保证不超过格宽的 60%。 */
-    private int iconSizePx() {
-        ActivityManager am = (ActivityManager) getContext().getSystemService(Context.ACTIVITY_SERVICE);
-        int size = am == null ? 0 : am.getLauncherLargeIconSize();
-        if (size <= 0) {
-            size = (int) (48 * getResources().getDisplayMetrics().density);
-        }
-        return size;
-    }
-
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         int w = getWidth();
         int h = getHeight();
-        if (w <= 0 || h <= 0) {
+        if (w <= 0 || h <= 0 || screenshot == null || screenshot.isRecycled()) {
             return;
         }
-        if (mode == MODE_SCREENSHOT && screenshot != null && !screenshot.isRecycled()) {
-            drawScreenshot(canvas, w, h);
-            return;
-        }
-        drawMock(canvas, w, h);
-    }
-
-    /**
-     * 首页图标层：centerCrop 铺满取景框（截图与取景框同为整屏同比例，故像素对齐）。
-     * 透明度已经逐像素烘进位图（见 extractForeground），这里用满不透明度绘制即可。
-     */
-    private void drawScreenshot(Canvas canvas, int w, int h) {
+        // centerCrop 铺满取景框（截图与取景框同为整屏同比例，故像素对齐）。
+        // 透明度已经逐像素烘进位图（见 extractForeground），这里用满不透明度绘制即可。
         float scale = Math.max(w / (float) screenshot.getWidth(), h / (float) screenshot.getHeight());
         int dw = Math.round(screenshot.getWidth() * scale);
         int dh = Math.round(screenshot.getHeight() * scale);
@@ -354,48 +285,5 @@ public class LauncherPreviewOverlay extends View {
         int top = (h - dh) / 2;
         dst.set(left, top, left + dw, top + dh);
         canvas.drawBitmap(screenshot, null, dst, imagePaint);
-    }
-
-    /** 内置示意网格。 */
-    private void drawMock(Canvas canvas, int w, int h) {
-        float density = getResources().getDisplayMetrics().density;
-        int cell = w / COLUMNS;
-        int icon = Math.min(iconSizePx(), (int) (cell * 0.6f));
-        float labelHeight = 5 * density;
-        float rowHeight = icon + labelHeight + 18 * density;
-        float dockHeight = icon + 20 * density;
-        float top = statusBarInset + 6 * density;
-        float bottom = h - navBarInset - dockHeight - 6 * density;
-
-        // 图标格：4 列，图标在每格内居中；下方一条名称占位
-        for (float cy = top; cy + icon + labelHeight <= bottom; cy += rowHeight) {
-            for (int c = 0; c < COLUMNS; c++) {
-                float cx = cell * c + (cell - icon) / 2f;
-                rect.set(cx, cy, cx + icon, cy + icon);
-                canvas.drawRoundRect(rect, icon * 0.28f, icon * 0.28f, iconFill);
-                canvas.drawRoundRect(rect, icon * 0.28f, icon * 0.28f, iconStroke);
-                float lw = icon * 0.5f;
-                rect.set(cx + (icon - lw) / 2f, cy + icon + 4 * density,
-                        cx + (icon + lw) / 2f, cy + icon + 4 * density + labelHeight);
-                canvas.drawRoundRect(rect, labelHeight / 2f, labelHeight / 2f, iconFill);
-            }
-        }
-
-        // Dock 栏
-        float dockTop = h - navBarInset - dockHeight;
-        rect.set(0, dockTop, w, dockTop + dockHeight);
-        canvas.drawRoundRect(rect, 24 * density, 24 * density, iconFill);
-        canvas.drawRoundRect(rect, 24 * density, 24 * density, iconStroke);
-        float dockCell = w / (float) DOCK_ITEMS;
-        for (int i = 0; i < DOCK_ITEMS; i++) {
-            float cx = dockCell * i + (dockCell - icon) / 2f;
-            float cy = dockTop + (dockHeight - icon) / 2f;
-            rect.set(cx, cy, cx + icon, cy + icon);
-            canvas.drawRoundRect(rect, icon * 0.28f, icon * 0.28f, iconStroke);
-        }
-
-        // 状态栏
-        rect.set(0, 0, w, statusBarInset);
-        canvas.drawRect(rect, bandFill);
     }
 }
