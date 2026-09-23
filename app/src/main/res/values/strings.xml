@@ -132,6 +132,8 @@
     <string name="manual_switch">手动切换</string>
     <string name="section_engine">引擎与后台</string>
     <string name="edit_hint">双指缩放 · 单指拖动调整构图</string>
+    <string name="launcher_preview_desc">桌面图标预览（看图标会不会挡住壁纸）</string>
+    <string name="launcher_shot_desc">叠加我的首页截图（精确预览）</string>
 
     <!-- v3.2：设置改为左侧滑出抽屉；两个手动切换按钮合并为一个 -->
     <string name="switch_pick">切换壁纸</string>

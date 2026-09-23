@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 添加壁纸的裁剪页（v3.4）：手势裁剪区铺满整屏。
+<!-- 添加壁纸的裁剪页（v3.4 起裁剪区满屏，v3.5 起加桌面图标预览浮层）：手势裁剪区铺满整屏。
      取景框比例 = 屏幕比例 = 壁纸上屏区域，这样引擎/Launcher 那一次「居中裁剪铺满」就变成
      空操作，裁剪页里看到的效果与实际设为壁纸后的效果一致（v3.3 之前取景框只有屏幕高减去
      顶部提示与底部按钮条，比例偏窄，上屏后左右还会被再裁掉一截、整体放大 —— 预览与实况不符）。
@@ -17,6 +17,14 @@
         android:id="@+id/crop_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- 桌面图标预览浮层：默认隐藏，由底部左侧的网格按钮开关。
+         不可点击，不拦截触摸，开启后裁剪区的捏合/拖动照常可用 -->
+    <com.example.wallswitch.LauncherPreviewOverlay
+        android:id="@+id/launcher_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 
     <!-- 浮层容器：只有它避让状态栏/刘海/手势条，裁剪区不受影响 -->
     <FrameLayout
@@ -38,6 +46,40 @@
             android:text="@string/edit_hint"
             android:textColor="@android:color/white"
             android:textSize="12sp" />
+
+        <!-- 右上角：两个桌面图标预览开关。
+             左（网格）＝内置示意网格，不需要任何准备；右（图片）＝选一张自己的首页截图叠加，完全准确 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="12dp"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btn_icon_preview"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/overlay_pill_bg"
+                android:contentDescription="@string/launcher_preview_desc"
+                android:padding="13dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_grid"
+                android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/btn_shot_overlay"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/overlay_pill_bg"
+                android:contentDescription="@string/launcher_shot_desc"
+                android:padding="13dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_tab_wallpaper"
+                android:tint="@android:color/white" />
+        </LinearLayout>
 
         <!-- 操作按钮：浮在取景框之上，各占一半宽，不用整条背景 -->
         <LinearLayout

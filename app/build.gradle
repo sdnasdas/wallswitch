@@ -16,8 +16,8 @@ android {
         minSdk 26
         targetSdk 35
         // 版本约定：每次提交都递增（versionCode +1，versionName 次版本 +1，如 1.0 -> 1.1 -> 1.2）
-        versionCode 11
-        versionName "3.4"
+        versionCode 12
+        versionName "3.5"
     }
 
     signingConfigs {

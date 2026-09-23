@@ -5,7 +5,9 @@ import java.util.List;
 /** 本地类型检查桩：真实类在 androidx.activity.result.contract 包（来自 androidx.activity 库）。 */
 public class ActivityResultContracts {
 
-    public static class PickVisualMedia {
+    public static class PickVisualMedia
+            extends androidx.activity.result.ActivityResultContract<
+            androidx.activity.result.PickVisualMediaRequest, android.net.Uri> {
 
         public static class MediaType {
         }
