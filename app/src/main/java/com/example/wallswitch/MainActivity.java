@@ -62,14 +62,15 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "settings";
     // 相册单次多选上限
     private static final int MAX_PICK = 50;
-    // 预览解码的最长边上限（与 WallpaperStore/Switcher 保持一致，防 OOM）
-    private static final int PREVIEW_MAX_DIM = 2048;
+    // 预览解码上限见 WallpaperStore.maxWallpaperDim（按屏幕长边自适应）
     // 通知权限提示是否已弹过的记录 key（避免每次打开应用都打扰）
     private static final String KEY_NOTIFY_PROMPTED = "notify_prompted";
 
     private ActivityResultLauncher<PickVisualMediaRequest> pickLauncher;
     // 通知权限请求（Android 13+ 自动切换提示需要 POST_NOTIFICATIONS）
     private ActivityResultLauncher<String> notifyPermissionLauncher;
+    // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
+    private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     private RecyclerView recycler;
     private Adapter adapter;
     private SharedPreferences prefs;
@@ -97,6 +98,8 @@ public class MainActivity extends AppCompatActivity {
         notifyPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 this::onNotifyPermissionResult);
+        overlayLauncher = registerForActivityResult(
+                new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
         recycler = findViewById(R.id.recycler);
         // 单列长条：横向长条卡片垂直排布（v3.1 的 2 列网格每一格太小，删除按钮也难看）
         recycler.setLayoutManager(new LinearLayoutManager(this));
@@ -162,8 +165,18 @@ public class MainActivity extends AppCompatActivity {
                 refreshLibSettings();
                 refreshTimerStatus();
                 refreshBatteryButton();
+                refreshLauncherOverlayRow();
             }
         });
+        // 「桌面图标预览底图」：点按选/换一张自己的首页截图，长按清除。全局只设一次。
+        View overlayRow = findViewById(R.id.row_launcher_overlay);
+        if (overlayRow != null) {
+            overlayRow.setOnClickListener(v -> pickLauncherOverlay());
+            overlayRow.setOnLongClickListener(v -> {
+                confirmClearLauncherOverlay();
+                return true;
+            });
+        }
     }
 
     @Override
@@ -256,6 +269,7 @@ public class MainActivity extends AppCompatActivity {
         // 定时状态行与电池优化状态（判断后台是否能被唤醒）
         refreshTimerStatus();
         refreshBatteryButton();
+        refreshLauncherOverlayRow();
     }
 
     /** 初始化库选择下拉与顶栏菜单（新建库常驻图标 / 删除库收在溢出菜单）。 */
@@ -816,7 +830,7 @@ public class MainActivity extends AppCompatActivity {
             BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
             final int width = bounds.outWidth;
             final int height = bounds.outHeight;
-            final Bitmap bitmap = WallpaperStore.decodeBounded(file, PREVIEW_MAX_DIM);
+            final Bitmap bitmap = WallpaperStore.decodeBounded(file, WallpaperStore.maxWallpaperDim(this));
             runOnUiThread(() -> {
                 // 解码期间弹窗可能已被关闭，或页面已退出：不再回填
                 if (isFinishing() || isDestroyed() || !dialog.isShowing()) {
@@ -875,6 +889,61 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton(R.string.cancel, null)
                 .show();
+    }
+
+    /** 选一张首页截图作为全局「桌面图标预览底图」（抠图后存应用目录，之后不用再选）。 */
+    private void pickLauncherOverlay() {
+        PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
+        builder.setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
+        overlayLauncher.launch(builder.build());
+    }
+
+    /** 选好后的处理：后台抠图（把截图自带的壁纸变透明）→ 存成全局底图 → 回显状态。 */
+    private void onOverlayPicked(Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        Toast.makeText(this, R.string.launcher_overlay_processing, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final Bitmap keyed = LauncherPreviewOverlay.keyedFromUri(this, uri);
+            final boolean saved = keyed != null && LauncherPreviewOverlay.save(this, keyed);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this,
+                        saved ? R.string.launcher_overlay_saved : R.string.launcher_overlay_failed,
+                        Toast.LENGTH_SHORT).show();
+                refreshLauncherOverlayRow();
+            });
+        }, "overlay-key").start();
+    }
+
+    /** 清除全局预览底图（抽屉里长按）。 */
+    private void confirmClearLauncherOverlay() {
+        if (!LauncherPreviewOverlay.overlayFile(this).exists()) {
+            Toast.makeText(this, R.string.launcher_overlay_unset, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.launcher_overlay_title)
+                .setMessage(R.string.launcher_overlay_clear_msg)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    LauncherPreviewOverlay.clear(MainActivity.this);
+                    refreshLauncherOverlayRow();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 抽屉里那行的状态文案：已设置 / 未设置。 */
+    private void refreshLauncherOverlayRow() {
+        TextView state = findViewById(R.id.tv_launcher_overlay);
+        if (state == null) {
+            return;
+        }
+        state.setText(LauncherPreviewOverlay.overlayFile(this).exists()
+                ? R.string.launcher_overlay_set : R.string.launcher_overlay_unset);
     }
 
     /**

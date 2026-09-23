@@ -134,6 +134,14 @@
     <string name="edit_hint">双指缩放 · 单指拖动调整构图</string>
     <string name="launcher_preview_desc">桌面图标预览（看图标会不会挡住壁纸）</string>
     <string name="launcher_shot_desc">叠加我的首页截图（精确预览）</string>
+    <string name="section_launcher_preview">桌面图标预览</string>
+    <string name="launcher_overlay_title">桌面图标预览底图</string>
+    <string name="launcher_overlay_set">已设置 · 点按更换，长按清除</string>
+    <string name="launcher_overlay_unset">未设置 · 点按选一张自己的首页截图</string>
+    <string name="launcher_overlay_clear_msg">清除后，裁剪页将不再有「自己的首页」图标层（仍可用内置网格示意），确定吗？</string>
+    <string name="launcher_overlay_saved">已存为全局底图，以后裁剪无需再选</string>
+    <string name="launcher_overlay_failed">图片处理失败，请换一张</string>
+    <string name="launcher_overlay_processing">正在处理图片…</string>
 
     <!-- v3.2：设置改为左侧滑出抽屉；两个手动切换按钮合并为一个 -->
     <string name="switch_pick">切换壁纸</string>

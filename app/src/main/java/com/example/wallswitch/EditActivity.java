@@ -15,9 +15,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.List;
 
 /**
@@ -27,7 +24,9 @@ import java.util.List;
  * v3.4 起裁剪区铺满整屏：取景框比例 = 屏幕比例 = 壁纸上屏区域，预览与实况一致。
  * v3.5 起右上角提供两个「桌面图标预览」开关：
  *   网格图标 = 内置示意网格（无需准备，近似）；
- *   图片图标 = 选一张自己的首页截图叠加（截图与取景框同为整屏同比例，像素对齐，完全准确）。
+ *   图片图标 = 叠加自己的首页截图（已抠图，只留图标与文字）。首页截图是<b>全局设置</b>，
+ *   只需在设置抽屉里设一次并保存在应用目录，这里直接读取，不用每次重选；
+ *   若还没设过，点该按钮会直接让你选一张，选完也会顺手存成全局底图。
  */
 public class EditActivity extends AppCompatActivity {
 
@@ -35,14 +34,13 @@ public class EditActivity extends AppCompatActivity {
     public static final String EXTRA_INBOX_ID = "inbox_id";
     // 目标壁纸库 id 的 Intent extra key
     public static final String EXTRA_LIB_ID = "lib_id";
-    // 解码与导出尺寸上限
-    private static final int MAX_DIM = 2048;
+    // 解码与导出尺寸上限见 WallpaperStore.maxWallpaperDim（按屏幕长边自适应，避免上屏被放大）
     // 预览开关的关闭态底色（半透明黑）；开启态用品牌色
     private static final int TOGGLE_OFF_COLOR = 0x8C000000;
-    // 首页截图的缓存文件名
-    private static final String SHOT_CACHE_NAME = "launcher_shot.tmp";
 
     private CropView cropView;
+    // 本次编辑用的分辨率上限（onCreate 里按屏幕长边算好，解码与导出共用同一个值）
+    private int maxDim;
     private String inboxId;
     private String libId;
 
@@ -70,6 +68,8 @@ public class EditActivity extends AppCompatActivity {
                     }
                 });
         setupLauncherPreview();
+        // 已设过全局底图就直接加载好，右上角按钮一点即可叠加，不用再选图
+        loadSavedOverlayAsync();
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         libId = getIntent().getStringExtra(EXTRA_LIB_ID);
         if (libId == null || LibraryStore.get(this, libId) == null) {
@@ -77,10 +77,11 @@ public class EditActivity extends AppCompatActivity {
             List<LibraryStore.Library> libs = LibraryStore.load(this);
             libId = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
         }
+        maxDim = WallpaperStore.maxWallpaperDim(this);
         cropView = findViewById(R.id.crop_view);
         // 解码收件箱原图（超采样防 OOM）交给手势视图
         File inboxFile = WallpaperStore.getInboxFile(this, inboxId);
-        Bitmap bitmap = WallpaperStore.decodeBounded(inboxFile, MAX_DIM);
+        Bitmap bitmap = WallpaperStore.decodeBounded(inboxFile, maxDim);
         if (bitmap == null) {
             Toast.makeText(this, R.string.decode_failed, Toast.LENGTH_SHORT).show();
             WallpaperStore.cancelImport(this, inboxId);
@@ -96,7 +97,7 @@ public class EditActivity extends AppCompatActivity {
 
     /** 确认：按当前手势导出裁剪结果并入库，返回主页后 onResume 继续处理下一张。 */
     private void onConfirm() {
-        Bitmap result = cropView.export(MAX_DIM);
+        Bitmap result = cropView.export(maxDim);
         if (result == null) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
             WallpaperStore.cancelImport(this, inboxId);
@@ -120,7 +121,7 @@ public class EditActivity extends AppCompatActivity {
     /**
      * 「桌面图标预览」两个开关：
      * 左（网格）= 显示/隐藏内置示意网格；
-     * 右（图片）= 显示/隐藏自己首页截图的叠加，还没有截图时先去相册选一张。
+     * 右（图片）= 显示/隐藏首页图标层的叠加；全局底图还没设过时，先去相册选一张。
      */
     private void setupLauncherPreview() {
         if (overlay == null || toggleMock == null || toggleShot == null) {
@@ -147,13 +148,20 @@ public class EditActivity extends AppCompatActivity {
                 refreshPreviewToggles();
                 return;
             }
+            if (overlay.hasScreenshot()) {
+                // 已经加载好全局底图，直接叠上
+                overlay.setMode(LauncherPreviewOverlay.MODE_SCREENSHOT);
+                overlay.setVisibility(View.VISIBLE);
+                refreshPreviewToggles();
+                return;
+            }
             PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
             builder.setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
             shotLauncher.launch(builder.build());
         });
     }
 
-    /** 开关底色反映当前叠加状态：网格亮 = 示意网格模式；图片亮 = 首页截图叠加模式。 */
+    /** 开关底色反映当前叠加状态：网格亮 = 示意网格模式；图片亮 = 首页图标层模式。 */
     private void refreshPreviewToggles() {
         if (overlay == null || toggleMock == null || toggleShot == null) {
             return;
@@ -168,45 +176,56 @@ public class EditActivity extends AppCompatActivity {
                 ColorStateList.valueOf(shotMode ? onColor : TOGGLE_OFF_COLOR));
     }
 
-    /** 选好首页截图：后台复制到缓存目录再采样解码，回主线程叠加显示。 */
+    /** 读取全局底图（解码可能几十毫秒，放后台线程）。 */
+    private void loadSavedOverlayAsync() {
+        if (overlay == null) {
+            return;
+        }
+        new Thread(() -> {
+            final Bitmap saved = LauncherPreviewOverlay.loadSaved(EditActivity.this);
+            if (saved == null) {
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || overlay == null) {
+                    saved.recycle();
+                    return;
+                }
+                overlay.setScreenshot(saved);
+                refreshPreviewToggles();
+            });
+        }, "overlay-load").start();
+    }
+
+    /** 页内直接选图（还没设过全局底图时）：后台抠图 → 存成全局底图 → 叠加显示。 */
     private void onShotPicked(Uri uri) {
         if (uri == null) {
             return;
         }
+        Toast.makeText(this, R.string.launcher_overlay_processing, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
-            final Bitmap shot = loadScreenshot(uri);
+            final Bitmap keyed = LauncherPreviewOverlay.keyedFromUri(this, uri);
+            // 顺手存成全局底图：以后进裁剪页（或换设备重装后重设一次）都不用再选
+            final boolean saved = keyed != null && LauncherPreviewOverlay.save(this, keyed);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || overlay == null) {
+                    if (keyed != null) {
+                        keyed.recycle();
+                    }
                     return;
                 }
-                if (shot == null) {
-                    Toast.makeText(this, R.string.preview_failed, Toast.LENGTH_SHORT).show();
+                if (keyed == null) {
+                    Toast.makeText(this, R.string.launcher_overlay_failed, Toast.LENGTH_SHORT).show();
                     return;
                 }
-                overlay.setScreenshot(shot);
+                overlay.setScreenshot(keyed);
                 overlay.setMode(LauncherPreviewOverlay.MODE_SCREENSHOT);
                 overlay.setVisibility(View.VISIBLE);
                 refreshPreviewToggles();
+                if (saved) {
+                    Toast.makeText(this, R.string.launcher_overlay_saved, Toast.LENGTH_SHORT).show();
+                }
             });
-        }, "shot-load").start();
-    }
-
-    /** 把选中的图片复制到缓存目录并采样解码（复用 decodeBounded 的采样逻辑防 OOM）。 */
-    private Bitmap loadScreenshot(Uri uri) {
-        File tmp = new File(getCacheDir(), SHOT_CACHE_NAME);
-        try (InputStream in = getContentResolver().openInputStream(uri);
-             OutputStream out = new FileOutputStream(tmp)) {
-            if (in == null) {
-                return null;
-            }
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) > 0) {
-                out.write(buffer, 0, read);
-            }
-        } catch (Exception e) {
-            return null;
-        }
-        return WallpaperStore.decodeBounded(tmp, MAX_DIM);
+        }, "overlay-key").start();
     }
 }

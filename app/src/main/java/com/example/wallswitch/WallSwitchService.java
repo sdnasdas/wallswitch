@@ -189,8 +189,8 @@ public class WallSwitchService extends WallpaperService {
             if (file == null) {
                 return null;
             }
-            // 解码上限与 WallpaperStore/Switcher 的 MAX_DECODE_DIM 保持一致（防 OOM）
-            int maxDim = Math.min(Math.max(targetW, targetH), 2048);
+            // 按 Surface 实际尺寸解码，但不超过统一的壁纸分辨率上限（防 OOM）
+            int maxDim = Math.min(Math.max(targetW, targetH), WallpaperStore.maxWallpaperDim(ctx));
             return WallpaperStore.decodeBounded(file, maxDim);
         }
 

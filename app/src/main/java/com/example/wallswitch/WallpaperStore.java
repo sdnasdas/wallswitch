@@ -4,12 +4,14 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.util.DisplayMetrics;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -21,7 +23,7 @@ import java.util.UUID;
 /**
  * 壁纸库存储层。
  * 目录约定（均在 App 私有 filesDir 下）：
- * - wallpapers/ 全图，文件名 &lt;uuid&gt;.jpg（JPEG quality 90）
+ * - wallpapers/ 全图，文件名 &lt;uuid&gt;.jpg（无损 PNG，不再二次压缩）
  * - thumbs/     缩略图，同名，最长边 256px
  * - inbox/      待编辑收件箱，文件名 &lt;uuid&gt;，保留原始字节
  * 元数据：filesDir/library.json，JSON 数组，每个元素 {"id":"&lt;uuid&gt;","home":true,"lock":true}
@@ -36,12 +38,33 @@ public class WallpaperStore {
     private static final String LIB_FILE = "library.json";
     // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
     private static final String TITLE_PREFS = "pending_titles";
-    // JPEG 压缩质量
+    // 缩略图的 JPEG 压缩质量（缩略图只用于列表显示，没必要无损）
     private static final int JPEG_QUALITY = 90;
-    // 解码尺寸上限（防 OOM）
-    private static final int MAX_DECODE_DIM = 2048;
+    // 全图扩展名：无损 PNG —— 全图是最终要上屏的图，再压一次 JPEG 会白掉画质
+    private static final String FULL_EXT = ".png";
+    // 历史数据用的是 .jpg，读取与删除都要兼容，避免老壁纸失效或留下孤儿文件
+    private static final String LEGACY_FULL_EXT = ".jpg";
+    // 壁纸分辨率下限：小屏机型也至少按这个处理
+    private static final int MIN_WALLPAPER_DIM = 2048;
+    // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
+    private static final int MAX_WALLPAPER_DIM = 4096;
     // 缩略图最长边
     private static final int THUMB_MAX_DIM = 256;
+
+    /** 屏幕长边：壁纸要铺满整屏，这就是「不被放大」所需的最小长边。 */
+    public static int screenLongSide(Context context) {
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        return Math.max(dm.widthPixels, dm.heightPixels);
+    }
+
+    /**
+     * 壁纸处理的分辨率上限（解码 / 导出 / 上屏统一用它）。
+     * 下限 2048 保住小屏机型质量；上限按屏幕长边抬高 —— 写死 2048 而屏幕长边是 2800 时，
+     * 存下来的图会被上屏放大 1.37 倍，肉眼可见发虚。封顶 4096 控制内存。
+     */
+    public static int maxWallpaperDim(Context context) {
+        return Math.max(MIN_WALLPAPER_DIM, Math.min(screenLongSide(context), MAX_WALLPAPER_DIM));
+    }
 
     /** 壁纸条目元数据：id 为图片文件标识，libId 为所属壁纸库 id，title 为壁纸标题（可空）。 */
     public static class Item {
@@ -181,7 +204,7 @@ public class WallpaperStore {
         Bitmap bitmap = edited;
         if (bitmap == null) {
             File sourceFile = getInboxFile(context, inboxId);
-            bitmap = decodeBounded(sourceFile, MAX_DECODE_DIM);
+            bitmap = decodeBounded(sourceFile, maxWallpaperDim(context));
         }
         if (bitmap == null) {
             throw new IllegalStateException("图片解码失败");
@@ -195,10 +218,10 @@ public class WallpaperStore {
         if (!thumbDir.exists()) {
             thumbDir.mkdirs();
         }
-        // 保存全图
-        File fullFile = new File(fullDir, id + ".jpg");
+        // 保存全图（无损 PNG）
+        File fullFile = new File(fullDir, id + FULL_EXT);
         FileOutputStream fullOut = new FileOutputStream(fullFile);
-        bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, fullOut);
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
         fullOut.close();
         // 保存缩略图
         Bitmap thumb = scaleToFit(bitmap, THUMB_MAX_DIM);
@@ -261,9 +284,8 @@ public class WallpaperStore {
     /** 删除壁纸：移除全图、缩略图文件，并从 library.json 中移除记录。 */
     public static void delete(Context context, String id) {
         try {
-            File fullFile = getFullFile(context, id);
             File thumbFile = getThumbFile(context, id);
-            Files.deleteIfExists(fullFile.toPath());
+            deleteFullFiles(context, id);
             Files.deleteIfExists(thumbFile.toPath());
             List<Item> items = load(context);
             List<Item> remain = new ArrayList<>();
@@ -299,7 +321,7 @@ public class WallpaperStore {
             List<Item> remain = new ArrayList<>();
             for (Item item : items) {
                 if (libId.equals(item.libId)) {
-                    Files.deleteIfExists(getFullFile(context, item.id).toPath());
+                    deleteFullFiles(context, item.id);
                     Files.deleteIfExists(getThumbFile(context, item.id).toPath());
                 } else {
                     remain.add(item);
@@ -334,10 +356,22 @@ public class WallpaperStore {
         return BitmapFactory.decodeFile(thumbFile.getAbsolutePath());
     }
 
-    /** 获取某张壁纸的全图文件。 */
+    /** 获取某张壁纸的全图文件（新数据是无损 PNG，历史数据是 JPEG，都兼容）。 */
     public static File getFullFile(Context context, String id) {
         File dir = new File(context.getFilesDir(), DIR_FULL);
-        return new File(dir, id + ".jpg");
+        File current = new File(dir, id + FULL_EXT);
+        if (current.exists()) {
+            return current;
+        }
+        File legacy = new File(dir, id + LEGACY_FULL_EXT);
+        return legacy.exists() ? legacy : current;
+    }
+
+    /** 删除某张壁纸的全图（PNG 与历史 JPEG 都要删，避免切到无损后留下孤儿文件）。 */
+    private static void deleteFullFiles(Context context, String id) throws IOException {
+        File dir = new File(context.getFilesDir(), DIR_FULL);
+        Files.deleteIfExists(new File(dir, id + FULL_EXT).toPath());
+        Files.deleteIfExists(new File(dir, id + LEGACY_FULL_EXT).toPath());
     }
 
     /** 获取收件箱中的待编辑文件。 */

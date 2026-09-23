@@ -25,8 +25,7 @@ public class Switcher {
 
     // SharedPreferences 文件名
     private static final String PREFS_NAME = "settings";
-    // 全图解码最长边上限（控制内存，与 WallpaperStore 一致）
-    private static final int MAX_DECODE_DIM = 2048;
+    // 全图解码最长边上限统一由 WallpaperStore.maxWallpaperDim 按屏幕长边决定（防 OOM）
     // 最近一次解码结果缓存：小图库高频切换时避免反复解码同一张图（上限 1 张，控制内存）
     private static String cachedName;
     private static Bitmap cachedBitmap;
@@ -190,7 +189,7 @@ public class Switcher {
      * 注意：重试会短暂 sleep，调用方必须在后台线程执行（UI 线程调用会卡顿）。
      */
     private static boolean setWallpaper(Context ctx, File file, boolean forHome) {
-        Bitmap bitmap = loadBitmap(file);
+        Bitmap bitmap = loadBitmap(ctx, file);
         if (bitmap == null) {
             lastError = "decode_failed";
             return false;
@@ -344,12 +343,12 @@ public class Switcher {
     }
 
     /** 解码壁纸并做单张缓存（超采样防 OOM，复用存储层实现）。 */
-    private static Bitmap loadBitmap(File file) {
+    private static Bitmap loadBitmap(Context context, File file) {
         String name = file.getName();
         if (name.equals(cachedName) && cachedBitmap != null && !cachedBitmap.isRecycled()) {
             return cachedBitmap;
         }
-        Bitmap bitmap = WallpaperStore.decodeBounded(file, MAX_DECODE_DIM);
+        Bitmap bitmap = WallpaperStore.decodeBounded(file, WallpaperStore.maxWallpaperDim(context));
         if (bitmap != null) {
             cachedName = name;
             cachedBitmap = bitmap;

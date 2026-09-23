@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -22,6 +23,8 @@ public class CropView extends View {
 
     private Bitmap bitmap;
     private final Matrix matrix = new Matrix();
+    /** 绘制画笔：必须开双线性过滤 —— 传 null 的 Paint 等于最近邻缩放，预览与导出都会明显锯齿。 */
+    private final Paint drawPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private float minScale = 1f;
     private float maxScale = 1f;
     // 矩阵是否已按当前位图与视图尺寸初始化过。
@@ -133,7 +136,7 @@ public class CropView extends View {
         // 兜底：不论什么原因导致矩阵没初始化，在真正绘制前补上，
         // 否则会出现「图片不铺满 + 捏合无反应 + 导出等于原图」这种静默失效
         ensureMatrixReady();
-        canvas.drawBitmap(bitmap, matrix, null);
+        canvas.drawBitmap(bitmap, matrix, drawPaint);
     }
 
     /** 双指缩放回调：围绕手势焦点缩放并钳制范围与边界。 */
@@ -221,7 +224,7 @@ public class CropView extends View {
         Matrix drawMatrix = new Matrix();
         drawMatrix.setTranslate(-src.left, -src.top);
         drawMatrix.postScale(outScale, outScale);
-        canvas.drawBitmap(bitmap, drawMatrix, null);
+        canvas.drawBitmap(bitmap, drawMatrix, drawPaint);
         return result;
     }
 }
