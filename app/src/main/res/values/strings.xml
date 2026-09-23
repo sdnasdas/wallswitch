@@ -123,4 +123,12 @@
     <string name="lib_scope_label">范围</string>
     <string name="lib_mode_label">顺序</string>
     <string name="lib_interval_label">切换间隔</string>
+
+    <!-- v3.0 底部双 Tab：壁纸列表独立成页，设置收进第二页 -->
+    <string name="tab_wallpapers">壁纸</string>
+    <string name="tab_settings">设置</string>
+    <string name="empty_wallpapers">这个库还没有壁纸</string>
+    <string name="empty_wallpapers_hint">点右下角「添加壁纸」从相册导入</string>
+    <string name="manual_switch">手动切换</string>
+    <string name="section_engine">引擎与后台</string>
 </resources>

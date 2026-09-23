@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底部导航：壁纸 / 设置 两个页面 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_wallpapers"
+        android:icon="@drawable/ic_tab_wallpaper"
+        android:title="@string/tab_wallpapers" />
+
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_tab_settings"
+        android:title="@string/tab_settings" />
+</menu>

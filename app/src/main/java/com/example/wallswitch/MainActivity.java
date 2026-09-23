@@ -16,17 +16,16 @@ import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
-import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.Filter;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
-import android.widget.Spinner;
-import android.widget.CompoundButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,8 +35,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -69,8 +71,9 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     // 当前选中的壁纸库 id
     private String currentLibId;
-    // Spinner 数据回填期间抑制选择回调，避免误触发切换库
-    private boolean suppressLibCallback = false;
+    // 说明：v3.0 把库选择从系统 Spinner 换成暴露式下拉（AutoCompleteTextView）。
+    // 下拉的“点击选中”只在用户点选时回调，程序化 setText 不会触发，
+    // 因此旧版用于抑制回填回调的 suppressLibCallback 开关已不再需要。
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,6 +94,7 @@ public class MainActivity extends AppCompatActivity {
         recycler.setLayoutManager(new LinearLayoutManager(this));
         adapter = new Adapter();
         recycler.setAdapter(adapter);
+        setupTabs();
         setupLibViews();
         setupButtons();
         setupTimerSwitch();
@@ -111,8 +115,30 @@ public class MainActivity extends AppCompatActivity {
         if (version == null || version.isEmpty()) {
             return;
         }
-        TextView title = findViewById(R.id.tv_title);
-        title.setText(getString(R.string.title_with_version, getString(R.string.app_name), version));
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        if (toolbar != null) {
+            toolbar.setTitle(getString(R.string.title_with_version, getString(R.string.app_name), version));
+        }
+    }
+
+    /** 底部双 Tab：壁纸 / 设置。两个页面用 visibility 切换，不引入 ViewPager2 依赖。 */
+    private void setupTabs() {
+        BottomNavigationView nav = findViewById(R.id.bottom_nav);
+        if (nav == null) {
+            return;
+        }
+        nav.setOnItemSelectedListener(item -> {
+            boolean showWallpapers = item.getItemId() == R.id.nav_wallpapers;
+            findViewById(R.id.page_wallpapers).setVisibility(showWallpapers ? View.VISIBLE : View.GONE);
+            findViewById(R.id.page_settings).setVisibility(showWallpapers ? View.GONE : View.VISIBLE);
+            // 切到设置页时同步一次状态（可能刚在壁纸页改动过库/壁纸）
+            if (!showWallpapers) {
+                refreshLibSettings();
+                refreshTimerStatus();
+                refreshBatteryButton();
+            }
+            return true;
+        });
     }
 
     @Override
@@ -183,24 +209,20 @@ public class MainActivity extends AppCompatActivity {
             currentLibId = libs.get(0).id;
             prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
         }
-        // 回填库 Spinner
-        Spinner spinner = findViewById(R.id.spinner_libs);
+        // 回填库选择下拉：程序化 setText(text, false) 不会触发 onItemClick，无需抑制回调
+        AutoCompleteTextView selector = findViewById(R.id.lib_selector);
         List<String> names = new ArrayList<>();
-        int selected = 0;
-        for (int i = 0; i < libs.size(); i++) {
-            names.add(libs.get(i).name);
-            if (libs.get(i).id.equals(currentLibId)) {
-                selected = i;
+        String currentName = null;
+        for (LibraryStore.Library lib : libs) {
+            names.add(lib.name);
+            if (lib.id.equals(currentLibId)) {
+                currentName = lib.name;
             }
         }
-        suppressLibCallback = true;
-        ArrayAdapter<String> arrayAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, names);
-        arrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinner.setAdapter(arrayAdapter);
-        spinner.setSelection(selected, false);
-        // 数据绑定完成后再恢复回调（post 保证在本次事件循环之后执行）
-        spinner.post(() -> suppressLibCallback = false);
+        selector.setAdapter(new NoFilterAdapter(this, names));
+        if (currentName != null) {
+            selector.setText(currentName, false);
+        }
         refreshLibSettings();
         refreshList();
         // 定时状态行与电池优化状态（判断后台是否能被唤醒）
@@ -208,35 +230,42 @@ public class MainActivity extends AppCompatActivity {
         refreshBatteryButton();
     }
 
-    /** 初始化库选择器与新建/删除按钮。 */
+    /** 初始化库选择下拉与顶栏菜单（新建库常驻图标 / 删除库收在溢出菜单）。 */
     private void setupLibViews() {
-        Spinner spinner = findViewById(R.id.spinner_libs);
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (suppressLibCallback) {
-                    return;
-                }
-                List<LibraryStore.Library> libs = LibraryStore.load(MainActivity.this);
-                if (position < 0 || position >= libs.size()) {
-                    return;
-                }
-                String newId = libs.get(position).id;
-                if (newId.equals(currentLibId)) {
-                    return;
-                }
-                currentLibId = newId;
-                prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
-                refreshLibSettings();
-                refreshList();
+        AutoCompleteTextView selector = findViewById(R.id.lib_selector);
+        // 输出框不可输入（inputType=none），点一下直接展开全部库；
+        // threshold=0 保证不输入内容也能展开，过滤已由 NoFilterAdapter 关闭
+        selector.setThreshold(0);
+        selector.setOnClickListener(v -> selector.showDropDown());
+        selector.setOnItemClickListener((parent, view, position, id) -> {
+            List<LibraryStore.Library> libs = LibraryStore.load(MainActivity.this);
+            if (position < 0 || position >= libs.size()) {
+                return;
             }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
+            String newId = libs.get(position).id;
+            if (newId.equals(currentLibId)) {
+                return;
             }
+            currentLibId = newId;
+            prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, currentLibId).apply();
+            refreshLibSettings();
+            refreshList();
         });
-        findViewById(R.id.btn_lib_new).setOnClickListener(v -> showNewLibDialog());
-        findViewById(R.id.btn_lib_delete).setOnClickListener(v -> confirmDeleteLib());
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        if (toolbar != null) {
+            toolbar.setOnMenuItemClickListener(item -> {
+                int id = item.getItemId();
+                if (id == R.id.action_lib_new) {
+                    showNewLibDialog();
+                    return true;
+                }
+                if (id == R.id.action_lib_delete) {
+                    confirmDeleteLib();
+                    return true;
+                }
+                return false;
+            });
+        }
     }
 
     /** 手动切换/添加/电池按钮。 */
@@ -318,28 +347,30 @@ public class MainActivity extends AppCompatActivity {
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
     private void refreshLibSettings() {
         CompoundButton swEnabled = findViewById(R.id.sw_lib_enabled);
-        CheckBox cbHome = findViewById(R.id.cb_lib_home);
-        CheckBox cbLock = findViewById(R.id.cb_lib_lock);
+        CompoundButton swHome = findViewById(R.id.sw_lib_home);
+        CompoundButton swLock = findViewById(R.id.sw_lib_lock);
         RadioGroup rgMode = findViewById(R.id.rg_mode);
         TextView tvInterval = findViewById(R.id.tv_interval);
+        View rowInterval = findViewById(R.id.row_interval);
         LibraryStore.Library lib = currentLib();
         // 先置空监听再回填，避免 setChecked 触发意外写回
         swEnabled.setOnCheckedChangeListener(null);
-        cbHome.setOnCheckedChangeListener(null);
-        cbLock.setOnCheckedChangeListener(null);
+        swHome.setOnCheckedChangeListener(null);
+        swLock.setOnCheckedChangeListener(null);
         rgMode.setOnCheckedChangeListener(null);
         if (lib == null) {
             swEnabled.setChecked(false);
-            cbHome.setChecked(false);
-            cbLock.setChecked(false);
+            swHome.setChecked(false);
+            swLock.setChecked(false);
             tvInterval.setText(R.string.lib_interval);
             return;
         }
         swEnabled.setChecked(lib.enabled);
-        cbHome.setChecked(lib.home);
-        cbLock.setChecked(lib.lock);
+        swHome.setChecked(lib.home);
+        swLock.setChecked(lib.lock);
         rgMode.check(LibraryStore.MODE_RANDOM.equals(lib.mode) ? R.id.rb_random : R.id.rb_order);
-        tvInterval.setText(getString(R.string.lib_interval) + "：" + formatInterval(lib.intervalSeconds));
+        // 行标签已独立显示「切换间隔」，这里只显示值本身（可点整行修改）
+        tvInterval.setText(formatInterval(lib.intervalSeconds));
         // 启用开关：启用失败（未选范围）时回退并提示
         swEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             boolean ok = LibraryStore.setEnabled(MainActivity.this, currentLibId(), isChecked);
@@ -350,17 +381,17 @@ public class MainActivity extends AppCompatActivity {
             refreshTimerStatus();
         });
         // 范围勾选（启用中的库修改范围会应用互斥约束）
-        cbHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
+        swHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
             LibraryStore.Library target = currentLib();
             if (target != null) {
-                LibraryStore.setScope(MainActivity.this, target.id, isChecked, cbLock.isChecked());
+                LibraryStore.setScope(MainActivity.this, target.id, isChecked, swLock.isChecked());
             }
             refreshTimerStatus();
         });
-        cbLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
+        swLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
             LibraryStore.Library target = currentLib();
             if (target != null) {
-                LibraryStore.setScope(MainActivity.this, target.id, cbHome.isChecked(), isChecked);
+                LibraryStore.setScope(MainActivity.this, target.id, swHome.isChecked(), isChecked);
             }
             refreshTimerStatus();
         });
@@ -368,8 +399,8 @@ public class MainActivity extends AppCompatActivity {
         rgMode.setOnCheckedChangeListener((group, checkedId) ->
                 LibraryStore.setMode(MainActivity.this, currentLibId(),
                         checkedId == R.id.rb_random ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
-        // 切换间隔（分钟级，最小 15）
-        tvInterval.setOnClickListener(v -> showIntervalDialog());
+        // 切换间隔（分钟级，最小 15）：整行可点
+        rowInterval.setOnClickListener(v -> showIntervalDialog());
     }
 
     /** 弹窗输入切换间隔（分钟，最小 15），确认后写回并重排启用中的定时。 */
@@ -621,12 +652,17 @@ public class MainActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    /** 刷新壁纸列表（当前库内的壁纸）。 */
+    /** 刷新壁纸列表（当前库内的壁纸），并同步空状态显隐。 */
     private void refreshList() {
         String libId = currentLibId();
         List<WallpaperStore.Item> items = libId == null
                 ? new ArrayList<>() : WallpaperStore.loadByLib(this, libId);
         adapter.setItems(items);
+        // 库内没有壁纸时给出空状态引导，避免一片留白且不知道下一步做什么
+        View empty = findViewById(R.id.empty_state);
+        if (empty != null) {
+            empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        }
     }
 
     /** 检查电池优化白名单：未忽略且未提示过时弹一次引导。 */
@@ -750,6 +786,41 @@ public class MainActivity extends AppCompatActivity {
         });
         builder.setNegativeButton(R.string.cancel, null);
         builder.show();
+    }
+
+    /**
+     * 库选择下拉的适配器：关闭 AutoCompleteTextView 的输入过滤。
+     * 默认的 ArrayAdapter 过滤器会按当前显示文本（即当前库名）过滤选项，
+     * 导致下拉里只剩当前这一个库；这里让过滤原样返回全部条目。
+     */
+    private static class NoFilterAdapter extends ArrayAdapter<String> {
+
+        private final List<String> all;
+        private final Filter passThrough = new Filter() {
+            @Override
+            protected FilterResults performFiltering(CharSequence constraint) {
+                FilterResults results = new FilterResults();
+                results.values = all;
+                results.count = all.size();
+                return results;
+            }
+
+            @Override
+            protected void publishResults(CharSequence constraint, FilterResults results) {
+                notifyDataSetChanged();
+            }
+        };
+
+        NoFilterAdapter(Context context, List<String> items) {
+            super(context, android.R.layout.simple_list_item_1, items);
+            this.all = new ArrayList<>(items);
+        }
+
+        @NonNull
+        @Override
+        public Filter getFilter() {
+            return passThrough;
+        }
     }
 
     /** 壁纸列表适配器（当前库内的壁纸）。 */
