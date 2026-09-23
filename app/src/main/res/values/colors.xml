@@ -2,4 +2,13 @@
 <resources>
     <!-- 自适应图标背景色 -->
     <color name="ic_launcher_background">#1E88E5</color>
+
+    <!-- 浅色 UI 配色：主色（与图标统一）、页面底、卡片底、两级文字、分隔线、危险操作红 -->
+    <color name="brand">#1E88E5</color>
+    <color name="page_bg">#F5F6F8</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="text_primary">#1A1C1E</color>
+    <color name="text_secondary">#5F6368</color>
+    <color name="divider">#E8EAED</color>
+    <color name="danger">#D93025</color>
 </resources>

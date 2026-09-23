@@ -112,4 +112,10 @@
     <string name="rename_hint">壁纸标题（留空即未命名）</string>
     <string name="notify_disabled_hint">通知权限未开启，自动切换提示无法显示（华为/荣耀关闭通知权限后连 Toast 也会失效）</string>
     <string name="notify_permission_denied">未授予通知权限，自动切换提示将无法显示</string>
+
+    <!-- v2.1 浅色 UI 重设计：主界面分区卡片标题 -->
+    <string name="section_library">壁纸库</string>
+    <string name="section_timer">自动切换</string>
+    <string name="section_actions">操作</string>
+    <string name="section_list">库内壁纸</string>
 </resources>

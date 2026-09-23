@@ -26,7 +26,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
-import android.widget.Switch;
+import android.widget.CompoundButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -251,7 +251,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 定时切换总开关：关闭时不排定任何定时任务（手动切换与小组件不受影响）。 */
     private void setupTimerSwitch() {
-        Switch swTimer = findViewById(R.id.sw_timer_enabled);
+        CompoundButton swTimer = findViewById(R.id.sw_timer_enabled);
         swTimer.setOnCheckedChangeListener(null);
         swTimer.setChecked(TimerScheduler.isTimerEnabled(this));
         swTimer.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -265,7 +265,7 @@ public class MainActivity extends AppCompatActivity {
      * 打开时先确保通知可用，否则开关开了也看不到任何提示。
      */
     private void setupNotifySwitch() {
-        Switch swNotify = findViewById(R.id.sw_auto_notify);
+        CompoundButton swNotify = findViewById(R.id.sw_auto_notify);
         swNotify.setOnCheckedChangeListener(null);
         swNotify.setChecked(SwitchNotifier.isEnabled(this));
         swNotify.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -315,7 +315,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
     private void refreshLibSettings() {
-        Switch swEnabled = findViewById(R.id.sw_lib_enabled);
+        CompoundButton swEnabled = findViewById(R.id.sw_lib_enabled);
         CheckBox cbHome = findViewById(R.id.cb_lib_home);
         CheckBox cbLock = findViewById(R.id.cb_lib_lock);
         RadioGroup rgMode = findViewById(R.id.rg_mode);

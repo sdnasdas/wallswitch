@@ -17,6 +17,7 @@
         android:padding="16dp">
 
         <Button
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:id="@+id/btn_cancel"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

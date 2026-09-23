@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 小组件卡片背景：圆角半透明（类系统时钟卡片外观） -->
+<!-- 小组件卡片背景：圆角近白（v2.1 浅色风，壁纸上清晰可读） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#33FFFFFF" />
+    <solid android:color="#F2FFFFFF" />
     <corners android:radius="16dp" />
 </shape>

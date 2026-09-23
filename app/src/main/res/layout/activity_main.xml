@@ -1,222 +1,302 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 主界面（v2.1 Material3 简洁浅色风）：浅灰页面底 + 白色圆角卡片分区。
+     所有控件 id/类型与旧版完全一致（仅 MainActivity 中 Switch 变量放宽为父类 CompoundButton，
+     以兼容 Material 主题对 <Switch> 标签的自动替换）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res/auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/page_bg"
     android:orientation="vertical">
 
     <TextView
         android:id="@+id/tv_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="28dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="8dp"
         android:text="@string/app_name"
-        android:textSize="20sp"
+        android:textColor="@color/text_primary"
+        android:textSize="22sp"
         android:textStyle="bold" />
 
-    <!-- 库选择与管理 -->
-    <LinearLayout
+    <!-- 卡片一：壁纸库选择 + 库级设置（启用/间隔/范围/模式） -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        app:cardBackgroundColor="@color/card_bg"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp">
 
-        <Spinner
-            android:id="@+id/spinner_libs"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <Button
-            android:id="@+id/btn_lib_new"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/lib_new" />
-
-        <Button
-            android:id="@+id/btn_lib_delete"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/lib_delete" />
-    </LinearLayout>
-
-    <!-- 定时切换总开关（关闭时不排定任何闹钟） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <Switch
-            android:id="@+id/sw_timer_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/timer_enabled" />
-    </LinearLayout>
-
-    <!-- 定时状态：上次执行结果 / 下次预计 / 逾期提示（用于定位“到点没切”的原因） -->
-    <TextView
-        android:id="@+id/tv_timer_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="4dp"
-        android:text="@string/timer_status_off"
-        android:textSize="12sp" />
-
-    <!-- 自动切换提示：自动切换（含补切）完成后发系统通知（成功静音留痕、失败弹横幅） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <Switch
-            android:id="@+id/sw_auto_notify"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/auto_notify_enabled" />
-    </LinearLayout>
-
-    <!-- 启用开关 + 切换间隔（秒级） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <Switch
-            android:id="@+id/sw_lib_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/lib_enabled" />
-
-        <TextView
-            android:id="@+id/tv_interval"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="24dp"
-            android:clickable="true"
-            android:text="@string/lib_interval"
-            android:textSize="14sp" />
-    </LinearLayout>
-
-    <!-- 范围 + 切换模式 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <CheckBox
-            android:id="@+id/cb_lib_home"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/scope_home" />
-
-        <CheckBox
-            android:id="@+id/cb_lib_lock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/scope_lock" />
-
-        <RadioGroup
-            android:id="@+id/rg_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/rb_order"
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="@string/mode_order" />
+                android:text="@string/section_library"
+                android:textColor="@color/brand"
+                android:textSize="13sp"
+                android:textStyle="bold" />
 
-            <RadioButton
-                android:id="@+id/rb_random"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Spinner
+                    android:id="@+id/spinner_libs"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <Button
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:id="@+id/btn_lib_new"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lib_new" />
+
+                <Button
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:id="@+id/btn_lib_delete"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lib_delete"
+                    android:textColor="@color/danger" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Switch
+                    android:id="@+id/sw_lib_enabled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lib_enabled" />
+
+                <TextView
+                    android:id="@+id/tv_interval"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="24dp"
+                    android:clickable="true"
+                    android:text="@string/lib_interval"
+                    android:textColor="@color/brand"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cb_lib_home"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/scope_home" />
+
+                <CheckBox
+                    android:id="@+id/cb_lib_lock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/scope_lock" />
+
+                <RadioGroup
+                    android:id="@+id/rg_mode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/rb_order"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="@string/mode_order" />
+
+                    <RadioButton
+                        android:id="@+id/rb_random"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/mode_random" />
+                </RadioGroup>
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- 卡片二：自动切换（定时总开关 + 状态行 + 通知开关） -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="10dp"
+        app:cardBackgroundColor="@color/card_bg"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/mode_random" />
-        </RadioGroup>
-    </LinearLayout>
+                android:text="@string/section_timer"
+                android:textColor="@color/brand"
+                android:textSize="13sp"
+                android:textStyle="bold" />
 
-    <!-- 添加与手动切换 -->
-    <LinearLayout
+            <Switch
+                android:id="@+id/sw_timer_enabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/timer_enabled" />
+
+            <!-- 定时状态：上次执行结果 / 下次预计 / 逾期提示（用于定位“到点没切”的原因） -->
+            <TextView
+                android:id="@+id/tv_timer_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp"
+                android:text="@string/timer_status_off"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <Switch
+                android:id="@+id/sw_auto_notify"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/auto_notify_enabled" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+
+
+    <!-- 卡片三：手动操作与系统入口 -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="10dp"
+        app:cardBackgroundColor="@color/card_bg"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp">
 
-        <Button
-            android:id="@+id/btn_add"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/add_wallpaper" />
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <Button
-            android:id="@+id/btn_switch_home"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/switch_home" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/section_actions"
+                android:textColor="@color/brand"
+                android:textSize="13sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btn_switch_lock"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/switch_lock" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/btn_add"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/add_wallpaper" />
 
-    <Button
-        android:id="@+id/btn_battery"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:text="@string/battery_settings" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
 
-    <!-- v2.0：引擎模式引导（动态壁纸直渲，根治 MagicOS "幽灵图"） -->
-    <Button
-        android:id="@+id/btn_engine"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:text="@string/engine_activate" />
+                <Button
+                    android:id="@+id/btn_switch_home"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/switch_home" />
 
+                <Button
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:id="@+id/btn_switch_lock"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/switch_lock" />
+            </LinearLayout>
+
+            <Button
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:id="@+id/btn_battery"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/battery_settings" />
+
+            <Button
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:id="@+id/btn_engine"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/engine_activate" />
+
+            <TextView
+                android:id="@+id/tv_engine"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/engine_hint"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- 库内壁纸列表 -->
     <TextView
-        android:id="@+id/tv_engine"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="4dp"
-        android:text="@string/engine_hint"
-        android:textSize="12sp" />
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="2dp"
+        android:paddingStart="24dp"
+        android:text="@string/section_list"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:textStyle="bold" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="12dp" />
 </LinearLayout>
+
