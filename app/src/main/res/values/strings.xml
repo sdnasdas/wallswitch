@@ -225,5 +225,6 @@
     <string name="notify_channel_status_desc">常驻显示当前桌面壁纸与下次自动切换倒计时（静音、不被一键清理）</string>
     <string name="notif_action_prev">上一张</string>
     <string name="notif_action_next">下一张</string>
+    <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
 </resources>

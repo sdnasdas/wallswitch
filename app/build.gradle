@@ -16,8 +16,8 @@ android {
         minSdk 26
         targetSdk 35
         // 版本约定：每次提交都递增（versionCode +1，versionName 次版本 +1，如 1.0 -> 1.1 -> 1.2）
-        versionCode 28
-        versionName "3.21"
+        versionCode 29
+        versionName "3.22"
     }
 
     signingConfigs {
@@ -61,6 +61,4 @@ dependencies {
     implementation 'androidx.activity:activity:1.9.3'
     // 定时切换后端：≥15 分钟间隔用 WorkManager（系统批量合并、Doze 友好、自动重启恢复）
     implementation 'androidx.work:work-runtime:2.9.1'
-    // 常驻切换通知的 MediaStyle 媒体卡片（网易云同款渲染机制）
-    implementation 'androidx.media:media:1.7.0'
 }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 常驻通知展开态的按钮底色：圆角胶囊，颜色跟随深浅色（divider 有夜间变体） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/divider" />
+    <corners android:radius="18dp" />
+</shape>

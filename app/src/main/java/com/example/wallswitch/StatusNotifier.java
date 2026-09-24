@@ -8,10 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-
-import android.support.v4.media.session.MediaSessionCompat;
-import androidx.core.app.NotificationCompat;
-import androidx.media.app.NotificationCompat.MediaStyle;
+import android.os.SystemClock;
+import android.view.View;
+import android.widget.RemoteViews;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -21,11 +20,14 @@ import java.util.concurrent.Executors;
  * 正在显示的壁纸标题与缩略图封面、下次自动切换的走秒倒计时，并提供
  * 「上一张 / 下一张」按钮直接切图（{@link NotifActionReceiver}）。
  *
- * 用 MediaStyle + MediaSession（网易云等音乐 App 的同款机制）：系统按媒体卡片渲染，
- * 按钮行与封面默认可见，收起/展开一个样；倒计时在头部区域走秒（Chronometer）。
- * 刻意不设 PlaybackState：伪装「正在播放」虽然能让系统渲染倒计时进度条，但 MagicOS
- * 会改用自己的播放模板（出现无功能的暂停键、吃掉按钮行），还会挤掉真正的音乐 App
- * 的媒体卡片——进度条只能放弃。MediaSession 只为渲染样式存在，进程级单例。
+ * 为什么自绘 RemoteViews 而不是系统媒体卡片（MediaStyle + MediaSession）：
+ * MagicOS 通知栏同时只显示一张媒体卡片——带媒体会话的通知会把音乐 App 的卡挤掉，
+ * 而且伪装「正在播放」换进度条还会被系统换成自带暂停键的播放模板、吃掉按钮行。
+ * 自绘布局零冲突、按钮常显，观感随深浅色（复用应用自己的 text/divider 颜色）。
+ *
+ * 倒计时用 Chronometer 控件：base 换算与桌面小组件一致（elapsedRealtime），
+ * 由 SystemUI 渲染走秒，不耗电、进程被杀也在走；到点未执行（Doze 推迟）时
+ * 改显「待切换」，与小组件的处理一致。
  *
  * 为什么常驻（setOngoing）：当前壁纸与切换节奏是用户想随时瞄一眼的状态，
  * 混在「到点通知」的历次记录里会被冲掉；ongoing 不会被一键清理清掉
@@ -49,9 +51,6 @@ public class StatusNotifier {
     // 开关存储（与其它设置共用 settings），默认开
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "status_notify";
-
-    // 进程级 MediaSession：只为让通知按媒体卡片渲染（挂 token），不承载真实播放
-    private static MediaSessionCompat session;
 
     // 缩略图解码与通知构建收口到后台（仿 TimerScheduler.EXECUTOR），主线程调用也安全
     private static final Executor EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
@@ -111,7 +110,7 @@ public class StatusNotifier {
         }
     }
 
-    /** 构建通知：标题=当前壁纸标题、正文=库名，大图标=缩略图封面，动作=上一张/下一张。 */
+    /** 构建通知：标题=当前壁纸标题、副行=库名+走秒倒计时，封面=缩略图，按钮=上一张/下一张。 */
     private static Notification build(Context ctx, LibraryStore.Library lib) {
         String currentId = Switcher.getCurrent(ctx, lib.id, true);
         String title = currentId == null ? null : WallpaperStore.getTitle(ctx, currentId);
@@ -119,54 +118,72 @@ public class StatusNotifier {
             title = ctx.getString(R.string.untitled);
         }
         Bitmap cover = currentId == null ? null : WallpaperStore.getThumb(ctx, currentId);
+        // 收起态与展开态共用一套内容：收起显示小图标按钮（高度受限），展开换成大按钮
+        RemoteViews collapsed = buildViews(ctx, lib, title, cover);
+        collapsed.setViewVisibility(R.id.notif_icon_actions, View.VISIBLE);
+        collapsed.setViewVisibility(R.id.notif_pill_actions, View.GONE);
+        RemoteViews expanded = buildViews(ctx, lib, title, cover);
+        expanded.setViewVisibility(R.id.notif_icon_actions, View.GONE);
+        expanded.setViewVisibility(R.id.notif_pill_actions, View.VISIBLE);
         Intent open = new Intent(ctx, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPending = PendingIntent.getActivity(ctx, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL)
+        // DecoratedCustomViewStyle：让系统包一层标准头部（应用名等），正文用我们的布局
+        return new Notification.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_widget_switch)
-                .setContentTitle(title)
-                .setContentText(lib.name == null ? "" : lib.name)
-                .setLargeIcon(cover)
+                .setCustomContentView(collapsed)
+                .setCustomBigContentView(expanded)
+                .setStyle(new Notification.DecoratedCustomViewStyle())
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentIntent(openPending)
-                .addAction(new NotificationCompat.Action.Builder(R.drawable.ic_notif_prev,
-                        ctx.getString(R.string.notif_action_prev),
-                        actionPending(ctx, NotifActionReceiver.ACTION_PREV, 1)).build())
-                .addAction(new NotificationCompat.Action.Builder(R.drawable.ic_notif_next,
-                        ctx.getString(R.string.notif_action_next),
-                        actionPending(ctx, NotifActionReceiver.ACTION_NEXT, 2)).build());
-        // 倒计时：通知的 when 直接用墙钟触发时间——通知模板由系统从 when 渲染 Chronometer，
-        // 不需要小组件那种 elapsedRealtime 换算（小组件用 Chronometer 控件才要自己算 base）
-        long trigger = TimerScheduler.libTrigger(ctx, lib.id);
-        if (trigger > System.currentTimeMillis()) {
-            builder.setUsesChronometer(true)
-                    .setChronometerCountDown(true)
-                    .setWhen(trigger)
-                    .setShowWhen(true)
-                    .setSubText(ctx.getString(R.string.notify_status_next));
-        } else {
-            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」，与小组件一致
-            builder.setUsesChronometer(false)
-                    .setShowWhen(false)
-                    .setSubText(ctx.getString(R.string.widget_waiting));
-        }
-        // 两个动作都放进收起态的按钮行：不展开也能直接切图
-        builder.setStyle(new MediaStyle()
-                .setMediaSession(mediaSession(ctx).getSessionToken())
-                .setShowActionsInCompactView(0, 1));
-        return builder.build();
+                .build();
     }
 
-    /** 进程级 MediaSession 懒加载（用应用上下文，避免持有 Activity）。 */
-    private static MediaSessionCompat mediaSession(Context ctx) {
-        if (session == null) {
-            session = new MediaSessionCompat(ctx.getApplicationContext(), "wallswitch_status");
+    /**
+     * 构建通知正文视图（收起/展开两份共用）：内容一致，只有按钮形态由调用方切换。
+     * RemoteViews 不带主题，文字颜色直接引用应用颜色资源（自带 values-night 夜间变体）。
+     */
+    private static RemoteViews buildViews(Context ctx, LibraryStore.Library lib,
+            String title, Bitmap cover) {
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.notification_status);
+        views.setTextViewText(R.id.notif_title, title);
+        views.setTextViewText(R.id.notif_lib, lib.name == null ? "" : lib.name);
+        if (cover != null) {
+            views.setImageViewBitmap(R.id.notif_cover, cover);
+        } else {
+            views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        return session;
+        // 倒计时：Chronometer 的 base 用开机计时（elapsedRealtime），与小组件换算一致；
+        // 通知的 when 走墙钟是模板字段，RemoteViews 自绘 Chronometer 必须换算
+        long trigger = TimerScheduler.libTrigger(ctx, lib.id);
+        long now = System.currentTimeMillis();
+        if (trigger > now) {
+            long base = SystemClock.elapsedRealtime() + (trigger - now);
+            views.setViewVisibility(R.id.notif_timer, View.VISIBLE);
+            views.setViewVisibility(R.id.notif_waiting, View.GONE);
+            views.setChronometer(R.id.notif_timer, base, null, true);
+            views.setChronometerCountDown(R.id.notif_timer, true);
+        } else {
+            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」，与小组件一致
+            views.setViewVisibility(R.id.notif_timer, View.GONE);
+            views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
+        }
+        // 图标是黑色 vector，RemoteViews 不走主题 tint，手动按深浅色染成正文色
+        int tint = ctx.getColor(R.color.text_primary);
+        views.setInt(R.id.notif_prev_ic, "setColorFilter", tint);
+        views.setInt(R.id.notif_next_ic, "setColorFilter", tint);
+        // 上一张/下一张：两种形态的按钮挂同一组 PendingIntent
+        PendingIntent prev = actionPending(ctx, NotifActionReceiver.ACTION_PREV, 1);
+        PendingIntent next = actionPending(ctx, NotifActionReceiver.ACTION_NEXT, 2);
+        views.setOnClickPendingIntent(R.id.notif_prev_ic, prev);
+        views.setOnClickPendingIntent(R.id.notif_next_ic, next);
+        views.setOnClickPendingIntent(R.id.notif_prev_pill, prev);
+        views.setOnClickPendingIntent(R.id.notif_next_pill, next);
+        return views;
     }
 
     /** 上一张/下一张按钮的广播 PendingIntent（接收在 NotifActionReceiver）。 */
