@@ -7,17 +7,13 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 import android.service.wallpaper.WallpaperService;
 import android.view.SurfaceHolder;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -72,79 +68,6 @@ public class WallSwitchService extends WallpaperService {
         activity.startActivity(intent);
     }
 
-    // ==================== 引擎开关：保存/还原用户原来的桌面壁纸 ====================
-
-    /** 关掉引擎时要还原的壁纸存档文件。 */
-    public static File previousWallpaperFile(Context ctx) {
-        return new File(ctx.getFilesDir(), "previous_wallpaper.png");
-    }
-
-    /**
-     * 保存「当前系统桌面壁纸」，供关掉引擎后还原。
-     * 引擎已经激活时不保存 —— 那时读回来的是我们自己的画面，存它没意义。
-     * 纯 IO + 绘图，调用方放后台线程。
-     */
-    public static boolean saveCurrentWallpaper(Context ctx) {
-        if (isActive(ctx)) {
-            return false;
-        }
-        Drawable drawable;
-        try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            // 清掉进程内缓存，确保读到的是当前真正生效的那张
-            wm.forgetLoadedWallpaper();
-            drawable = wm.getDrawable();
-        } catch (Exception e) {
-            return false;
-        }
-        if (drawable == null) {
-            return false;
-        }
-        int w = drawable.getIntrinsicWidth();
-        int h = drawable.getIntrinsicHeight();
-        if (w <= 0 || h <= 0) {
-            return false;
-        }
-        Bitmap bitmap = null;
-        try {
-            bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            drawable.setBounds(0, 0, w, h);
-            drawable.draw(canvas);
-            try (OutputStream out = new FileOutputStream(previousWallpaperFile(ctx))) {
-                return bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
-            }
-        } catch (Exception | OutOfMemoryError e) {
-            return false;
-        } finally {
-            if (bitmap != null) {
-                bitmap.recycle();
-            }
-        }
-    }
-
-    /**
-     * 关掉引擎：把存档的桌面壁纸设回去（setBitmap 会同时解除动态壁纸）；
-     * 没有存档就 clear()，退回系统默认。纯 IO，调用方放后台线程。
-     */
-    public static boolean restoreSavedWallpaper(Context ctx) {
-        try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            File saved = previousWallpaperFile(ctx);
-            if (saved.exists()) {
-                Bitmap bitmap = BitmapFactory.decodeFile(saved.getAbsolutePath());
-                if (bitmap != null) {
-                    wm.setBitmap(bitmap);
-                    bitmap.recycle();
-                    return true;
-                }
-            }
-            wm.clear();
-            return true;
-        } catch (Exception | OutOfMemoryError e) {
-            return false;
-        }
-    }
     @Override
     public Engine onCreateEngine() {
         return new WallEngine();

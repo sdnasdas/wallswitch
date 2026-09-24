@@ -82,7 +82,8 @@
     <string name="engine_previous_save_failed">没能保存当前壁纸，关掉引擎时将退回系统默认</string>
     <string name="engine_restored">已关掉引擎，桌面壁纸已还原</string>
     <string name="engine_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
-    <string name="status_engine_inactive">未启用动态壁纸引擎，桌面无法切换（请到设置抽屉打开引擎开关）</string>
+    <string name="status_engine_inactive">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉「开启接管」再打开可重试）</string>
+    <string name="status_takeover_off">接管已关闭：请到设置抽屉打开「开启接管」，本 App 才会接管桌面与锁屏壁纸</string>
     <string name="engine_hint">引擎模式未启用：启用后桌面由本 App 直接渲染，不再有"幽灵图"</string>
     <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
@@ -161,4 +162,23 @@
     <string name="switch_pick">切换壁纸</string>
     <string name="switch_pick_scope">选择切换范围</string>
     <string name="swipe_delete_hint">左滑壁纸可删除</string>
+    <!-- v3.10：全局「接管」开关（App 级，非引擎级）+ 接管情况（系统真值） -->
+    <string name="takeover_title">开启接管</string>
+    <string name="takeover_scope_home">桌面：%1$s</string>
+    <string name="takeover_scope_lock">锁屏：%1$s</string>
+    <string name="takeover_by_app">当前 App</string>
+    <string name="takeover_by_system">系统</string>
+    <string name="takeover_saving">正在记录接管前的壁纸…</string>
+    <string name="takeover_on">已开启接管，桌面与锁屏由本 App 负责</string>
+    <string name="takeover_off">已关闭接管，桌面与锁屏壁纸已还原</string>
+    <string name="takeover_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
+    <string name="takeover_cancelled">未确认动态壁纸，已关闭接管并还原</string>
+    <string name="takeover_pending">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉开关再打开可重试）</string>
+    <!-- 范围改为单选下拉后，改范围需二次确认 -->
+    <string name="scope_confirm_title">确认修改范围</string>
+    <string name="scope_confirm_msg">把「%1$s」的范围改成「%2$s」？保存后这个库只负责该范围的切换。</string>
+    <string name="scope_saved">范围已保存：%1$s</string>
+    <!-- 定时自动切换日志（files/switch_log.txt）。间隔＝实际经过分钟，括号内＝配置值与顺序/随机 -->
+    <string name="log_switch_time">切换时间：%1$s</string>
+    <string name="log_switch_interval">  间隔上次切换时间：%1$d分钟（当前定时切换设置为%2$d分钟%3$s）</string>
 </resources>

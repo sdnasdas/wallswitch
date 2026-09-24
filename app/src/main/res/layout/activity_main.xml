@@ -225,47 +225,21 @@
                                 android:layout_height="wrap_content" />
                         </LinearLayout>
 
-                        <LinearLayout
+                        <!-- 范围：桌面/锁屏 单选下拉（只允许单选；改范围要确认后才保存） -->
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/til_scope"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
+                            android:layout_marginTop="6dp"
+                            android:hint="@string/lib_scope_label"
+                            app:endIconMode="dropdown_menu">
 
-                            <TextView
-                                android:layout_width="0dp"
+                            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                                android:id="@+id/scope_selector"
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/scope_home"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_lib_home"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/scope_lock"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_lib_lock"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
+                                android:inputType="none" />
+                        </com.google.android.material.textfield.TextInputLayout>
 
                         <!-- 切换顺序（单选，保留 RadioGroup 以免改动业务回调） -->
                         <LinearLayout
@@ -458,15 +432,32 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="@string/engine_toggle"
+                                android:text="@string/takeover_title"
                                 android:textColor="@color/text_primary"
                                 android:textSize="14sp" />
 
                             <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_engine"
+                                android:id="@+id/sw_takeover"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" />
                         </LinearLayout>
+
+                        <!-- 接管情况（系统真值）：各范围当前由本 App 还是系统负责 -->
+                        <TextView
+                            android:id="@+id/tv_takeover_home"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/tv_takeover_lock"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp" />
 
                         <TextView
                             android:id="@+id/tv_engine"

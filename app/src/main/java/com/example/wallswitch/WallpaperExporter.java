@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -27,6 +28,7 @@ public final class WallpaperExporter {
 
     private static final String PREFS_NAME = "settings";
     private static final String KEY_TREE_URI = "export_tree_uri";
+    private static final String KEY_DOC_URI = "export_text_doc_uri";
 
     private WallpaperExporter() {
     }
@@ -118,6 +120,48 @@ public final class WallpaperExporter {
             closeQuietly(in);
             closeQuietly(out);
         }
+    }
+
+    /**
+     * 把一段文本写到导出目录（同名覆盖）。用于同步切换日志。
+     * 首次创建文档并记下 URI，之后用 "wt" 截断重写；文档被删/移动时清掉记录，下次重建。
+     */
+    public static boolean writeTextFile(Context context, String displayName, String mime,
+                                        String content) {
+        Uri tree = treeUri(context);
+        if (tree == null || content == null) {
+            return false;
+        }
+        OutputStream out = null;
+        try {
+            Uri doc = existingDocUri(context);
+            if (doc == null) {
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(
+                        tree, DocumentsContract.getTreeDocumentId(tree));
+                doc = DocumentsContract.createDocument(
+                        context.getContentResolver(), parent, mime, displayName);
+                if (doc == null) {
+                    return false;
+                }
+                prefs(context).edit().putString(KEY_DOC_URI, doc.toString()).apply();
+            }
+            out = context.getContentResolver().openOutputStream(doc, "wt");
+            if (out == null) {
+                return false;
+            }
+            out.write(content.getBytes(StandardCharsets.UTF_8));
+            return true;
+        } catch (Exception e) {
+            prefs(context).edit().remove(KEY_DOC_URI).apply();
+            return false;
+        } finally {
+            closeQuietly(out);
+        }
+    }
+
+    private static Uri existingDocUri(Context context) {
+        String value = prefs(context).getString(KEY_DOC_URI, null);
+        return value == null || value.isEmpty() ? null : Uri.parse(value);
     }
 
     /**

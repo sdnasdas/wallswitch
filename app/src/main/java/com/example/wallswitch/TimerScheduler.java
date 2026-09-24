@@ -137,15 +137,37 @@ public class TimerScheduler {
         if (lib == null || !lib.enabled) {
             return false;
         }
+        // 「开启接管」关着 = 本 App 不接管系统壁纸：定时任务完全不动系统（不发通知、不记日志），
+        // 但仍按间隔推进记账，免得每个周期都白跑一次、状态行还停在上次的旧结果
+        if (!TakeoverManager.isEnabled(ctx)) {
+            long idle = System.currentTimeMillis();
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    .putLong(KEY_LAST_RUN_PREFIX + libId, idle)
+                    .putString(KEY_LAST_RESULT_PREFIX + libId, "takeover_off")
+                    .putLong(KEY_NEXT_TRIGGER_PREFIX + libId, idle + intervalSeconds(lib) * 1000L)
+                    .apply();
+            return false;
+        }
         // 按库覆盖的范围逐个切换（Switcher 内部会校验范围勾选与库内是否有壁纸）
-        boolean okHome = Switcher.next(ctx, libId, true);
+        // 桌面：App 未接管（引擎未激活）时不做任何事 —— 桌面静态兜底已按需求删除。
+        // 关键：这不算「失败」，否则每个定时周期都会弹一条失败横幅，纯噪音。
+        boolean engineOn = WallSwitchService.isActive(ctx);
+        boolean okHome = !engineOn || Switcher.next(ctx, libId, true);
         boolean okLock = Switcher.next(ctx, libId, false);
         boolean ok = okHome || okLock;
         long now = System.currentTimeMillis();
-        String result = ok ? RESULT_OK : Switcher.lastError();
+        // 未接管、且该库不覆盖锁屏 → 本轮没有任何可执行的事：只记账、不打扰
+        boolean nothingToDo = !engineOn && !lib.lock;
+        String result = nothingToDo ? "engine_inactive" : (ok ? RESULT_OK : Switcher.lastError());
         // 自动切换提示：用户通常不在场，统一发系统通知（成功静音留痕、失败弹横幅），
         // 手动切换/小组件点击仍由界面侧用 Toast 即时反馈，不走这里
-        SwitchNotifier.notifyResult(ctx, lib, ok, result);
+        if (!nothingToDo) {
+            SwitchNotifier.notifyResult(ctx, lib, ok, result);
+            // 日志只记「定时自动切换」成功的那次（手动切换与小组件点按不记）
+            if (ok) {
+                SwitchLog.recordAuto(ctx, lib);
+            }
+        }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_LAST_RUN_PREFIX + libId, now)

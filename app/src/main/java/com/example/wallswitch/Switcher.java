@@ -1,6 +1,5 @@
 package com.example.wallswitch;
 
-import android.app.WallpaperManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -64,6 +63,15 @@ public class Switcher {
      * 库未启用或未覆盖对应范围时不切换。返回是否成功上屏。
      */
     public static boolean next(Context ctx, String libId, boolean forHome) {
+        // 「开启接管」关着 = 本 App 不接管系统壁纸：手动切换、定时切换、小组件点按一律不写系统。
+        // 这里是所有上屏路径的唯一收口（桌面引擎与锁屏 setBitmap 都在下面），拦一道即可全覆盖。
+        if (!TakeoverManager.isEnabled(ctx)) {
+            lastError = "takeover_off";
+            // 别让通知/状态行沿用上一轮的旧标题，否则看起来像切成功了
+            lastTitleHome = null;
+            lastTitleLock = null;
+            return false;
+        }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
         if (lib == null || !lib.enabled) {
             return false;
@@ -94,14 +102,18 @@ public class Switcher {
             // 桌面只走引擎：没激活就没法切，如实报错让界面提示去开开关
             if (!WallSwitchService.isActive(ctx)) {
                 lastError = "engine_inactive";
+                // 本轮桌面没切，别让通知沿用上一轮的旧标题（否则看起来像切成功了）
+                lastTitleHome = null;
                 return false;
             }
             // 切图 = 推进指针 + 通知引擎重绘（引擎在后台线程解码并直接画上 Surface）
             WallSwitchService.notifyWallpaperChanged();
             applied = true;
         } else {
-            // 锁屏：引擎管不到，只能走这一次静态调用
-            applied = setLockWallpaper(ctx, WallpaperStore.getFullFile(ctx, nextId));
+            // 锁屏：引擎管不到，只能走这一条静态调用（由 TakeoverManager 统一设置并记下 id）
+            applied = TakeoverManager.setLockFromFile(ctx,
+                    WallpaperStore.getFullFile(ctx, nextId)) != 0;
+            lastError = applied ? null : "not_applied";
         }
         // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
         String appliedTitle = applied ? WallpaperStore.getTitle(ctx, nextId) : null;
@@ -175,32 +187,6 @@ public class Switcher {
         return nextId;
     }
 
-    /**
-     * 锁屏壁纸：必须用带 which 的重载显式指定 FLAG_LOCK（简化版 setBitmap(bitmap) 会同时改桌面+锁屏）。
-     * 这里只保留这一条静态调用；原来针对桌面的三道/四重校验与延迟重试已随静态链路一并删除。
-     */
-    private static boolean setLockWallpaper(Context ctx, File file) {
-        Bitmap bitmap = loadBitmap(ctx, file);
-        if (bitmap == null) {
-            lastError = "decode_failed";
-            return false;
-        }
-        try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            int newId = wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
-            if (newId == 0) {
-                // 系统没接受（个别机型限制后台设置锁屏壁纸）
-                lastError = "not_applied";
-                return false;
-            }
-            lastError = null;
-            return true;
-        } catch (Exception e) {
-            // 如缺 SET_WALLPAPER 权限、机型限制：记录异常便于界面提示
-            lastError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
-            return false;
-        }
-    }
 
     /** 把内部错误码转成可读文案（定时状态行与手动/小组件切换失败提示共用）。 */
     public static String errorText(Context ctx, String code) {
@@ -215,6 +201,9 @@ public class Switcher {
         }
         if ("not_applied".equals(code)) {
             return ctx.getString(R.string.status_not_applied);
+        }
+        if ("takeover_off".equals(code)) {
+            return ctx.getString(R.string.status_takeover_off);
         }
         // 异常类名等原始信息直接透出，便于定位
         return code;

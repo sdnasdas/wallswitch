@@ -73,6 +73,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
     private ActivityResultLauncher<Uri> exportDirLauncher;
+    // 接管开关是否处于「等待用户在系统选择器里确认」的状态（用来判断用户是否点了取消）
+    private boolean pendingEngineActivation = false;
     private RecyclerView recycler;
     private Adapter adapter;
     private SharedPreferences prefs;
@@ -171,7 +173,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshBatteryButton();
                 refreshLauncherOverlayRow();
                 refreshExportRows();
-                setupEngineSwitch();
+                syncTakeoverAsync();
             }
         });
         // 「桌面图标预览底图」：点按选/换一张自己的首页截图，长按清除。全局只设一次。
@@ -220,8 +222,9 @@ public class MainActivity extends AppCompatActivity {
         // 引擎模式状态（桌面是否由本 App 的动态壁纸引擎直接渲染）
         ((TextView) findViewById(R.id.tv_engine)).setText(
                 WallSwitchService.isActive(this) ? R.string.engine_active : R.string.engine_hint);
-        // 从系统选择器返回后同步引擎开关（用户可能点了取消）
-        setupEngineSwitch();
+        // 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关）
+        onReturnFromActivator();
+        setupTakeoverSwitch();
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理
@@ -337,7 +340,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_add).setOnClickListener(v -> launchPicker());
         findViewById(R.id.btn_switch).setOnClickListener(v -> onSwitchClicked());
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
-        // 引擎开关（真值取系统实际状态，见 setupEngineSwitch）
+        setupTakeoverSwitch();
         // 电池优化是否已允许，直接显示在按钮上（决定后台定时能否被系统唤醒）
         refreshBatteryButton();
         refreshSwitchButton();
@@ -349,6 +352,15 @@ public class MainActivity extends AppCompatActivity {
      * 桌面+锁屏都勾（或都没勾）时先弹出范围选择，避免误切到用户没想要的那一边。
      */
     private void onSwitchClicked() {
+        // 「开启接管」关着：本 App 不接管系统，点切换不会有任何效果 —— 直接说清并把抽屉推开
+        if (!TakeoverManager.isEnabled(this)) {
+            Toast.makeText(this, R.string.status_takeover_off, Toast.LENGTH_LONG).show();
+            DrawerLayout drawer = findViewById(R.id.drawer_layout);
+            if (drawer != null) {
+                drawer.openDrawer(Gravity.START);
+            }
+            return;
+        }
         LibraryStore.Library lib = currentLib();
         boolean home = lib != null && lib.home;
         boolean lock = lib != null && lib.lock;
@@ -358,6 +370,11 @@ public class MainActivity extends AppCompatActivity {
         }
         if (lock && !home) {
             switchAndToast(false);
+            return;
+        }
+        // 范围下拉改成单选后不该再有「没设范围」的库；真遇上（老数据）就提示去选，别静默失败
+        if (!home && !lock) {
+            Toast.makeText(this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -453,27 +470,29 @@ public class MainActivity extends AppCompatActivity {
     /** 回填当前库的设置区（启用开关、范围、模式、间隔），并绑定监听。 */
     private void refreshLibSettings() {
         CompoundButton swEnabled = findViewById(R.id.sw_lib_enabled);
-        CompoundButton swHome = findViewById(R.id.sw_lib_home);
-        CompoundButton swLock = findViewById(R.id.sw_lib_lock);
+        AutoCompleteTextView scopeSelector = findViewById(R.id.scope_selector);
         RadioGroup rgMode = findViewById(R.id.rg_mode);
         TextView tvInterval = findViewById(R.id.tv_interval);
         View rowInterval = findViewById(R.id.row_interval);
         LibraryStore.Library lib = currentLib();
         // 先置空监听再回填，避免 setChecked 触发意外写回
+        // （范围下拉用 setText(text, false)，程序化赋值不会触发 onItemClick）
         swEnabled.setOnCheckedChangeListener(null);
-        swHome.setOnCheckedChangeListener(null);
-        swLock.setOnCheckedChangeListener(null);
         rgMode.setOnCheckedChangeListener(null);
         if (lib == null) {
             swEnabled.setChecked(false);
-            swHome.setChecked(false);
-            swLock.setChecked(false);
+            scopeSelector.setText("", false);
             tvInterval.setText(R.string.lib_interval);
             return;
         }
         swEnabled.setChecked(lib.enabled);
-        swHome.setChecked(lib.home);
-        swLock.setChecked(lib.lock);
+        // 范围：桌面/锁屏 单选下拉（只允许单选，一个库只负责一个范围；从未设过时留空只显示提示）
+        scopeSelector.setThreshold(0);
+        scopeSelector.setOnClickListener(v -> scopeSelector.showDropDown());
+        scopeSelector.setAdapter(new NoFilterAdapter(this, scopeNames()));
+        scopeSelector.setText(scopeTextOf(lib), false);
+        scopeSelector.setOnItemClickListener((parent, view, position, id) ->
+                confirmScopeChange(scopeSelector, position == 0));
         rgMode.check(LibraryStore.MODE_RANDOM.equals(lib.mode) ? R.id.rb_random : R.id.rb_order);
         // 行标签已独立显示「切换间隔」，这里只显示值本身（可点整行修改）
         tvInterval.setText(formatInterval(lib.intervalSeconds));
@@ -485,21 +504,8 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
             }
             refreshTimerStatus();
-        });
-        // 范围勾选（启用中的库修改范围会应用互斥约束）
-        swHome.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            LibraryStore.Library target = currentLib();
-            if (target != null) {
-                LibraryStore.setScope(MainActivity.this, target.id, isChecked, swLock.isChecked());
-            }
-            refreshTimerStatus();
-        });
-        swLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            LibraryStore.Library target = currentLib();
-            if (target != null) {
-                LibraryStore.setScope(MainActivity.this, target.id, swHome.isChecked(), isChecked);
-            }
-            refreshTimerStatus();
+            // 启用/停用库都会改变「谁在被接管」，同步一次接管状态
+            syncTakeoverAsync();
         });
         // 切换模式（顺序/随机，按库保存）
         rgMode.setOnCheckedChangeListener((group, checkedId) ->
@@ -507,6 +513,55 @@ public class MainActivity extends AppCompatActivity {
                         checkedId == R.id.rb_random ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
         // 切换间隔（分钟级，最小 15）：整行可点
         rowInterval.setOnClickListener(v -> showIntervalDialog());
+    }
+
+    /** 范围下拉的两个选项（下标 0 = 桌面，1 = 锁屏）。 */
+    private List<String> scopeNames() {
+        List<String> names = new ArrayList<>();
+        names.add(getString(R.string.scope_home));
+        names.add(getString(R.string.scope_lock));
+        return names;
+    }
+
+    /** 当前库的范围文案；从未设过范围时返回空串（下拉只显示提示文字）。 */
+    private String scopeTextOf(LibraryStore.Library lib) {
+        if (lib == null || (!lib.home && !lib.lock)) {
+            return "";
+        }
+        return getString((lib.home && !lib.lock) ? R.string.scope_home : R.string.scope_lock);
+    }
+
+    /**
+     * 改范围：先弹确认框，确认后才保存（保存即生效，会互斥掉另一范围的同类设置）。
+     * 选了同一项或点了取消，都把下拉恢复成当前值。
+     */
+    private void confirmScopeChange(AutoCompleteTextView selector, boolean home) {
+        LibraryStore.Library lib = currentLib();
+        if (lib == null) {
+            return;
+        }
+        boolean currentHome = lib.home && !lib.lock;
+        boolean currentLock = lib.lock && !lib.home;
+        if (home ? currentHome : currentLock) {
+            selector.setText(scopeTextOf(lib), false);
+            return;
+        }
+        String name = getString(home ? R.string.scope_home : R.string.scope_lock);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.scope_confirm_title)
+                .setMessage(getString(R.string.scope_confirm_msg, lib.name, name))
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    LibraryStore.setScope(MainActivity.this, lib.id, home, !home);
+                    refreshLibSettings();
+                    refreshTimerStatus();
+                    refreshSwitchButton();
+                    syncTakeoverAsync();
+                    Toast.makeText(MainActivity.this,
+                            getString(R.string.scope_saved, name), Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(R.string.cancel,
+                        (dialog, which) -> selector.setText(scopeTextOf(lib), false))
+                .show();
     }
 
     /** 弹窗输入框统一套一层 TextInputLayout（M3 描边 + 浮动提示），返回可直接 setView 的容器。 */
@@ -688,6 +743,8 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (ok) {
                     Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
+                    // 切完锁屏后「锁屏：当前 App / 系统」这行会变，立刻刷新，别等下次进应用
+                    refreshTakeoverStatus();
                 } else {
                     // 带上具体失败原因（如桌面被动态壁纸占用），方便用户对症处理
                     Toast.makeText(this, Switcher.errorText(this, Switcher.lastError()),
@@ -790,58 +847,132 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 「启用动态壁纸引擎」开关。真值取<b>系统实际状态</b>（我们的引擎当前是不是系统壁纸），
-     * 不存偏好值 —— 否则用户在系统选择器里点了取消，开关还显示"开"，点切换却毫无反应。
+     * 「接管壁纸」总开关。开关 = 接管<b>意图</b>；桌面/锁屏各自是否真的被接管，看下面两行系统真值。
+     * 打开时先存下接管前的桌面/锁屏壁纸；桌面接管需要用户在系统选择器里确认一次，
+     * 取消则开关自动回关（见 onReturnFromActivator）。
      */
-    private void setupEngineSwitch() {
-        CompoundButton sw = findViewById(R.id.sw_engine);
+    private void setupTakeoverSwitch() {
+        CompoundButton sw = findViewById(R.id.sw_takeover);
         if (sw == null) {
             return;
         }
         sw.setOnCheckedChangeListener(null);
-        sw.setChecked(WallSwitchService.isActive(this));
+        sw.setChecked(TakeoverManager.isEnabled(this));
         sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
-                enableEngine();
+                enableTakeover();
             } else {
-                disableEngine();
+                disableTakeover();
             }
         });
+        refreshTakeoverStatus();
+    }
+
+    /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
+    private void enableTakeover() {
+        Toast.makeText(this, R.string.takeover_saving, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            TakeoverManager.savePreviousWallpapers(this);
+            TakeoverManager.setEnabled(this, true);
+            final int result = TakeoverManager.apply(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
+                    // 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，桌面接管必须由用户在系统界面确认
+                    pendingEngineActivation = true;
+                    WallSwitchService.openActivator(this);
+                } else {
+                    Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
+                }
+                setupTakeoverSwitch();
+            });
+        }, "takeover-on").start();
+    }
+
+    /** 关闭接管：桌面与锁屏都还原成接管前的样子。 */
+    private void disableTakeover() {
+        new Thread(() -> {
+            TakeoverManager.setEnabled(this, false);
+            final boolean ok = TakeoverManager.release(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this, ok ? R.string.takeover_off : R.string.takeover_restore_failed,
+                        Toast.LENGTH_SHORT).show();
+                setupTakeoverSwitch();
+            });
+        }, "takeover-off").start();
+    }
+
+    /** 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关），并把已做的改动还原。 */
+    private void onReturnFromActivator() {
+        if (!pendingEngineActivation) {
+            return;
+        }
+        pendingEngineActivation = false;
+        if (TakeoverManager.isHomeTakenOver(this)) {
+            Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(() -> {
+            TakeoverManager.setEnabled(this, false);
+            TakeoverManager.release(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this, R.string.takeover_cancelled, Toast.LENGTH_LONG).show();
+                setupTakeoverSwitch();
+            });
+        }, "takeover-cancel").start();
     }
 
     /**
-     * 打开引擎：先把当前桌面壁纸存一份（关掉时用来还原），再拉起系统动态壁纸选择器。
-     * 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，设置动态壁纸必须由用户在系统界面确认一次。
+     * 把接管意图与实际同步一次（例如刚禁用/删除了库：没启用库的范围要回退给系统）。
+     * 放后台线程，避免系统调用卡 UI。
      */
-    private void enableEngine() {
-        Toast.makeText(this, R.string.engine_saving, Toast.LENGTH_SHORT).show();
+    private void syncTakeoverAsync() {
         new Thread(() -> {
-            final boolean saved = WallSwitchService.saveCurrentWallpaper(this);
+            TakeoverManager.apply(this);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                WallSwitchService.openActivator(this);
-                if (!saved) {
-                    Toast.makeText(this, R.string.engine_previous_save_failed, Toast.LENGTH_LONG).show();
-                }
+                setupTakeoverSwitch();
             });
-        }, "engine-save").start();
+        }, "takeover-sync").start();
     }
 
-    /** 关掉引擎：把存档的桌面壁纸设回去（setBitmap 会同时解除动态壁纸）。 */
-    private void disableEngine() {
-        new Thread(() -> {
-            final boolean ok = WallSwitchService.restoreSavedWallpaper(this);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                Toast.makeText(this, ok ? R.string.engine_restored : R.string.engine_restore_failed,
-                        Toast.LENGTH_SHORT).show();
-                setupEngineSwitch();
-            });
-        }, "engine-restore").start();
+    /** 接管情况（系统真值）：桌面看引擎是否生效，锁屏看壁纸 id 是不是我们设进去那个。 */
+    private void refreshTakeoverStatus() {
+        boolean homeByApp = TakeoverManager.isHomeTakenOver(this);
+        TextView home = findViewById(R.id.tv_takeover_home);
+        if (home != null) {
+            home.setText(getString(R.string.takeover_scope_home,
+                    getString(homeByApp ? R.string.takeover_by_app : R.string.takeover_by_system)));
+        }
+        TextView lock = findViewById(R.id.tv_takeover_lock);
+        if (lock != null) {
+            lock.setText(getString(R.string.takeover_scope_lock,
+                    getString(TakeoverManager.isLockTakenOver(this)
+                            ? R.string.takeover_by_app : R.string.takeover_by_system)));
+        }
+        // 引擎状态行：接管开着、桌面也确实该接管、但引擎没生效 → 提示怎么重试
+        TextView engine = findViewById(R.id.tv_engine);
+        if (engine != null) {
+            boolean wantHome = TakeoverManager.isEnabled(this)
+                    && LibraryStore.enabledLibForScope(this, true) != null;
+            if (homeByApp) {
+                engine.setText(R.string.engine_active);
+            } else if (wantHome) {
+                engine.setText(R.string.takeover_pending);
+            } else {
+                engine.setText(R.string.engine_hint);
+            }
+        }
     }
 
     /** 打开本应用的系统详情页（荣耀/华为在此开启自启动、后台运行白名单）。 */
