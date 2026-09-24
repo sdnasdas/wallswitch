@@ -1,5 +1,6 @@
 package com.example.wallswitch;
 
+import android.Manifest;
 import android.app.WallpaperManager;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -14,11 +15,13 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -169,6 +172,11 @@ public final class TakeoverManager {
         log.append("存档时间：").append(
                 new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()))
                 .append('\n');
+        log.append("权限：READ_MEDIA_IMAGES=")
+                .append(granted(ctx, Manifest.permission.READ_MEDIA_IMAGES))
+                .append("，READ_EXTERNAL_STORAGE=")
+                .append(granted(ctx, Manifest.permission.READ_EXTERNAL_STORAGE))
+                .append('\n');
         if (!isHomeTakenOver(ctx)) {
             String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
             if (r.isEmpty()) {
@@ -199,6 +207,11 @@ public final class TakeoverManager {
         }
         writeSaveLog(ctx, log.toString());
         return fail.toString();
+    }
+
+    private static String granted(Context ctx, String permission) {
+        return ctx.checkSelfPermission(permission)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED ? "已授予" : "未授予";
     }
 
     /** 关闭接管：两个范围都还原成接管前的样子。纯 IO，调用方放后台线程。 */
@@ -372,32 +385,13 @@ public final class TakeoverManager {
 
     /** 把系统当前某个范围的壁纸画成 PNG 存进公共相册（低版本存内部存储）。 */
     private static String saveWallpaper(Context ctx, int which, String name) {
-        Drawable drawable;
+        StringBuilder why = new StringBuilder();
+        Bitmap bitmap = readWallpaperBitmap(ctx, which, why);
+        if (bitmap == null) {
+            Log.e(LOG_TAG, "读不到壁纸(" + which + ")：" + why);
+            return "读不到当前壁纸 — " + why;
+        }
         try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            // 清掉进程内缓存，确保读到当前真正生效的那张
-            wm.forgetLoadedWallpaper();
-            drawable = wm.getDrawable(which);
-        } catch (Exception e) {
-            Log.e(LOG_TAG, "getDrawable(" + which + ") 抛异常", e);
-            return "读不到当前壁纸（getDrawable 异常：" + e + "）";
-        }
-        if (drawable == null) {
-            Log.e(LOG_TAG, "getDrawable(" + which + ") 返回 null");
-            return "读不到当前壁纸（getDrawable 返回 null）";
-        }
-        int w = drawable.getIntrinsicWidth();
-        int h = drawable.getIntrinsicHeight();
-        if (w <= 0 || h <= 0) {
-            Log.e(LOG_TAG, "壁纸尺寸异常：" + w + "x" + h);
-            return "壁纸尺寸异常 " + w + "x" + h;
-        }
-        Bitmap bitmap = null;
-        try {
-            bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            drawable.setBounds(0, 0, w, h);
-            drawable.draw(canvas);
             boolean written;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 written = saveToMediaStore(ctx, name, bitmap);
@@ -410,16 +404,73 @@ public final class TakeoverManager {
                 Log.e(LOG_TAG, "写入 " + name + " 失败");
                 return "写入失败（PNG 压缩或 MediaStore 写入未成功）";
             }
-            Log.i(LOG_TAG, "已存 " + name + "（" + w + "x" + h + "）");
+            Log.i(LOG_TAG, "已存 " + name + "（" + bitmap.getWidth() + "x" + bitmap.getHeight() + "）");
             return "";
         } catch (Exception | OutOfMemoryError e) {
             Log.e(LOG_TAG, "保存 " + name + " 抛异常", e);
             return "保存异常：" + e;
         } finally {
-            if (bitmap != null) {
-                bitmap.recycle();
-            }
+            bitmap.recycle();
         }
+    }
+
+    /**
+     * 多路兜底读当前壁纸：不同 ROM 拦的点不同（MagicOS 对 getDrawable 死认
+     * READ_EXTERNAL_STORAGE，授予照片权限也不折算），依次试到成功为止。
+     *
+     * @param why 全部失败时通过它带回每条路的具体死因
+     */
+    private static Bitmap readWallpaperBitmap(Context ctx, int which, StringBuilder why) {
+        WallpaperManager wm = WallpaperManager.getInstance(ctx);
+        // 清掉进程内缓存，确保读到当前真正生效的那张
+        wm.forgetLoadedWallpaper();
+
+        // 路 1：getDrawable（标准路径，画成新 Bitmap）
+        try {
+            Drawable drawable = wm.getDrawable(which);
+            if (drawable != null) {
+                int w = drawable.getIntrinsicWidth();
+                int h = drawable.getIntrinsicHeight();
+                if (w > 0 && h > 0) {
+                    Bitmap bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    Canvas canvas = new Canvas(bitmap);
+                    drawable.setBounds(0, 0, w, h);
+                    drawable.draw(canvas);
+                    Log.i(LOG_TAG, "读壁纸(" + which + ")成功：getDrawable");
+                    return bitmap;
+                }
+                why.append("getDrawable 尺寸 ").append(w).append("x").append(h).append("；");
+            } else {
+                why.append("getDrawable 返回 null；");
+            }
+        } catch (Throwable t) {
+            Log.w(LOG_TAG, "getDrawable(" + which + ") 失败", t);
+            why.append("getDrawable 异常 ").append(t).append("；");
+        }
+
+        // 路 2：getWallpaperFile（拿原始文件描述符直接解码，绕过 drawable 那层的权限检查）
+        try {
+            ParcelFileDescriptor pfd = wm.getWallpaperFile(which);
+            if (pfd != null) {
+                Bitmap bitmap = BitmapFactory.decodeFileDescriptor(pfd.getFileDescriptor());
+                try {
+                    pfd.close();
+                } catch (IOException ignored) {
+                }
+                if (bitmap != null) {
+                    Log.i(LOG_TAG, "读壁纸(" + which + ")成功：getWallpaperFile");
+                    return bitmap;
+                }
+                why.append("getWallpaperFile 解码失败；");
+            } else {
+                why.append("getWallpaperFile 返回 null；");
+            }
+        } catch (Throwable t) {
+            Log.w(LOG_TAG, "getWallpaperFile(" + which + ") 失败", t);
+            why.append("getWallpaperFile 异常 ").append(t).append("；");
+        }
+
+        return null;
     }
 
     private static boolean saveToMediaStore(Context ctx, String name, Bitmap bitmap) {
