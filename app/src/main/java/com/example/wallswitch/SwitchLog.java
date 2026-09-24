@@ -16,16 +16,17 @@ import java.util.Locale;
  * 定时自动切换的日志（持久化到文件）。**只在「定时到点自动切换」成功时**记一条，
  * 手动切换与小组件点按不记。
  *
- * 格式：版本号变化时开新的一段，段与段之间空一行；每段第一条不带间隔（它是这个版本第一次切换）：
+ * 格式：版本号变化时开新的一段，段与段之间空一行；每条两行（时间行 + 实际间隔行，缩进对齐），
+ * 条目之间也空一行；每段第一条不带间隔（它是这个版本第一次切换）：
  * <pre>
- * v3.10
- * 切换时间：2026-09-24 09:15
- * 切换时间：2026-09-24 09:30  间隔上次切换时间：15分钟（当前定时切换设置为15分钟顺序切换）
+ * v3.15
+ * 2026-09-24 14:33  桌面「海边」
  *
- * v3.11
- * 切换时间：2026-09-24 10:10
+ * 2026-09-24 14:48  桌面「城市」
+ *   实际间隔 15 分钟 · 设置 15 分钟 · 随机
  * </pre>
- * 「间隔上次切换时间」是<b>实际</b>间隔（用于看有没有漂移）；括号里是<b>配置</b>的间隔与顺序/随机。
+ * 第一行：时间 + 这次切了哪个范围、轮到哪张（两个范围各自推进时写成「桌面「A」  /  锁屏「B」」）。
+ * 第二行：「实际间隔」是两次切换真实相差的分钟数（看有没有漂移）；「设置」是库里配的间隔与顺序/随机。
  *
  * 文件写在应用私有目录 {@code files/switch_log.txt}；如果设了导出目录，会**同名同步一份**过去，
  * 方便用文件管理器直接查看。
@@ -36,8 +37,6 @@ public final class SwitchLog {
     private static final String KEY_VERSION = "switch_log_version";
     private static final String KEY_TIME = "switch_log_time";
     private static final String FILE_NAME = "switch_log.txt";
-    /** yyyy-MM-dd HH:mm 的长度，用于从一行里截出「切换时间」的值。 */
-    private static final int TIME_TEXT_LEN = 16;
 
     private SwitchLog() {
     }
@@ -49,8 +48,11 @@ public final class SwitchLog {
 
     /**
      * 记一次「定时自动切换」。纯 IO，调用方放后台线程（TimerScheduler 本来就在 Worker 线程里跑）。
+     *
+     * @param detail 这次切了哪个范围、轮到哪张的可读描述（见 TimerScheduler.switchDetail）；
+     *               传 null 则只记时间
      */
-    public static void recordAuto(Context ctx, LibraryStore.Library lib) {
+    public static void recordAuto(Context ctx, LibraryStore.Library lib, String detail) {
         if (ctx == null || lib == null) {
             return;
         }
@@ -70,16 +72,23 @@ public final class SwitchLog {
         }
         if (newBlock) {
             sb.append('v').append(version).append('\n');
+        } else if (lastTime > 0L) {
+            // 条目之间空一行（时间行 + 间隔行是一组，不拆开）
+            sb.append('\n');
         }
-        sb.append(ctx.getString(R.string.log_switch_time, format(now)));
+        sb.append(format(now));
+        if (detail != null && !detail.isEmpty()) {
+            sb.append("  ").append(detail);
+        }
+        sb.append('\n');
         if (!newBlock && lastTime > 0L) {
             long minutes = Math.max(1L, Math.round((now - lastTime) / 60000.0));
             String mode = ctx.getString(LibraryStore.MODE_RANDOM.equals(lib.mode)
                     ? R.string.mode_random : R.string.mode_order);
-            sb.append(ctx.getString(R.string.log_switch_interval,
-                    minutes, Math.max(1, lib.intervalSeconds / 60), mode));
+            // 缩进两格：一眼看出这行属于上面那次切换
+            sb.append("  ").append(ctx.getString(R.string.log_interval_line,
+                    minutes, Math.max(1, lib.intervalSeconds / 60), mode)).append('\n');
         }
-        sb.append('\n');
 
         append(ctx, sb.toString());
         prefs.edit().putString(KEY_VERSION, version).putLong(KEY_TIME, now).apply();
@@ -97,26 +106,33 @@ public final class SwitchLog {
     }
 
     /**
-     * 最近一条记录里的「切换时间」值（yyyy-MM-dd HH:mm）；没有日志返回 null。
+     * 最近一条记录的时间（yyyy-MM-dd HH:mm）；没有记录返回 null。
+     * 直接取记账时写下的偏好值 —— 不再去日志正文里截字符串（正文格式改过一次，解析方式太脆）。
      * 供设置抽屉那一行回显——不开弹窗也知道有没有记录、最后一条是什么时候。
      */
     public static String latestTimeLabel(Context ctx) {
-        String all = readAllText(ctx);
-        if (all.isEmpty()) {
+        if (ctx == null) {
             return null;
         }
-        // 前缀取自字符串资源，避免把「切换时间：」写死在两处
-        String prefix = ctx.getString(R.string.log_switch_time, "");
-        String[] lines = all.split("\n");
-        for (int i = lines.length - 1; i >= 0; i--) {
-            String line = lines[i].trim();
-            int at = line.indexOf(prefix);
-            if (at < 0 || line.length() < at + prefix.length() + TIME_TEXT_LEN) {
-                continue;
-            }
-            return line.substring(at + prefix.length(), at + prefix.length() + TIME_TEXT_LEN);
+        long last = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_TIME, 0L);
+        return last > 0L ? format(last) : null;
+    }
+
+    /** 清空日志：删私有目录里的文件、清掉记账时间戳，并把导出目录里的同名副本覆盖成空。纯 IO。 */
+    public static void clear(Context ctx) {
+        if (ctx == null) {
+            return;
         }
-        return null;
+        try {
+            Files.deleteIfExists(logFile(ctx).toPath());
+        } catch (Exception ignored) {
+        }
+        // 记账时间戳一并清掉：下次记录会重新开一个版本段，抽屉那行也回到「还没有记录」
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .remove(KEY_VERSION)
+                .remove(KEY_TIME)
+                .apply();
+        WallpaperExporter.writeTextFile(ctx, FILE_NAME, "text/plain", "");
     }
 
     private static void append(Context ctx, String text) {

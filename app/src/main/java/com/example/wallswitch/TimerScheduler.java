@@ -155,7 +155,7 @@ public class TimerScheduler {
             SwitchNotifier.notifyResult(ctx, lib, ok, result);
             // 日志只记「定时自动切换」成功的那次（手动切换与小组件点按不记）
             if (ok) {
-                SwitchLog.recordAuto(ctx, lib);
+                SwitchLog.recordAuto(ctx, lib, switchDetail(ctx, libId, okHome, okLock));
             }
         }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
@@ -168,6 +168,32 @@ public class TimerScheduler {
         // 与 WorkManager 的真实调度时间对齐（它的值更旧且本轮已执行时不会被采纳）
         syncFromWorkManager(ctx);
         return ok;
+    }
+
+    /**
+     * 日志第一行里那段「切到哪张」的可读描述：逐范围取切换后的当前壁纸标题
+     * （两个范围各自推进，所以分开写）。找不到标题时用「未命名」占位。
+     */
+    private static String switchDetail(Context ctx, String libId, boolean okHome, boolean okLock) {
+        String home = okHome
+                ? ctx.getString(R.string.log_detail_scope, ctx.getString(R.string.scope_home),
+                        currentTitle(ctx, libId, true))
+                : null;
+        String lock = okLock
+                ? ctx.getString(R.string.log_detail_scope, ctx.getString(R.string.scope_lock),
+                        currentTitle(ctx, libId, false))
+                : null;
+        if (home != null && lock != null) {
+            return ctx.getString(R.string.log_detail_both, home, lock);
+        }
+        return home != null ? home : (lock != null ? lock : null);
+    }
+
+    /** 某个范围此刻在屏上的壁纸标题（指针没设或标题为空时给占位文案）。 */
+    private static String currentTitle(Context ctx, String libId, boolean forHome) {
+        String id = Switcher.getCurrent(ctx, libId, forHome);
+        String title = id == null ? null : WallpaperStore.getTitle(ctx, id);
+        return title == null || title.isEmpty() ? ctx.getString(R.string.untitled) : title;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.example.wallswitch;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapRegionDecoder;
@@ -40,6 +41,10 @@ public class WallpaperStore {
     private static final String LIB_FILE = "library.json";
     // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
     private static final String TITLE_PREFS = "pending_titles";
+    // 通用设置偏好（与其它模块共用 settings 文件）：缩略图一次性升级标记
+    private static final String PREFS_NAME = "settings";
+    // 缩略图升级标记：老版本存的是「长边 256 的等比缩略图」，两列方格上会被放大 2 倍多发虚
+    private static final String THUMB_REGEN_KEY = "thumb_regen_v315";
     // 缩略图的 JPEG 压缩质量（缩略图只用于列表显示，没必要无损）
     private static final int JPEG_QUALITY = 90;
     // 全图扩展名：无损 PNG —— 全图是最终要上屏的图，再压一次 JPEG 会白掉画质
@@ -50,8 +55,9 @@ public class WallpaperStore {
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
     private static final int MAX_WALLPAPER_DIM = 4096;
-    // 缩略图最长边
-    private static final int THUMB_MAX_DIM = 256;
+    // 缩略图边长上下限：实际值按两列方格在屏幕上的显示宽度算（见 thumbSide）
+    private static final int THUMB_MIN_SIDE = 384;
+    private static final int THUMB_MAX_SIDE = 768;
 
     /** 屏幕长边：壁纸要铺满整屏，这就是「不被放大」所需的最小长边。 */
     public static int screenLongSide(Context context) {
@@ -213,24 +219,16 @@ public class WallpaperStore {
         }
         String id = inboxId;
         File fullDir = new File(context.getFilesDir(), DIR_FULL);
-        File thumbDir = new File(context.getFilesDir(), DIR_THUMB);
         if (!fullDir.exists()) {
             fullDir.mkdirs();
-        }
-        if (!thumbDir.exists()) {
-            thumbDir.mkdirs();
         }
         // 保存全图（无损 PNG）
         File fullFile = new File(fullDir, id + FULL_EXT);
         FileOutputStream fullOut = new FileOutputStream(fullFile);
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
         fullOut.close();
-        // 保存缩略图
-        Bitmap thumb = scaleToFit(bitmap, THUMB_MAX_DIM);
-        File thumbFile = new File(thumbDir, id + ".jpg");
-        FileOutputStream thumbOut = new FileOutputStream(thumbFile);
-        thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, thumbOut);
-        thumbOut.close();
+        // 保存缩略图（中心正方形，边长按屏幕上的方格宽度取）
+        writeThumb(context, id, bitmap);
         // 追加元数据（归属指定壁纸库，标题取导入时记录的原文件名）
         List<Item> items = load(context);
         Item item = new Item();
@@ -268,26 +266,15 @@ public class WallpaperStore {
             throw new IOException("没有可保存的图像");
         }
         File fullDir = new File(context.getFilesDir(), DIR_FULL);
-        File thumbDir = new File(context.getFilesDir(), DIR_THUMB);
         if (!fullDir.exists()) {
             fullDir.mkdirs();
-        }
-        if (!thumbDir.exists()) {
-            thumbDir.mkdirs();
         }
         FileOutputStream fullOut = new FileOutputStream(new File(fullDir, id + FULL_EXT));
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
         fullOut.close();
         // 历史数据的全图可能是 .jpg：覆盖成 PNG 后删掉旧文件，避免两种扩展名并存白占空间
         Files.deleteIfExists(new File(fullDir, id + LEGACY_FULL_EXT).toPath());
-        Bitmap thumb = scaleToFit(bitmap, THUMB_MAX_DIM);
-        FileOutputStream thumbOut = new FileOutputStream(getThumbFile(context, id));
-        thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, thumbOut);
-        thumbOut.close();
-        // scaleToFit 只有真的缩了才返回新位图（否则就是入参本身，不能回收）
-        if (thumb != bitmap && !thumb.isRecycled()) {
-            thumb.recycle();
-        }
+        writeThumb(context, id, bitmap);
     }
 
     /** 取消导入：删除收件箱中的待编辑文件与其中的标题记录。 */
@@ -394,10 +381,130 @@ public class WallpaperStore {
         }
     }
 
-    /** 读取某张壁纸的缩略图，读不到返回 null。 */
+    /**
+     * 读取某张壁纸的缩略图，读不到返回 null。
+     * 缩略图文件缺失或解不开时**就地退回从全图生成**（不写盘，避免在主线程写文件）——
+     * 老版本留下的缺图会因此不再显示成占位图标（占位图标只留给「库里确实没有壁纸」这种情况）。
+     */
     public static Bitmap getThumb(Context context, String id) {
-        File thumbFile = getThumbFile(context, id);
-        return BitmapFactory.decodeFile(thumbFile.getAbsolutePath());
+        Bitmap thumb = BitmapFactory.decodeFile(getThumbFile(context, id).getAbsolutePath());
+        if (thumb != null) {
+            return thumb;
+        }
+        File full = getFullFile(context, id);
+        if (!full.exists()) {
+            return null;
+        }
+        int side = thumbSide(context);
+        Bitmap src = decodeBounded(full, side * 2);
+        Bitmap square = centerSquare(src);
+        Bitmap scaled = scaleToFit(square, side);
+        if (src != null && src != square && !src.isRecycled()) {
+            src.recycle();
+        }
+        if (square != null && square != scaled && square != src && !square.isRecycled()) {
+            square.recycle();
+        }
+        return scaled;
+    }
+
+    /**
+     * 缩略图边长：按「两列方格」在屏幕上的实际显示宽度取。
+     * 老版本固定长边 256px，在 1080p 屏上单格约 540px —— 放大 2 倍多，肉眼看就是马赛克；
+     * 现在跟着屏幕走（方形 JPEG，边长 540 约 40~80KB），给上下限控内存。
+     */
+    public static int thumbSide(Context context) {
+        int cell = context.getResources().getDisplayMetrics().widthPixels / 2;
+        return Math.max(THUMB_MIN_SIDE, Math.min(cell, THUMB_MAX_SIDE));
+    }
+
+    /** 中心正方形裁剪：库行缩略图与两列方格都是 centerCrop 正方形，存正方形最省内存又不失真。 */
+    private static Bitmap centerSquare(Bitmap src) {
+        if (src == null) {
+            return null;
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        int side = Math.min(w, h);
+        if (w == side && h == side) {
+            return src;
+        }
+        return Bitmap.createBitmap(src, (w - side) / 2, (h - side) / 2, side, side);
+    }
+
+    /**
+     * 生成并写入某张壁纸的缩略图（中心正方形 + 按屏幕取的边长）。
+     * 只回收自己新建的中间位图，入参位图归调用方管（scaleToFit 没缩时返回的就是入参本身）。
+     */
+    private static void writeThumb(Context context, String id, Bitmap bitmap) throws IOException {
+        if (bitmap == null) {
+            return;
+        }
+        File dir = new File(context.getFilesDir(), DIR_THUMB);
+        if (!dir.exists() && !dir.mkdirs()) {
+            return;
+        }
+        Bitmap square = centerSquare(bitmap);
+        Bitmap thumb = scaleToFit(square, thumbSide(context));
+        if (thumb != null) {
+            FileOutputStream out = new FileOutputStream(getThumbFile(context, id));
+            thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
+            out.close();
+        }
+        if (square != null && square != bitmap) {
+            square.recycle();
+        }
+        if (thumb != null && thumb != square && thumb != bitmap) {
+            thumb.recycle();
+        }
+    }
+
+    /**
+     * 一次性把老规格缩略图重做成新规格（v3.15：256px 等比 → 中心正方形 + 按屏幕取边长）。
+     * 只挑「缺失 / 不是正方形 / 边长不足」的重做，逐张判断所以中途被杀下次启动接着做；
+     * 整轮跑完写标记，之后不再扫描。含解码与编码，调用方必须放后台线程。
+     */
+    public static void regenerateThumbs(Context context) {
+        if (context == null) {
+            return;
+        }
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (prefs.getBoolean(THUMB_REGEN_KEY, false)) {
+            return;
+        }
+        int side = thumbSide(context);
+        for (Item item : load(context)) {
+            File thumbFile = getThumbFile(context, item.id);
+            if (!needsThumbRegen(thumbFile, side)) {
+                continue;
+            }
+            File full = getFullFile(context, item.id);
+            if (!full.exists()) {
+                continue;
+            }
+            try {
+                Bitmap src = decodeBounded(full, side * 2);
+                writeThumb(context, item.id, src);
+                if (src != null && !src.isRecycled()) {
+                    src.recycle();
+                }
+            } catch (Exception | OutOfMemoryError ignored) {
+            }
+        }
+        prefs.edit().putBoolean(THUMB_REGEN_KEY, true).apply();
+    }
+
+    /** 缩略图要不要重做：文件不存在、解不出尺寸、不是正方形、或边长明显不足。 */
+    private static boolean needsThumbRegen(File thumbFile, int side) {
+        if (!thumbFile.exists()) {
+            return true;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(thumbFile.getAbsolutePath(), bounds);
+        return bounds.outWidth <= 0 || bounds.outHeight <= 0
+                || bounds.outWidth != bounds.outHeight
+                || bounds.outWidth < side;
     }
 
     /** 按 id 查壁纸元数据，查不到返回 null。 */

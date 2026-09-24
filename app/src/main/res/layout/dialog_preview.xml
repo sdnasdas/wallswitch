@@ -12,6 +12,54 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
+        <!-- 标题行：点标题（或铅笔）就地改名，和库列表一致；改名时 TextView 与 EditText 互换 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="2dp">
+
+            <TextView
+                android:id="@+id/tv_preview_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_preview_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/rename_hint"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="19sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/btn_preview_rename"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/rename_title"
+                android:padding="13dp"
+                android:src="@drawable/ic_edit"
+                android:tint="@color/text_secondary" />
+        </LinearLayout>
+
         <ImageView
             android:id="@+id/img_preview"
             android:layout_width="match_parent"

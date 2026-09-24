@@ -227,6 +227,29 @@ public class LibraryStore {
     }
 
     /**
+     * 查与目标库**作用范围重叠**、当前处于启用状态的其他库（不含自己、不含停用的）。
+     * 供界面在「启用前」先问一句：同一范围只能有一个库负责，直接静默停用对方会让人莫名其妙。
+     */
+    public static List<Library> enabledConflicts(Context ctx, String libId) {
+        List<Library> result = new ArrayList<>();
+        Library target = get(ctx, libId);
+        if (target == null) {
+            return result;
+        }
+        for (Library other : load(ctx)) {
+            if (other.id.equals(libId) || !other.enabled) {
+                continue;
+            }
+            boolean overlap = (target.home && target.lock) || (other.home && other.lock)
+                    || (target.home && other.home) || (target.lock && other.lock);
+            if (overlap) {
+                result.add(other);
+            }
+        }
+        return result;
+    }
+
+    /**
      * 修改库的影响范围。启用中的库：范围清空则自动停用；
      * 新增范围与其他启用库冲突时自动停用对方（规则与 setEnabled 一致）。
      */

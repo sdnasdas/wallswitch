@@ -20,7 +20,36 @@ public class RecyclerView extends android.view.ViewGroup {
     public void addOnScrollListener(OnScrollListener listener) {
     }
 
+    public void addOnItemTouchListener(OnItemTouchListener listener) {
+    }
+
     public static final int SCROLL_STATE_DRAGGING = 1;
+
+    /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.OnItemTouchListener。 */
+    public interface OnItemTouchListener {
+        boolean onInterceptTouchEvent(RecyclerView recyclerView, android.view.MotionEvent e);
+
+        void onTouchEvent(RecyclerView recyclerView, android.view.MotionEvent e);
+
+        void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept);
+    }
+
+    /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.SimpleOnItemTouchListener。 */
+    public static class SimpleOnItemTouchListener implements OnItemTouchListener {
+
+        @Override
+        public boolean onInterceptTouchEvent(RecyclerView recyclerView, android.view.MotionEvent e) {
+            return false;
+        }
+
+        @Override
+        public void onTouchEvent(RecyclerView recyclerView, android.view.MotionEvent e) {
+        }
+
+        @Override
+        public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+        }
+    }
 
     /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.OnScrollListener。 */
     public abstract static class OnScrollListener {
