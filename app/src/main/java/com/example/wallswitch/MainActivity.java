@@ -995,12 +995,15 @@ public class MainActivity extends AppCompatActivity {
     private void enableTakeover() {
         Toast.makeText(this, R.string.takeover_saving, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
-            TakeoverManager.savePreviousWallpapers(this);
+            final String saveFail = TakeoverManager.savePreviousWallpapers(this);
             TakeoverManager.setEnabled(this, true);
             final int result = TakeoverManager.apply(this);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
+                }
+                if (!saveFail.isEmpty()) {
+                    Toast.makeText(this, "存档失败：" + saveFail, Toast.LENGTH_LONG).show();
                 }
                 if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
                     // 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，桌面接管必须由用户在系统界面确认

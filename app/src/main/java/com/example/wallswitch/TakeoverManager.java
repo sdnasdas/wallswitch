@@ -15,11 +15,16 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * 「接管壁纸」总开关：App 级的接管意图，以及把意图落到系统上的策略。
@@ -54,6 +59,11 @@ public final class TakeoverManager {
     private static final String SAVED_LOCK_NAME = "previous_lock.png";
     /** 存档所在公共相册子目录（MediaStore RELATIVE_PATH）。 */
     private static final String SAVED_DIR = Environment.DIRECTORY_PICTURES + "/WallSwitch";
+    /** 保存结果日志文件（公共 Download/WallSwitch 目录，供不用 adb 时查看）。 */
+    private static final String SAVE_LOG_NAME = "takeover_save_log.txt";
+    private static final String SAVE_LOG_DIR = Environment.DIRECTORY_DOWNLOADS + "/WallSwitch";
+
+    private static final String LOG_TAG = "TakeoverManager";
 
     /** apply 结果：无需改动。 */
     public static final int RESULT_NONE = 0;
@@ -149,15 +159,46 @@ public final class TakeoverManager {
     /**
      * 打开接管前调用：把「接管前」的桌面与锁屏壁纸各存一份（各自有才存），
      * 关闭或某范围没有启用库时用来还原。纯 IO，调用方放后台线程。
+     * 每次执行都会把详细结果写入公共 Download/WallSwitch/takeover_save_log.txt。
+     *
+     * @return 空串表示都存好了；否则是失败范围与原因的描述
      */
-    public static void savePreviousWallpapers(Context ctx) {
-        // 已经由我们接管的范围不存：那时读回来的是我们自己的画面，存它没意义
+    public static String savePreviousWallpapers(Context ctx) {
+        StringBuilder fail = new StringBuilder();
+        StringBuilder log = new StringBuilder();
+        log.append("存档时间：").append(
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()))
+                .append('\n');
         if (!isHomeTakenOver(ctx)) {
-            saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
+            String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
+            if (r.isEmpty()) {
+                log.append("桌面壁纸：已存\n");
+            } else {
+                log.append("桌面壁纸：失败 — ").append(r).append('\n');
+                if (fail.length() > 0) {
+                    fail.append("；");
+                }
+                fail.append("桌面壁纸：").append(r);
+            }
+        } else {
+            log.append("桌面壁纸：跳过（正由本 App 接管）\n");
         }
         if (!isLockTakenOver(ctx)) {
-            saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, SAVED_LOCK_NAME);
+            String r = saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, SAVED_LOCK_NAME);
+            if (r.isEmpty()) {
+                log.append("锁屏壁纸：已存\n");
+            } else {
+                log.append("锁屏壁纸：失败 — ").append(r).append('\n');
+                if (fail.length() > 0) {
+                    fail.append("；");
+                }
+                fail.append("锁屏壁纸：").append(r);
+            }
+        } else {
+            log.append("锁屏壁纸：跳过（正由本 App 接管）\n");
         }
+        writeSaveLog(ctx, log.toString());
+        return fail.toString();
     }
 
     /** 关闭接管：两个范围都还原成接管前的样子。纯 IO，调用方放后台线程。 */
@@ -255,7 +296,8 @@ public final class TakeoverManager {
     /** 读取接管前壁纸存档，解码失败或没有存档返回 null。 */
     private static Bitmap loadSavedBitmap(Context ctx, String name) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Uri uri = findSavedUri(ctx, name);
+            Uri uri = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    name, SAVED_DIR);
             if (uri == null) {
                 return null;
             }
@@ -275,27 +317,61 @@ public final class TakeoverManager {
         return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
-    /** 在公共相册 WallSwitch 目录里按文件名找本 App 写入的存档。 */
-    private static Uri findSavedUri(Context ctx, String name) {
+    /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目。 */
+    private static Uri findEntry(Context ctx, Uri collection, String name, String dir) {
         try (Cursor c = ctx.getContentResolver().query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                collection,
                 new String[]{MediaStore.MediaColumns._ID},
                 MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
                         + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
-                new String[]{name, SAVED_DIR + "/"},
+                new String[]{name, dir + "/"},
                 null)) {
             if (c != null && c.moveToFirst()) {
-                return ContentUris.withAppendedId(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, c.getLong(0));
+                return ContentUris.withAppendedId(collection, c.getLong(0));
             }
         } catch (Exception e) {
-            // 查询失败按没有存档处理
+            // 查询失败按没有条目处理
         }
         return null;
     }
 
-    /** 把系统当前某个范围的壁纸画成 PNG，存到公共相册 WallSwitch 目录（低版本存内部存储）。 */
-    private static boolean saveWallpaper(Context ctx, int which, String name) {
+    /** 把保存结果日志写到公共 Download/WallSwitch（低版本写内部存储），尽力而为。 */
+    private static void writeSaveLog(Context ctx, String content) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentResolver cr = ctx.getContentResolver();
+                Uri existing = findEntry(ctx, MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        SAVE_LOG_NAME, SAVE_LOG_DIR);
+                if (existing != null) {
+                    cr.delete(existing, null, null);
+                }
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, SAVE_LOG_NAME);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVE_LOG_DIR);
+                Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    Log.e(LOG_TAG, "MediaStore 插入日志文件失败");
+                    return;
+                }
+                try (OutputStream out = cr.openOutputStream(uri)) {
+                    if (out != null) {
+                        out.write(content.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            } else {
+                try (OutputStream out = new FileOutputStream(
+                        new File(ctx.getFilesDir(), SAVE_LOG_NAME))) {
+                    out.write(content.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "写保存日志失败", e);
+        }
+    }
+
+    /** 把系统当前某个范围的壁纸画成 PNG 存进公共相册（低版本存内部存储）。 */
+    private static String saveWallpaper(Context ctx, int which, String name) {
         Drawable drawable;
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
@@ -303,15 +379,18 @@ public final class TakeoverManager {
             wm.forgetLoadedWallpaper();
             drawable = wm.getDrawable(which);
         } catch (Exception e) {
-            return false;
+            Log.e(LOG_TAG, "getDrawable(" + which + ") 抛异常", e);
+            return "读不到当前壁纸（getDrawable 异常：" + e + "）";
         }
         if (drawable == null) {
-            return false;
+            Log.e(LOG_TAG, "getDrawable(" + which + ") 返回 null");
+            return "读不到当前壁纸（getDrawable 返回 null）";
         }
         int w = drawable.getIntrinsicWidth();
         int h = drawable.getIntrinsicHeight();
         if (w <= 0 || h <= 0) {
-            return false;
+            Log.e(LOG_TAG, "壁纸尺寸异常：" + w + "x" + h);
+            return "壁纸尺寸异常 " + w + "x" + h;
         }
         Bitmap bitmap = null;
         try {
@@ -319,14 +398,23 @@ public final class TakeoverManager {
             Canvas canvas = new Canvas(bitmap);
             drawable.setBounds(0, 0, w, h);
             drawable.draw(canvas);
+            boolean written;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return saveToMediaStore(ctx, name, bitmap);
+                written = saveToMediaStore(ctx, name, bitmap);
+            } else {
+                try (OutputStream out = new FileOutputStream(new File(ctx.getFilesDir(), name))) {
+                    written = bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                }
             }
-            try (OutputStream out = new FileOutputStream(new File(ctx.getFilesDir(), name))) {
-                return bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+            if (!written) {
+                Log.e(LOG_TAG, "写入 " + name + " 失败");
+                return "写入失败（PNG 压缩或 MediaStore 写入未成功）";
             }
+            Log.i(LOG_TAG, "已存 " + name + "（" + w + "x" + h + "）");
+            return "";
         } catch (Exception | OutOfMemoryError e) {
-            return false;
+            Log.e(LOG_TAG, "保存 " + name + " 抛异常", e);
+            return "保存异常：" + e;
         } finally {
             if (bitmap != null) {
                 bitmap.recycle();
@@ -337,7 +425,7 @@ public final class TakeoverManager {
     private static boolean saveToMediaStore(Context ctx, String name, Bitmap bitmap) {
         ContentResolver cr = ctx.getContentResolver();
         // 同名旧存档先删掉，避免 MediaStore 自动改名出现 (1) 副本
-        Uri existing = findSavedUri(ctx, name);
+        Uri existing = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, SAVED_DIR);
         if (existing != null) {
             try {
                 cr.delete(existing, null, null);
