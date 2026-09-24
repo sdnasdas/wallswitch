@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 自动切换提示（通知栏通知）：Android 13+ 需运行时授权，未授权则发不出通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 读取当前系统壁纸（开启接管前存档用）：WallpaperManager.getDrawable 需要。
+         Android 13+ 用 READ_MEDIA_IMAGES，12 及以下用 READ_EXTERNAL_STORAGE，均需运行时授权 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- largeHeap：图片解码是本 App 的内存大头（裁剪源图按堆预算最大可到 24MP，
          ARGB_8888 下约 96MB），不申请大堆在中低端机型上容易 OOM -->

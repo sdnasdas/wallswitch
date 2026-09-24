@@ -83,6 +83,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<PickVisualMediaRequest> pickLauncher;
     // 通知权限请求（Android 13+ 自动切换提示需要 POST_NOTIFICATIONS）
     private ActivityResultLauncher<String> notifyPermissionLauncher;
+    /** 读取系统壁纸存档用（Android 13+ 是 READ_MEDIA_IMAGES，低版本 READ_EXTERNAL_STORAGE） */
+    private ActivityResultLauncher<String> savePermLauncher;
     // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
@@ -119,6 +121,9 @@ public class MainActivity extends AppCompatActivity {
         notifyPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 this::onNotifyPermissionResult);
+        savePermLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                this::onSavePermissionResult);
         overlayLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
         exportDirLauncher = registerForActivityResult(
@@ -506,6 +511,23 @@ public class MainActivity extends AppCompatActivity {
     private void onNotifyPermissionResult(boolean granted) {
         if (!granted) {
             Toast.makeText(this, R.string.notify_permission_denied, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** 读取系统壁纸要用的权限（WallpaperManager.getDrawable 的要求随版本不同）。 */
+    private String wallpaperReadPermission() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? Manifest.permission.READ_MEDIA_IMAGES
+                : Manifest.permission.READ_EXTERNAL_STORAGE;
+    }
+
+    /** 存档权限申请结果：授权就继续开启接管，拒绝则放弃开启（没有存档不能安全还原）。 */
+    private void onSavePermissionResult(boolean granted) {
+        if (granted) {
+            doEnableTakeover();
+        } else {
+            Toast.makeText(this, "未授权读取壁纸，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
+            setupTakeoverSwitch();
         }
     }
 
@@ -993,6 +1015,15 @@ public class MainActivity extends AppCompatActivity {
 
     /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
     private void enableTakeover() {
+        String perm = wallpaperReadPermission();
+        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+            savePermLauncher.launch(perm);
+            return;
+        }
+        doEnableTakeover();
+    }
+
+    private void doEnableTakeover() {
         Toast.makeText(this, R.string.takeover_saving, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             final String saveFail = TakeoverManager.savePreviousWallpapers(this);
