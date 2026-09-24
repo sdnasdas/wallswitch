@@ -5,6 +5,11 @@ app/build/
 local.properties
 *.apk
 
+# 本地 Gradle wrapper（本机无完整 SDK，打包全走 CI，不需要提交）
+gradle/
+gradlew
+gradlew.bat
+
 # 本地类型检查工作目录（桩类型与脚本保留，工作产物忽略）
 check/work/
 
