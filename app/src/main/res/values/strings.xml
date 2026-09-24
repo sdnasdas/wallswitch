@@ -41,6 +41,10 @@
     <string name="widget_desc">点按切换下一张桌面壁纸</string>
     <string name="timer_enabled">定时切换</string>
     <string name="delete_confirm_title">删除壁纸</string>
+    <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->
+    <string name="set_as_home">设为首页</string>
+    <string name="set_as_home_done">已设为首页壁纸</string>
+    <string name="set_as_home_unavailable">这个库没负责桌面范围：先在库行齿轮里启用并选「桌面」</string>
     <string name="delete_confirm_msg">确定要删除这张壁纸吗？</string>
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>

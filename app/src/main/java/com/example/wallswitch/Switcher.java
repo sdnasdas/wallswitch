@@ -95,8 +95,55 @@ public class Switcher {
         if (nextId == null) {
             return false;
         }
-        // 记录当前壁纸 id
-        prefs.edit().putString(base + "_current", nextId).apply();
+        return applyById(ctx, libId, nextId, forHome);
+    }
+
+    /**
+     * 把库里指定的一张设为该范围当前壁纸（库内长按浮出的「设为首页」用）：
+     * 指针移过去并立刻上屏，同时把顺序进度拨到它、清掉随机池 —— 之后自动切换就从这张往下走。
+     * 校验与 {@link #next} 相同（接管开关 / 库启用 / 覆盖该范围 / 这张确实在这个库里），
+     * 失败原因写进 {@link #lastError()} 供界面提示。
+     */
+    public static boolean setCurrent(Context ctx, String libId, String wallpaperId, boolean forHome) {
+        if (!TakeoverManager.isEnabled(ctx)) {
+            lastError = "takeover_off";
+            // 别让通知/状态行沿用上一轮的旧标题，否则看起来像切成功了
+            lastTitleHome = null;
+            lastTitleLock = null;
+            return false;
+        }
+        LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+        if (lib == null || !lib.enabled || (forHome ? !lib.home : !lib.lock)) {
+            return false;
+        }
+        List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
+        int index = -1;
+        for (int i = 0; i < candidates.size(); i++) {
+            if (candidates.get(i).id.equals(wallpaperId)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return false;
+        }
+        String base = progressBase(libId, forHome);
+        // 进度对齐到这张：顺序模式下次从它后面继续；随机池清空重建，免得紧接着又抽到同一张
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(base + "_seq", index)
+                .remove(base + "_pool")
+                .apply();
+        return applyById(ctx, libId, wallpaperId, forHome);
+    }
+
+    /**
+     * 指针落定 + 上屏（{@link #next} 与 {@link #setCurrent} 共用）：
+     * 写 _current、按范围上屏、记下这次切到的标题、刷新小组件。
+     * 桌面走引擎（未激活时如实报 engine_inactive）；锁屏走一次 setBitmap。
+     */
+    private static boolean applyById(Context ctx, String libId, String wallpaperId, boolean forHome) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString(progressBase(libId, forHome) + "_current", wallpaperId).apply();
         boolean applied;
         if (forHome) {
             // 桌面只走引擎：没激活就没法切，如实报错让界面提示去开开关
@@ -112,11 +159,11 @@ public class Switcher {
         } else {
             // 锁屏：引擎管不到，只能走这一条静态调用（由 TakeoverManager 统一设置并记下 id）
             applied = TakeoverManager.setLockFromFile(ctx,
-                    WallpaperStore.getFullFile(ctx, nextId)) != 0;
+                    WallpaperStore.getFullFile(ctx, wallpaperId)) != 0;
             lastError = applied ? null : "not_applied";
         }
         // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
-        String appliedTitle = applied ? WallpaperStore.getTitle(ctx, nextId) : null;
+        String appliedTitle = applied ? WallpaperStore.getTitle(ctx, wallpaperId) : null;
         if (forHome) {
             lastTitleHome = appliedTitle;
         } else {

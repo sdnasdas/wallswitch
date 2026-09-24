@@ -1343,6 +1343,39 @@ public class MainActivity extends AppCompatActivity {
         }, "thumb-preview").start();
     }
 
+    /**
+     * 库内长按浮出的「设为首页」：把这张壁纸立刻设为**桌面**壁纸，并把该库的桌面指针移到这里
+     * （之后自动切换就从它往下走）。库没启用桌面范围时只提示，不静默改范围 ——
+     * 改范围会连带停用同范围的库，那种事该由用户在库设置里决定。
+     * 含引擎通知 / 解码与系统调用，放后台线程。
+     */
+    private void setAsHomeWallpaper(final WallpaperStore.Item item) {
+        if (!TakeoverManager.isEnabled(this)) {
+            Toast.makeText(this, R.string.status_takeover_off, Toast.LENGTH_LONG).show();
+            return;
+        }
+        LibraryStore.Library lib = LibraryStore.get(this, item.libId);
+        if (lib == null || !lib.enabled || !lib.home) {
+            Toast.makeText(this, R.string.set_as_home_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            final boolean ok = Switcher.setCurrent(app, lib.id, item.id, true);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this, ok ? getString(R.string.set_as_home_done)
+                        : Switcher.errorText(this, Switcher.lastError()), Toast.LENGTH_SHORT).show();
+                if (ok) {
+                    // 「桌面：WallPaper / 系统」这行可能因此变化，立刻刷新，别等下次进应用
+                    refreshTakeoverStatus();
+                }
+            });
+        }, "set-home").start();
+    }
+
     /** 壁纸显示名（未命名则用占位文案）。 */
     private String itemTitle(WallpaperStore.Item item) {
         return item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
@@ -1681,6 +1714,11 @@ public class MainActivity extends AppCompatActivity {
                 hideRevealed();
                 openEditItem(item);
             });
+            // 房子 → 把这张直接设为桌面（首页）壁纸
+            holder.btnSetHome.setOnClickListener(v -> {
+                hideRevealed();
+                setAsHomeWallpaper(item);
+            });
             // 红垃圾桶 → 直接删除，不再确认
             holder.btnDelete.setOnClickListener(v -> {
                 revealed = -1;
@@ -1732,6 +1770,7 @@ public class MainActivity extends AppCompatActivity {
         final TextView tvTitle;
         final View actions;
         final View btnEdit;
+        final View btnSetHome;
         final View btnDelete;
 
         WpHolder(@NonNull View itemView) {
@@ -1740,6 +1779,7 @@ public class MainActivity extends AppCompatActivity {
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
             actions = itemView.findViewById(R.id.item_actions);
             btnEdit = itemView.findViewById(R.id.btn_edit);
+            btnSetHome = itemView.findViewById(R.id.btn_set_home);
             btnDelete = itemView.findViewById(R.id.btn_delete);
         }
     }

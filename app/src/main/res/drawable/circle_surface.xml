@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 长按浮出的圆形操作按钮底：卡片底色（「设为首页」这类中性操作，深浅色跟随主题） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/card_bg" />
+</shape>

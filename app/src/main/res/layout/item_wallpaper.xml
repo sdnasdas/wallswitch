@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 壁纸格（v3.14）：两列正方形网格的一格。1:1 缩略图 + 下方标题；
-     长按浮出半透明压暗层与两个圆形图标（编辑铅笔 / 红垃圾桶，无文字），点空白或返回手势收起。 -->
+     长按浮出半透明压暗层与三个圆形图标（设为首页 / 编辑铅笔 / 红垃圾桶，无文字），点空白或返回手势收起。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -26,12 +26,16 @@
             app:layout_constraintTop_toTopOf="parent"
             app:shapeAppearanceOverlay="@style/RoundedGrid" />
 
-        <!-- 长按浮出层：压暗 + 底部居中两个圆形图标（无文字） -->
+        <!-- 长按浮出层：压暗 + 底部居中三个圆形图标（设为首页 / 编辑铅笔 / 红垃圾桶，无文字）。
+             关掉裁剪兜底：三个 48dp + 8dp 间距 = 160dp，360dp 宽的屏刚好放得下；
+             更窄的屏允许按钮略微越出格子，而不是被裁掉半个圆。 -->
         <FrameLayout
             android:id="@+id/item_actions"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:background="@drawable/grid_overlay_bg"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
@@ -56,10 +60,21 @@
                     android:tint="@android:color/white" />
 
                 <ImageButton
+                    android:id="@+id/btn_set_home"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/circle_surface"
+                    android:contentDescription="@string/set_as_home"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_home"
+                    android:tint="@color/text_primary" />
+
+                <ImageButton
                     android:id="@+id/btn_delete"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:layout_marginStart="16dp"
+                    android:layout_marginStart="8dp"
                     android:background="@drawable/circle_danger"
                     android:contentDescription="@string/delete"
                     android:padding="12dp"
