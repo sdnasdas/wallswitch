@@ -14,8 +14,8 @@ import java.util.List;
 /**
  * 切换逻辑核心：按「壁纸库 + 范围（桌面/锁屏）」切换，进度按库隔离。
  * 进度键（SharedPreferences "settings"）由 progressBase 生成：
- * - p_&lt;libId&gt;_h_seq/_pool/_current：该库桌面范围的顺序索引/随机池/当前壁纸
- * - p_&lt;libId&gt;_l_seq/_pool/_current：该库锁屏范围
+ * - p_&lt;libId&gt;_h_seq/_pool/_hist/_current：该库桌面范围的顺序索引/随机池/最近播放链路/当前壁纸
+ * - p_&lt;libId&gt;_l_seq/_pool/_hist/_current：该库锁屏范围
  *
  * <h3>两条上屏链路（v3.9 起）</h3>
  * <ul>
@@ -32,6 +32,8 @@ public class Switcher {
 
     // SharedPreferences 文件名
     private static final String PREFS_NAME = "settings";
+    // 「上一张」链路上限：超出从头丢弃（先进先出）
+    private static final int MAX_HISTORY = 20;
     // 最近一次解码结果缓存：小图库高频切换时避免反复解码同一张图（上限 1 张，控制内存）
     private static String cachedName;
     private static Bitmap cachedBitmap;
@@ -86,7 +88,7 @@ public class Switcher {
         }
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String base = progressBase(libId, forHome);
-        // 随机模式要记「上一张」，先留住当前这张的 id
+        // 「上一张」链路要记切换前的当前图，先留住
         String oldCurrent = getCurrent(ctx, libId, forHome);
         String nextId;
         if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
@@ -98,18 +100,19 @@ public class Switcher {
             return false;
         }
         boolean applied = applyById(ctx, libId, nextId, forHome);
-        // 随机模式记一张「上一张」（常驻通知的回退按钮用，见 prev）：成功上屏才写，
-        // 避免 engine_inactive 时把没上屏的图当成旧壁纸；顺序模式用 _seq 直接回退，不用它
-        if (applied && forHome && LibraryStore.MODE_RANDOM.equals(lib.mode)) {
-            prefs.edit().putString(base + "_prev", oldCurrent == null ? "" : oldCurrent).apply();
+        // 成功上屏才把切换前的图记进「最近播放」链路（prev 的回溯依据），
+        // 避免 engine_inactive 时把没上屏的图当成旧壁纸
+        if (applied) {
+            historyPush(prefs, base, oldCurrent);
         }
         return applied;
     }
 
     /**
-     * 回退到上一张（常驻通知的「上一张」按钮用）：顺序模式把 seq 拨回一位（天然循环，
-     * 库里只有一张时等于重上屏自己）；随机模式与 {@code _prev} 互换——next 成功时会把
-     * 旧 current 写进 _prev，所以回退的正是上一张真实显示过的图（只支持回一张，无历史栈）。
+     * 回退到「最近播放」链路的上一张（常驻通知的「上一张」按钮用）：每按一次往回走一张
+     * （从链路尾部弹出），走空后静默不动；回退本身不往链路追加，否则会在最后两张之间
+     * 来回打转。顺序模式把 seq 对齐到回退到的这张（之后的「下一张」从它后面继续）；
+     * 随机模式把被换下的当前图塞回本轮池头部（图不丢、本轮不重复）。
      * 守卫与 {@link #next} 一致；返回是否成功上屏。
      */
     public static boolean prev(Context ctx, String libId, boolean forHome) {
@@ -132,25 +135,66 @@ public class Switcher {
         }
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String base = progressBase(libId, forHome);
-        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
-            String prevId = prefs.getString(base + "_prev", null);
-            // 无记录（还没切过第二张）或那张已被删：没有可回退的目标，不做任何事
-            if (prevId == null || prevId.isEmpty() || findByIndex(candidates, prevId) < 0) {
-                return false;
+        // 从链路尾部找最近一张还在库里的：已被删的记录直接丢弃
+        List<String> hist = historyLoad(prefs, base);
+        String prevId = null;
+        while (!hist.isEmpty()) {
+            String candidate = hist.remove(hist.size() - 1);
+            if (findByIndex(candidates, candidate) >= 0) {
+                prevId = candidate;
+                break;
             }
+        }
+        historySave(prefs, base, hist);
+        if (prevId == null) {
+            // 链路空（都回放完/从没切过第二张）：没有可回退的目标，静默不动（不算失败）
+            lastError = null;
+            return false;
+        }
+        // 顺序进度对齐到回退到的这张：之后的「下一张」从它后面继续（随机模式不用 seq，无妨）
+        int idx = findByIndex(candidates, prevId);
+        if (idx >= 0) {
+            prefs.edit().putInt(base + "_seq", idx).apply();
+        }
+        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+            // 被换下的当前图不再在屏上，塞回本轮池头部：接下来的随机还能抽到它
             String current = getCurrent(ctx, libId, forHome);
-            // 互换：再按一次「上一张」就回到刚才这张（只回一张的语义）
-            prefs.edit().putString(base + "_prev", current == null ? "" : current).apply();
-            // 被换下的 current 不再在屏上，塞回本轮池头部，接下来的随机还能抽到它
             if (current != null) {
                 poolPushHead(prefs, base, current);
             }
-            return applyById(ctx, libId, prevId, forHome);
         }
-        int seq = prefs.getInt(base + "_seq", -1);
-        int prevIndex = (seq - 1 + candidates.size()) % candidates.size();
-        prefs.edit().putInt(base + "_seq", prevIndex).apply();
-        return applyById(ctx, libId, candidates.get(prevIndex).id, forHome);
+        return applyById(ctx, libId, prevId, forHome);
+    }
+
+    /** 「最近播放」链路追加：切换前的图进尾部（去重），超过 {@link #MAX_HISTORY} 从头丢（先进先出）。 */
+    private static void historyPush(SharedPreferences prefs, String base, String id) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        List<String> hist = historyLoad(prefs, base);
+        hist.remove(id);
+        hist.add(id);
+        while (hist.size() > MAX_HISTORY) {
+            hist.remove(0);
+        }
+        historySave(prefs, base, hist);
+    }
+
+    /** 读「最近播放」链路（尾部最新），解析容错与 pickRandom 相同。 */
+    private static List<String> historyLoad(SharedPreferences prefs, String base) {
+        List<String> hist = new ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(prefs.getString(base + "_hist", "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                hist.add(arr.getString(i));
+            }
+        } catch (Exception ignored) {
+        }
+        return hist;
+    }
+
+    private static void historySave(SharedPreferences prefs, String base, List<String> hist) {
+        prefs.edit().putString(base + "_hist", new JSONArray(hist).toString()).apply();
     }
 
     /** 随机池头插一个 id（prev 回退后把换下的图放回本轮池），解析容错与 pickRandom 相同。 */
@@ -192,17 +236,17 @@ public class Switcher {
             return false;
         }
         String base = progressBase(libId, forHome);
+        // 「上一张」链路要记切换前的当前图（applyById 会覆盖 _current，必须先取）
+        String oldCurrent = getCurrent(ctx, libId, forHome);
         // 进度对齐到这张：顺序模式下次从它后面继续；随机池清空重建，免得紧接着又抽到同一张
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putInt(base + "_seq", index)
                 .remove(base + "_pool")
                 .apply();
         boolean applied = applyById(ctx, libId, wallpaperId, forHome);
-        // 手动指定也是一次切换：随机模式同样记下「上一张」，供常驻通知回退到指定前的那张
-        if (applied && forHome && LibraryStore.MODE_RANDOM.equals(lib.mode)) {
-            String oldCurrent = getCurrent(ctx, libId, forHome);
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                    .putString(base + "_prev", oldCurrent == null ? "" : oldCurrent).apply();
+        // 手动指定也是一次切换：同样记进「最近播放」链路，供常驻通知回退
+        if (applied) {
+            historyPush(ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE), base, oldCurrent);
         }
         return applied;
     }
@@ -306,7 +350,7 @@ public class Switcher {
             String base = progressBase(libId, forHome);
             editor.remove(base + "_seq");
             editor.remove(base + "_pool");
-            editor.remove(base + "_prev");
+            editor.remove(base + "_hist");
             editor.remove(base + "_current");
         }
         editor.apply();

@@ -8,7 +8,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.drawable.Icon;
+
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.media.app.NotificationCompat.MediaStyle;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -17,6 +22,12 @@ import java.util.concurrent.Executors;
  * 常驻「音乐播放器样式」切换通知：下拉通知栏常驻一条，显示当前桌面壁纸库、
  * 正在显示的壁纸标题与缩略图封面、下次自动切换的走秒倒计时，并提供
  * 「上一张 / 下一张」按钮直接切图（{@link NotifActionReceiver}）。
+ *
+ * 用 MediaStyle + MediaSession（网易云等音乐 App 的同款机制）：系统按媒体卡片渲染，
+ * 按钮行与封面默认可见，收起/展开一个样。倒计时进度条也是借用媒体会话：把本轮切换周期
+ * 当成一首"歌"在放（duration=本轮总长，position=已进行时间，STATE_PLAYING 让 SystemUI
+ * 本地实时外插进度），不耗电、进程被杀也在走；到点未执行（Doze 推迟）时改显「待切换」。
+ * MediaSession 只为渲染样式存在，不承载真实播放（无音频，也不会 setActive 抢系统媒体卡位）。
  *
  * 为什么常驻（setOngoing）：当前壁纸与切换节奏是用户想随时瞄一眼的状态，
  * 混在「到点通知」的历次记录里会被冲掉；ongoing 不会被一键清理清掉
@@ -27,10 +38,6 @@ import java.util.concurrent.Executors;
  *
  * 与 {@link SwitchNotifier} 互补：那边是「每次切换发一条留痕记录」（独立 id 互不覆盖），
  * 这边是「永远只有一条、内容随状态覆盖更新」（固定 id）。
- *
- * 倒计时用系统 Chronometer（setWhen + setChronometerCountDown）：由 SystemUI 渲染，
- * 进程被杀也在走秒，应用不必自己每秒刷通知（省电）；到点未执行（Doze 推迟）时
- * 改显「待切换」，与桌面小组件的处理一致。
  *
  * update() 可在任意线程调用：内部转到单线程后台执行器（缩略图解码是磁盘 IO），
  * 串行执行保证后到的状态覆盖先到的。
@@ -44,6 +51,9 @@ public class StatusNotifier {
     // 开关存储（与其它设置共用 settings），默认开
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "status_notify";
+
+    // 进程级 MediaSession：只为渲染媒体卡片样式（token + 倒计时进度条），不承载真实音频播放
+    private static MediaSessionCompat session;
 
     // 缩略图解码与通知构建收口到后台（仿 TimerScheduler.EXECUTOR），主线程调用也安全
     private static final Executor EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
@@ -115,40 +125,68 @@ public class StatusNotifier {
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPending = PendingIntent.getActivity(ctx, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder builder = new Notification.Builder(ctx, CHANNEL)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_widget_switch)
                 .setContentTitle(title)
                 .setContentText(lib.name == null ? "" : lib.name)
                 .setLargeIcon(cover)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setCategory(Notification.CATEGORY_STATUS)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(openPending)
-                .addAction(new Notification.Action.Builder(
-                        Icon.createWithResource(ctx, R.drawable.ic_notif_prev),
+                .addAction(new NotificationCompat.Action.Builder(R.drawable.ic_notif_prev,
                         ctx.getString(R.string.notif_action_prev),
                         actionPending(ctx, NotifActionReceiver.ACTION_PREV, 1)).build())
-                .addAction(new Notification.Action.Builder(
-                        Icon.createWithResource(ctx, R.drawable.ic_notif_next),
+                .addAction(new NotificationCompat.Action.Builder(R.drawable.ic_notif_next,
                         ctx.getString(R.string.notif_action_next),
                         actionPending(ctx, NotifActionReceiver.ACTION_NEXT, 2)).build());
         // 倒计时：通知的 when 直接用墙钟触发时间——通知模板由系统从 when 渲染 Chronometer，
         // 不需要小组件那种 elapsedRealtime 换算（小组件用 Chronometer 控件才要自己算 base）
         long trigger = TimerScheduler.libTrigger(ctx, lib.id);
-        if (trigger > System.currentTimeMillis()) {
+        long lastRun = TimerScheduler.lastRun(ctx, lib.id);
+        MediaSessionCompat mediaSession = mediaSession(ctx);
+        if (trigger > System.currentTimeMillis() && lastRun > 0 && trigger > lastRun) {
             builder.setUsesChronometer(true)
                     .setChronometerCountDown(true)
                     .setWhen(trigger)
                     .setShowWhen(true)
                     .setSubText(ctx.getString(R.string.notify_status_next));
+            // 进度条 = 倒计时：本轮总长当 duration、已进行时间当 position，
+            // STATE_PLAYING 让 SystemUI 在本地按 1x 外插进度（无需我们定时刷新）
+            long duration = trigger - lastRun;
+            long position = Math.min(System.currentTimeMillis() - lastRun, duration);
+            mediaSession.setMetadata(new MediaMetadataCompat.Builder()
+                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
+                    .build());
+            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                    .setActions(PlaybackStateCompat.ACTION_PLAY
+                            | PlaybackStateCompat.ACTION_PAUSE
+                            | PlaybackStateCompat.ACTION_SEEK_TO)
+                    .setState(PlaybackStateCompat.STATE_PLAYING, position, 1.0f)
+                    .build());
         } else {
-            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」，与小组件一致
+            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」并撤掉进度条，与小组件一致
             builder.setUsesChronometer(false)
                     .setShowWhen(false)
                     .setSubText(ctx.getString(R.string.widget_waiting));
+            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                    .setState(PlaybackStateCompat.STATE_NONE, 0, 0f)
+                    .build());
         }
+        // 两个动作都放进收起态的按钮行：不展开也能直接切图
+        builder.setStyle(new MediaStyle()
+                .setMediaSession(mediaSession(ctx).getSessionToken())
+                .setShowActionsInCompactView(0, 1));
         return builder.build();
+    }
+
+    /** 进程级 MediaSession 懒加载（用应用上下文，避免持有 Activity）。 */
+    private static MediaSessionCompat mediaSession(Context ctx) {
+        if (session == null) {
+            session = new MediaSessionCompat(ctx.getApplicationContext(), "wallswitch_status");
+        }
+        return session;
     }
 
     /** 上一张/下一张按钮的广播 PendingIntent（接收在 NotifActionReceiver）。 */

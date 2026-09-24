@@ -41,7 +41,8 @@ public class NotifActionReceiver extends BroadcastReceiver {
                     attempted = true;
                     ok = prev ? Switcher.prev(app, lib.id, true) : Switcher.next(app, lib.id, true);
                 }
-                if (attempted && !ok) {
+                if (attempted && !ok && Switcher.lastError() != null) {
+                    // lastError 为 null 表示无副作用的空操作（如随机模式已无可回退的上一张），不弹提示
                     String reason = Switcher.errorText(app, Switcher.lastError());
                     new Handler(Looper.getMainLooper()).post(() ->
                             Toast.makeText(app, reason, Toast.LENGTH_SHORT).show());
