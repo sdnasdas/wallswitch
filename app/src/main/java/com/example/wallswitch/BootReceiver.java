@@ -19,6 +19,8 @@ public class BootReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 TimerScheduler.catchUp(app);
+                // 通知不跨重启存活：开机/覆盖安装后补发常驻切换通知（涉及缩略图解码，放后台线程）
+                StatusNotifier.update(app);
             } catch (Exception ignored) {
             } finally {
                 pending.finish();

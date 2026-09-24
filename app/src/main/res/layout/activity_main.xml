@@ -270,6 +270,28 @@
                                 android:layout_height="wrap_content" />
                         </LinearLayout>
 
+                        <!-- 常驻切换通知：通知栏常驻一条当前壁纸状态（音乐播放器样式，可上一张/下一张） -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:minHeight="44dp"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/status_notify_enabled"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp" />
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_status_notify"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
+                        </LinearLayout>
+
                         <TextView
                             android:id="@+id/tv_timer_status"
                             android:layout_width="match_parent"

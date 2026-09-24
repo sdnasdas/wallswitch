@@ -130,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
         setupDrawer();
         setupButtons();
         setupNotifySwitch();
+        setupStatusNotifySwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
         refreshVersion();
@@ -287,6 +288,8 @@ public class MainActivity extends AppCompatActivity {
         }, "app-catchup").start();
         // 同步刷新桌面小组件（库的启用状态、当前壁纸可能已变化）
         WidgetProvider.updateWidget(this);
+        // 通知不跨重启存活、也可能被 ROM 清掉：回到应用时兜底补发/刷新常驻通知
+        StatusNotifier.update(this);
         // 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关）
         onReturnFromActivator();
         setupTakeoverSwitch();
@@ -469,6 +472,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 常驻切换通知开关：通知栏常驻一条「音乐播放器样式」的状态通知（库名+壁纸+倒计时+上一张/下一张）。
+     * 打开时同样先确保通知可用；打开后立刻按当前状态补发一条。
+     */
+    private void setupStatusNotifySwitch() {
+        CompoundButton swStatus = findViewById(R.id.sw_status_notify);
+        swStatus.setOnCheckedChangeListener(null);
+        swStatus.setChecked(StatusNotifier.isEnabled(this));
+        swStatus.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            StatusNotifier.setEnabled(MainActivity.this, isChecked);
+            if (isChecked) {
+                ensureNotificationsEnabled();
+                StatusNotifier.update(this);
+            }
+        });
+    }
+
     /** 确保通知可用：Android 13+ 申请权限；系统级关闭时提示并跳到通知设置页。 */
     private void ensureNotificationsEnabled() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
@@ -633,6 +653,8 @@ public class MainActivity extends AppCompatActivity {
         refreshLibs();
         refreshTimerStatus();
         syncTakeoverAsync();
+        // 桌面启用库换人/停用：常驻通知要跟着换内容或消失
+        StatusNotifier.update(this);
     }
 
     /** 启用会顶掉同范围的启用库：列出名字确认；取消则把开关扳回库的真实状态（什么都不写）。 */

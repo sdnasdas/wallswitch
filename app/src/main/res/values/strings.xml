@@ -218,4 +218,12 @@
     <string name="battery_row_title">电池优化白名单</string>
     <string name="battery_state_on">已允许</string>
     <string name="battery_state_off">未允许 · 点按设置</string>
+
+    <!-- v3.19：常驻切换通知（音乐播放器样式：库名+壁纸标题+倒计时+上一张/下一张） -->
+    <string name="status_notify_enabled">常驻切换通知</string>
+    <string name="notify_channel_status">常驻切换通知</string>
+    <string name="notify_channel_status_desc">常驻显示当前桌面壁纸与下次自动切换倒计时（静音、不被一键清理）</string>
+    <string name="notif_action_prev">上一张</string>
+    <string name="notif_action_next">下一张</string>
+    <string name="notify_status_next">下次切换</string>
 </resources>

@@ -98,6 +98,7 @@ public class TimerScheduler {
                 .remove(KEY_NEXT_TRIGGER_PREFIX + libId)
                 .apply();
         WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
     }
 
     /** 按当前设置重排所有启用库的定时，并用 WorkManager 的真实调度时间校准倒计时（回到应用时自愈调用）。 */
@@ -165,6 +166,7 @@ public class TimerScheduler {
                 .putLong(KEY_NEXT_TRIGGER_PREFIX + libId, now + intervalSeconds(lib) * 1000L)
                 .apply();
         WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
         // 与 WorkManager 的真实调度时间对齐（它的值更旧且本轮已执行时不会被采纳）
         syncFromWorkManager(ctx);
         return ok;
@@ -315,12 +317,18 @@ public class TimerScheduler {
                 .putLong(KEY_NEXT_TRIGGER_PREFIX + libId, triggerMillis)
                 .apply();
         WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
     }
 
     /** 已记录的下次触发时间（毫秒），无记录返回 -1。 */
     private static long recordedTrigger(Context ctx, String libId) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getLong(KEY_NEXT_TRIGGER_PREFIX + libId, -1L);
+    }
+
+    /** 常驻通知用：本库已记录的下次触发时间（毫秒），无记录返回 -1。 */
+    public static long libTrigger(Context ctx, String libId) {
+        return recordedTrigger(ctx, libId);
     }
 
     /** 小组件用：所有启用库中最近的下次触发时间（毫秒），无则 null；总开关关闭时返回 null。 */

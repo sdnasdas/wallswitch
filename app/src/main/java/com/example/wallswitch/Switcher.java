@@ -86,6 +86,8 @@ public class Switcher {
         }
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String base = progressBase(libId, forHome);
+        // 随机模式要记「上一张」，先留住当前这张的 id
+        String oldCurrent = getCurrent(ctx, libId, forHome);
         String nextId;
         if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
             nextId = pickRandom(prefs, base, candidates);
@@ -95,7 +97,75 @@ public class Switcher {
         if (nextId == null) {
             return false;
         }
-        return applyById(ctx, libId, nextId, forHome);
+        boolean applied = applyById(ctx, libId, nextId, forHome);
+        // 随机模式记一张「上一张」（常驻通知的回退按钮用，见 prev）：成功上屏才写，
+        // 避免 engine_inactive 时把没上屏的图当成旧壁纸；顺序模式用 _seq 直接回退，不用它
+        if (applied && forHome && LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+            prefs.edit().putString(base + "_prev", oldCurrent == null ? "" : oldCurrent).apply();
+        }
+        return applied;
+    }
+
+    /**
+     * 回退到上一张（常驻通知的「上一张」按钮用）：顺序模式把 seq 拨回一位（天然循环，
+     * 库里只有一张时等于重上屏自己）；随机模式与 {@code _prev} 互换——next 成功时会把
+     * 旧 current 写进 _prev，所以回退的正是上一张真实显示过的图（只支持回一张，无历史栈）。
+     * 守卫与 {@link #next} 一致；返回是否成功上屏。
+     */
+    public static boolean prev(Context ctx, String libId, boolean forHome) {
+        if (!TakeoverManager.isEnabled(ctx)) {
+            lastError = "takeover_off";
+            lastTitleHome = null;
+            lastTitleLock = null;
+            return false;
+        }
+        LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+        if (lib == null || !lib.enabled) {
+            return false;
+        }
+        if (forHome ? !lib.home : !lib.lock) {
+            return false;
+        }
+        List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
+        if (candidates.isEmpty()) {
+            return false;
+        }
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String base = progressBase(libId, forHome);
+        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+            String prevId = prefs.getString(base + "_prev", null);
+            // 无记录（还没切过第二张）或那张已被删：没有可回退的目标，不做任何事
+            if (prevId == null || prevId.isEmpty() || findByIndex(candidates, prevId) < 0) {
+                return false;
+            }
+            String current = getCurrent(ctx, libId, forHome);
+            // 互换：再按一次「上一张」就回到刚才这张（只回一张的语义）
+            prefs.edit().putString(base + "_prev", current == null ? "" : current).apply();
+            // 被换下的 current 不再在屏上，塞回本轮池头部，接下来的随机还能抽到它
+            if (current != null) {
+                poolPushHead(prefs, base, current);
+            }
+            return applyById(ctx, libId, prevId, forHome);
+        }
+        int seq = prefs.getInt(base + "_seq", -1);
+        int prevIndex = (seq - 1 + candidates.size()) % candidates.size();
+        prefs.edit().putInt(base + "_seq", prevIndex).apply();
+        return applyById(ctx, libId, candidates.get(prevIndex).id, forHome);
+    }
+
+    /** 随机池头插一个 id（prev 回退后把换下的图放回本轮池），解析容错与 pickRandom 相同。 */
+    private static void poolPushHead(SharedPreferences prefs, String base, String id) {
+        List<String> pool = new ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(prefs.getString(base + "_pool", "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                pool.add(arr.getString(i));
+            }
+        } catch (Exception ignored) {
+        }
+        pool.remove(id);
+        pool.add(0, id);
+        prefs.edit().putString(base + "_pool", new JSONArray(pool).toString()).apply();
     }
 
     /**
@@ -117,13 +187,7 @@ public class Switcher {
             return false;
         }
         List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
-        int index = -1;
-        for (int i = 0; i < candidates.size(); i++) {
-            if (candidates.get(i).id.equals(wallpaperId)) {
-                index = i;
-                break;
-            }
-        }
+        int index = findByIndex(candidates, wallpaperId);
         if (index < 0) {
             return false;
         }
@@ -133,7 +197,14 @@ public class Switcher {
                 .putInt(base + "_seq", index)
                 .remove(base + "_pool")
                 .apply();
-        return applyById(ctx, libId, wallpaperId, forHome);
+        boolean applied = applyById(ctx, libId, wallpaperId, forHome);
+        // 手动指定也是一次切换：随机模式同样记下「上一张」，供常驻通知回退到指定前的那张
+        if (applied && forHome && LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+            String oldCurrent = getCurrent(ctx, libId, forHome);
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    .putString(base + "_prev", oldCurrent == null ? "" : oldCurrent).apply();
+        }
+        return applied;
     }
 
     /**
@@ -169,9 +240,12 @@ public class Switcher {
         } else {
             lastTitleLock = appliedTitle;
         }
-        // 设置成功后刷新小组件缩略图
+        // 设置成功后刷新小组件缩略图与常驻通知（桌面范围才由通知展示）
         if (applied) {
             WidgetProvider.updateWidget(ctx);
+            if (forHome) {
+                StatusNotifier.update(ctx);
+            }
         }
         return applied;
     }
@@ -221,6 +295,8 @@ public class Switcher {
                 }
             }
         }
+        // 覆盖路径不走 applyById（指针没动），通知里的大图标/标题要单独刷一次
+        StatusNotifier.update(ctx);
     }
 
     /** 清除某库的切换进度（删除库时调用）。 */
@@ -230,9 +306,20 @@ public class Switcher {
             String base = progressBase(libId, forHome);
             editor.remove(base + "_seq");
             editor.remove(base + "_pool");
+            editor.remove(base + "_prev");
             editor.remove(base + "_current");
         }
         editor.apply();
+    }
+
+    /** 在候选集里找 id 的下标，找不到返回 -1。 */
+    private static int findByIndex(List<WallpaperStore.Item> candidates, String id) {
+        for (int i = 0; i < candidates.size(); i++) {
+            if (candidates.get(i).id.equals(id)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** 顺序模式：取 (seq+1) % size 的图并写回 seq，返回下一张 id。 */

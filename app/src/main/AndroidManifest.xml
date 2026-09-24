@@ -58,6 +58,11 @@
                 android:resource="@xml/wallpaper" />
         </service>
 
+        <!-- 常驻通知上的「上一张/下一张」按钮（仅应用内部 PendingIntent 触发，不暴露给外部） -->
+        <receiver
+            android:name=".NotifActionReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
