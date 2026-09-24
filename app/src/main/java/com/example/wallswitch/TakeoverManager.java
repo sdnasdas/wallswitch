@@ -1,15 +1,24 @@
 package com.example.wallswitch;
 
 import android.app.WallpaperManager;
+import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.ContentValues;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
@@ -40,6 +49,11 @@ public final class TakeoverManager {
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "takeover_enabled";
     private static final String KEY_LOCK_ID = "takeover_lock_id";
+
+    private static final String SAVED_HOME_NAME = "previous_home.png";
+    private static final String SAVED_LOCK_NAME = "previous_lock.png";
+    /** 存档所在公共相册子目录（MediaStore RELATIVE_PATH）。 */
+    private static final String SAVED_DIR = Environment.DIRECTORY_PICTURES + "/WallSwitch";
 
     /** apply 结果：无需改动。 */
     public static final int RESULT_NONE = 0;
@@ -139,10 +153,10 @@ public final class TakeoverManager {
     public static void savePreviousWallpapers(Context ctx) {
         // 已经由我们接管的范围不存：那时读回来的是我们自己的画面，存它没意义
         if (!isHomeTakenOver(ctx)) {
-            saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, previousHomeFile(ctx));
+            saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
         }
         if (!isLockTakenOver(ctx)) {
-            saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, previousLockFile(ctx));
+            saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, SAVED_LOCK_NAME);
         }
     }
 
@@ -184,16 +198,6 @@ public final class TakeoverManager {
 
     // ==================== 内部实现 ====================
 
-    /** 接管前的桌面壁纸存档。 */
-    private static File previousHomeFile(Context ctx) {
-        return new File(ctx.getFilesDir(), "previous_home.png");
-    }
-
-    /** 接管前的锁屏壁纸存档。 */
-    private static File previousLockFile(Context ctx) {
-        return new File(ctx.getFilesDir(), "previous_lock.png");
-    }
-
     /** 保证锁屏显示为该库当前那一张（没有指针就推进一张）。 */
     private static boolean applyLock(Context ctx, LibraryStore.Library lib) {
         String currentId = Switcher.getCurrent(ctx, lib.id, false);
@@ -218,14 +222,11 @@ public final class TakeoverManager {
     private static boolean restoreHome(Context ctx) {
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            File saved = previousHomeFile(ctx);
-            if (saved.exists()) {
-                Bitmap bitmap = BitmapFactory.decodeFile(saved.getAbsolutePath());
-                if (bitmap != null) {
-                    wm.setBitmap(bitmap);
-                    bitmap.recycle();
-                    return true;
-                }
+            Bitmap bitmap = loadSavedBitmap(ctx, SAVED_HOME_NAME);
+            if (bitmap != null) {
+                wm.setBitmap(bitmap);
+                bitmap.recycle();
+                return true;
             }
             wm.clear();
             return true;
@@ -238,14 +239,11 @@ public final class TakeoverManager {
     private static boolean restoreLock(Context ctx) {
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            File saved = previousLockFile(ctx);
-            if (saved.exists()) {
-                Bitmap bitmap = BitmapFactory.decodeFile(saved.getAbsolutePath());
-                if (bitmap != null) {
-                    wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
-                    bitmap.recycle();
-                    return true;
-                }
+            Bitmap bitmap = loadSavedBitmap(ctx, SAVED_LOCK_NAME);
+            if (bitmap != null) {
+                wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
+                bitmap.recycle();
+                return true;
             }
             wm.clear(WallpaperManager.FLAG_LOCK);
             return true;
@@ -254,8 +252,50 @@ public final class TakeoverManager {
         }
     }
 
-    /** 把系统当前某个范围的壁纸画成 PNG 存到 file。 */
-    private static boolean saveWallpaper(Context ctx, int which, File file) {
+    /** 读取接管前壁纸存档，解码失败或没有存档返回 null。 */
+    private static Bitmap loadSavedBitmap(Context ctx, String name) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Uri uri = findSavedUri(ctx, name);
+            if (uri == null) {
+                return null;
+            }
+            try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+                if (in != null) {
+                    return BitmapFactory.decodeStream(in);
+                }
+            } catch (Exception | OutOfMemoryError e) {
+                return null;
+            }
+            return null;
+        }
+        File file = new File(ctx.getFilesDir(), name);
+        if (!file.exists()) {
+            return null;
+        }
+        return BitmapFactory.decodeFile(file.getAbsolutePath());
+    }
+
+    /** 在公共相册 WallSwitch 目录里按文件名找本 App 写入的存档。 */
+    private static Uri findSavedUri(Context ctx, String name) {
+        try (Cursor c = ctx.getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                new String[]{MediaStore.MediaColumns._ID},
+                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                        + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                new String[]{name, SAVED_DIR + "/"},
+                null)) {
+            if (c != null && c.moveToFirst()) {
+                return ContentUris.withAppendedId(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, c.getLong(0));
+            }
+        } catch (Exception e) {
+            // 查询失败按没有存档处理
+        }
+        return null;
+    }
+
+    /** 把系统当前某个范围的壁纸画成 PNG，存到公共相册 WallSwitch 目录（低版本存内部存储）。 */
+    private static boolean saveWallpaper(Context ctx, int which, String name) {
         Drawable drawable;
         try {
             WallpaperManager wm = WallpaperManager.getInstance(ctx);
@@ -279,7 +319,10 @@ public final class TakeoverManager {
             Canvas canvas = new Canvas(bitmap);
             drawable.setBounds(0, 0, w, h);
             drawable.draw(canvas);
-            try (OutputStream out = new FileOutputStream(file)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                return saveToMediaStore(ctx, name, bitmap);
+            }
+            try (OutputStream out = new FileOutputStream(new File(ctx.getFilesDir(), name))) {
                 return bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
             }
         } catch (Exception | OutOfMemoryError e) {
@@ -288,6 +331,34 @@ public final class TakeoverManager {
             if (bitmap != null) {
                 bitmap.recycle();
             }
+        }
+    }
+
+    private static boolean saveToMediaStore(Context ctx, String name, Bitmap bitmap) {
+        ContentResolver cr = ctx.getContentResolver();
+        // 同名旧存档先删掉，避免 MediaStore 自动改名出现 (1) 副本
+        Uri existing = findSavedUri(ctx, name);
+        if (existing != null) {
+            try {
+                cr.delete(existing, null, null);
+            } catch (Exception ignored) {
+            }
+        }
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "image/png");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVED_DIR);
+        Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) {
+            return false;
+        }
+        try (OutputStream out = cr.openOutputStream(uri)) {
+            if (out == null) {
+                return false;
+            }
+            return bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+        } catch (Exception e) {
+            return false;
         }
     }
 }
