@@ -118,3 +118,12 @@
      拦截点只有一处 —— `Switcher.next` 开头（桌面引擎与锁屏 `setBitmap` 都从它走，因此手动/定时/小组件一次全覆盖）。
      库内操作（选图、裁剪、导入、导出、重命名）不受影响，否则接管关着时连壁纸库都准备不了。另外顺手修了
      手动切换壁纸后「锁屏：当前 App / 系统」这行不刷新的问题。
+- **v3.11**：CI 增加**滚动的 `latest` Release**，手机上点链接直接下到 apk，不用再"下 artifact zip → 手动解压"。
+  `actions/upload-artifact` 产出的 artifact 在服务端一定是 zip（`compression-level` 只是压不压缩，仍套 zip 壳），
+  没有任何选项能变成裸文件；而 Release 的 asset 是原样存储的，所以走 Release 才是裸 apk。
+  做法：构建完 `gh release upload latest app/build/outputs/apk/debug/app-debug.apk --clobber` —— asset 名**固定**为
+  `app-debug.apk` 才能被 `--clobber` 覆盖，直链
+  `https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk` 因此始终指向最新构建；
+  版本号/commit/构建号写进 Release 的标题与说明（放进文件名会让每次生成新 asset、`--clobber` 覆盖不到、直链失效）。
+  Release 只此一个（不累积），需要 workflow 声明 `permissions: contents: write`；`gh` 在 runner 上预装，
+  没有引入新的第三方 action。

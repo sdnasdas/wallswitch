@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+# 发滚动 Release 需要写权限；不显式声明的话默认 GITHUB_TOKEN 可能只有读权限
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,3 +50,24 @@ jobs:
         with:
           name: wallswitch-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish APK to rolling release
+        # artifact 存的是 zip（下载后要手动解压）；Release 的 asset 是裸文件，
+        # 手机点 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk
+        # 就是 apk 本身，不用解压。
+        # asset 名固定成 app-debug.apk，--clobber 每次覆盖同一个 asset，直链才始终指向最新构建；
+        # 版本信息放 Release 标题/说明里（文件名带日期会让 --clobber 覆盖不到、直链失效）。
+        # gh 在 ubuntu-latest runner 上预装，不引入新的第三方 action。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION=$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle)
+          SHORT=${GITHUB_SHA:0:7}
+          if ! gh release view latest >/dev/null 2>&1; then
+            gh release create latest --title "latest" --notes "滚动构建" --target "$GITHUB_SHA"
+          fi
+          gh release upload latest app/build/outputs/apk/debug/app-debug.apk --clobber
+          gh release edit latest \
+            --title "latest（v$VERSION · build ${{ github.run_number }}）" \
+            --notes "自动覆盖的调试包（固定签名，可直接覆盖安装）· 当前 v$VERSION · commit $SHORT · 构建号 ${{ github.run_number }} · 直链 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk"
