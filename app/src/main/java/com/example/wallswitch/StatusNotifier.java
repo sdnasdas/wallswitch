@@ -9,9 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 
-import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
-import android.support.v4.media.session.PlaybackStateCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.media.app.NotificationCompat.MediaStyle;
 
@@ -24,10 +22,10 @@ import java.util.concurrent.Executors;
  * 「上一张 / 下一张」按钮直接切图（{@link NotifActionReceiver}）。
  *
  * 用 MediaStyle + MediaSession（网易云等音乐 App 的同款机制）：系统按媒体卡片渲染，
- * 按钮行与封面默认可见，收起/展开一个样。倒计时进度条也是借用媒体会话：把本轮切换周期
- * 当成一首"歌"在放（duration=本轮总长，position=已进行时间，STATE_PLAYING 让 SystemUI
- * 本地实时外插进度），不耗电、进程被杀也在走；到点未执行（Doze 推迟）时改显「待切换」。
- * MediaSession 只为渲染样式存在，不承载真实播放（无音频，也不会 setActive 抢系统媒体卡位）。
+ * 按钮行与封面默认可见，收起/展开一个样；倒计时在头部区域走秒（Chronometer）。
+ * 刻意不设 PlaybackState：伪装「正在播放」虽然能让系统渲染倒计时进度条，但 MagicOS
+ * 会改用自己的播放模板（出现无功能的暂停键、吃掉按钮行），还会挤掉真正的音乐 App
+ * 的媒体卡片——进度条只能放弃。MediaSession 只为渲染样式存在，进程级单例。
  *
  * 为什么常驻（setOngoing）：当前壁纸与切换节奏是用户想随时瞄一眼的状态，
  * 混在「到点通知」的历次记录里会被冲掉；ongoing 不会被一键清理清掉
@@ -52,7 +50,7 @@ public class StatusNotifier {
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "status_notify";
 
-    // 进程级 MediaSession：只为渲染媒体卡片样式（token + 倒计时进度条），不承载真实音频播放
+    // 进程级 MediaSession：只为让通知按媒体卡片渲染（挂 token），不承载真实播放
     private static MediaSessionCompat session;
 
     // 缩略图解码与通知构建收口到后台（仿 TimerScheduler.EXECUTOR），主线程调用也安全
@@ -144,35 +142,17 @@ public class StatusNotifier {
         // 倒计时：通知的 when 直接用墙钟触发时间——通知模板由系统从 when 渲染 Chronometer，
         // 不需要小组件那种 elapsedRealtime 换算（小组件用 Chronometer 控件才要自己算 base）
         long trigger = TimerScheduler.libTrigger(ctx, lib.id);
-        long lastRun = TimerScheduler.lastRun(ctx, lib.id);
-        MediaSessionCompat mediaSession = mediaSession(ctx);
-        if (trigger > System.currentTimeMillis() && lastRun > 0 && trigger > lastRun) {
+        if (trigger > System.currentTimeMillis()) {
             builder.setUsesChronometer(true)
                     .setChronometerCountDown(true)
                     .setWhen(trigger)
                     .setShowWhen(true)
                     .setSubText(ctx.getString(R.string.notify_status_next));
-            // 进度条 = 倒计时：本轮总长当 duration、已进行时间当 position，
-            // STATE_PLAYING 让 SystemUI 在本地按 1x 外插进度（无需我们定时刷新）
-            long duration = trigger - lastRun;
-            long position = Math.min(System.currentTimeMillis() - lastRun, duration);
-            mediaSession.setMetadata(new MediaMetadataCompat.Builder()
-                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
-                    .build());
-            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                    .setActions(PlaybackStateCompat.ACTION_PLAY
-                            | PlaybackStateCompat.ACTION_PAUSE
-                            | PlaybackStateCompat.ACTION_SEEK_TO)
-                    .setState(PlaybackStateCompat.STATE_PLAYING, position, 1.0f)
-                    .build());
         } else {
-            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」并撤掉进度条，与小组件一致
+            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」，与小组件一致
             builder.setUsesChronometer(false)
                     .setShowWhen(false)
                     .setSubText(ctx.getString(R.string.widget_waiting));
-            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                    .setState(PlaybackStateCompat.STATE_NONE, 0, 0f)
-                    .build());
         }
         // 两个动作都放进收起态的按钮行：不展开也能直接切图
         builder.setStyle(new MediaStyle()
