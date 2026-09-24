@@ -14,6 +14,7 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
@@ -85,6 +86,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> notifyPermissionLauncher;
     /** 读取系统壁纸存档用（Android 13+ 是 READ_MEDIA_IMAGES，低版本 READ_EXTERNAL_STORAGE） */
     private ActivityResultLauncher<String> savePermLauncher;
+    /** Android 11+ 跳系统设置开「所有文件访问」，回来后检查结果继续开启接管 */
+    private ActivityResultLauncher<Intent> allFilesLauncher;
     // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
@@ -124,6 +127,9 @@ public class MainActivity extends AppCompatActivity {
         savePermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 this::onSavePermissionResult);
+        allFilesLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> onAllFilesAccessResult());
         overlayLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
         exportDirLauncher = registerForActivityResult(
@@ -512,13 +518,6 @@ public class MainActivity extends AppCompatActivity {
         if (!granted) {
             Toast.makeText(this, R.string.notify_permission_denied, Toast.LENGTH_LONG).show();
         }
-    }
-
-    /** 读取系统壁纸要用的权限（WallpaperManager.getDrawable 的要求随版本不同）。 */
-    private String wallpaperReadPermission() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                ? Manifest.permission.READ_MEDIA_IMAGES
-                : Manifest.permission.READ_EXTERNAL_STORAGE;
     }
 
     /** 存档权限申请结果：授权就继续开启接管，拒绝则放弃开启（没有存档不能安全还原）。 */
@@ -1015,12 +1014,43 @@ public class MainActivity extends AppCompatActivity {
 
     /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
     private void enableTakeover() {
-        String perm = wallpaperReadPermission();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
+            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得
+            if (!Environment.isExternalStorageManager()) {
+                requestAllFilesAccess();
+                return;
+            }
+            doEnableTakeover();
+            return;
+        }
+        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
         if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
             savePermLauncher.launch(perm);
             return;
         }
         doEnableTakeover();
+    }
+
+    /** 跳系统设置页开「所有文件访问」；部分 ROM 不支持直达本 App 时退回总列表页。 */
+    private void requestAllFilesAccess() {
+        Toast.makeText(this, "需要「所有文件访问」权限来备份当前壁纸，请允许后返回", Toast.LENGTH_LONG).show();
+        try {
+            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        }
+    }
+
+    /** 从「所有文件访问」设置页返回：已开启就继续开启接管，没开就取消。 */
+    private void onAllFilesAccessResult() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            doEnableTakeover();
+        } else {
+            Toast.makeText(this, "未开启「所有文件访问」，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
+            setupTakeoverSwitch();
+        }
     }
 
     private void doEnableTakeover() {

@@ -177,6 +177,10 @@ public final class TakeoverManager {
                 .append("，READ_EXTERNAL_STORAGE=")
                 .append(granted(ctx, Manifest.permission.READ_EXTERNAL_STORAGE))
                 .append('\n');
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            log.append("所有文件访问：").append(Environment.isExternalStorageManager() ? "已开启" : "未开启")
+                    .append('\n');
+        }
         if (!isHomeTakenOver(ctx)) {
             String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
             if (r.isEmpty()) {

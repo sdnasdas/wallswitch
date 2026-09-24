@@ -36,4 +36,10 @@ public class ActivityResultContracts {
     public static class RequestPermission
             extends androidx.activity.result.ActivityResultContract<String, Boolean> {
     }
+
+    /** 启动任意外部 Activity（跳系统设置等）并接收返回。 */
+    public static class StartActivityForResult
+            extends androidx.activity.result.ActivityResultContract<
+            android.content.Intent, androidx.activity.result.ActivityResult> {
+    }
 }
