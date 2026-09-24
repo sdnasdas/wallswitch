@@ -17,6 +17,10 @@ public class DrawerLayout extends android.view.ViewGroup {
     public void closeDrawer(int gravity) {
     }
 
+    public boolean isDrawerOpen(int gravity) {
+        return false;
+    }
+
     public void addDrawerListener(DrawerListener listener) {
     }
 

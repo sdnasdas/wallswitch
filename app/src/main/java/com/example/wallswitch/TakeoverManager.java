@@ -86,6 +86,15 @@ public final class TakeoverManager {
         }
     }
 
+    /**
+     * 锁屏是否正被桌面引擎「顺带接管」：没设过独立锁屏壁纸、但动态壁纸引擎已激活。
+     * 引擎一激活就同时盖住桌面和锁屏 —— 没设锁屏库时锁屏其实已经是我们的，
+     * 界面上这一态同样显示 WallPaper（与独立锁屏壁纸的区分只在实现里）。
+     */
+    public static boolean isLockTakenByEngine(Context ctx) {
+        return !isLockTakenOver(ctx) && WallSwitchService.isActive(ctx);
+    }
+
     // ==================== 落地 ====================
 
     /**
@@ -111,11 +120,13 @@ public final class TakeoverManager {
             return RESULT_NEED_ACTIVATION;
         }
 
-        // ---- 锁屏：有启用库就设成我们的图，否则还原回系统 ----
+        // ---- 锁屏：有启用库就设成我们的图；没有时只在「引擎没盖着锁屏」的前提下才还原 ----
+        // 引擎一激活就同时盖住桌面和锁屏：没设锁屏库时锁屏已被引擎顺带接管，
+        // 这时还原/clear 锁屏没意义（画面上还是引擎），还会让接管状态显示错
         boolean wantLock = intent && lockLib != null;
         if (wantLock) {
             changed |= applyLock(ctx, lockLib);
-        } else if (isLockTakenOver(ctx)) {
+        } else if (isLockTakenOver(ctx) && !isHomeTakenOver(ctx)) {
             changed |= restoreLock(ctx);
         }
         return changed ? RESULT_OK : RESULT_NONE;

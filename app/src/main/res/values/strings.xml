@@ -10,7 +10,8 @@
     <string name="switch_failed">壁纸切换失败，请重试</string>
     <string name="lib_new">新建库</string>
     <string name="lib_delete">删除库</string>
-    <string name="lib_delete_msg">删除壁纸库「%1$s」将同时删除库内所有壁纸，确定吗？</string>
+    <string name="lib_delete_msg">库里的 %1$d 张壁纸会一并删除，无法恢复</string>
+    <string name="lib_delete_title">删除壁纸库「%1$s」？</string>
     <string name="lib_name_hint">库名称（留空自动命名）</string>
     <string name="lib_enabled">启用本库</string>
     <string name="lib_interval">切换间隔</string>
@@ -20,8 +21,9 @@
 
     <!-- 定时状态行（定位“到点没切”的原因） -->
     <string name="timer_status_off">定时切换已关闭（手动切换与小组件仍可用）</string>
-    <string name="timer_status_none">定时切换已开启，但没有启用中的壁纸库</string>
-    <string name="timer_status_on">上次自动切换 %1$s（%2$s）｜ 下次预计 %3$s</string>
+    <!-- v3.14：自动切换卡片只留「到点通知」开关 + 上次/下次两个时间（全局定时总开关已移除） -->
+    <string name="timer_status_none">没有启用中的壁纸库（库启用后按各自的间隔到点自动切）</string>
+    <string name="timer_status_on">上次 %1$s（%2$s）｜ 下次预计 %3$s</string>
     <string name="timer_status_overdue">⚠ 已过预计时间 %1$s 仍未见系统执行，等待调度中：点亮屏幕 / 刷新小组件 / 打开本应用会自动补切</string>
     <string name="status_ok">成功</string>
     <string name="status_never">尚未执行</string>
@@ -97,7 +99,7 @@
     <string name="close">关闭</string>
 
     <!-- 自动切换提示（系统通知：成功静音留痕、失败弹横幅） -->
-    <string name="auto_notify_enabled">自动切换提示（通知）</string>
+    <string name="auto_notify_enabled">到点通知</string>
     <string name="notify_channel_ok">自动切换记录</string>
     <string name="notify_channel_ok_desc">自动切换完成后静音留痕，不弹横幅、不出声</string>
     <string name="notify_channel_fail">自动切换失败</string>
@@ -140,7 +142,7 @@
     <string name="launcher_shot_desc">叠加我的首页截图（精确预览）</string>
     <string name="section_launcher_preview">桌面图标预览</string>
     <string name="launcher_overlay_title">桌面图标预览底图</string>
-    <string name="section_export">导出目录</string>
+    <string name="section_export">导出与日志</string>
     <string name="export_dir_title">导出目录</string>
     <string name="export_now_title">立即导出全部壁纸</string>
     <string name="export_dir_unset">未设置 · 点按选一个文件夹（如 Documents/wallswitch）</string>
@@ -161,12 +163,13 @@
     <!-- v3.2：设置改为左侧滑出抽屉；两个手动切换按钮合并为一个 -->
     <string name="switch_pick">切换壁纸</string>
     <string name="switch_pick_scope">选择切换范围</string>
-    <string name="swipe_delete_hint">左滑壁纸可删除</string>
+    <!-- v3.14：左滑删除改为长按浮出图标（原「长按壁纸可编辑或删除」提示串已无引用，随左滑删除一并移除） -->
     <!-- v3.10：全局「接管」开关（App 级，非引擎级）+ 接管情况（系统真值） -->
     <string name="takeover_title">开启接管</string>
     <string name="takeover_scope_home">桌面：%1$s</string>
     <string name="takeover_scope_lock">锁屏：%1$s</string>
-    <string name="takeover_by_app">当前 App</string>
+    <!-- v3.14：接管情况两行状态的取值只写 WallPaper / 系统，不加机制说明 -->
+    <string name="takeover_by_app">WallPaper</string>
     <string name="takeover_by_system">系统</string>
     <string name="takeover_saving">正在记录接管前的壁纸…</string>
     <string name="takeover_on">已开启接管，桌面与锁屏由本 App 负责</string>
@@ -189,4 +192,17 @@
     <string name="log_view_empty">还没有日志记录。\n\n只有「定时自动切换」成功时才会记一条：手动切换和小组件点按都不记；「开启接管」关闭时定时任务会跳过，同样不记。</string>
     <string name="log_view_copy">复制</string>
     <string name="log_view_copied">日志已复制</string>
+
+    <!-- v3.14：层级导航 UI（首页=库列表，进库=两列网格；库级设置进齿轮弹窗） -->
+    <string name="app_title">WallPaper</string>
+    <string name="lib_count">%1$d 张壁纸</string>
+    <string name="lib_settings">库设置</string>
+    <string name="lib_mode_title">切换模式</string>
+    <string name="switch_now">立即切换一张</string>
+    <string name="empty_libs">还没有壁纸库</string>
+    <string name="empty_libs_hint">点右下角 ＋ 新建一个壁纸库</string>
+    <string name="edit_desc">编辑</string>
+    <string name="battery_row_title">电池优化白名单</string>
+    <string name="battery_state_on">已允许</string>
+    <string name="battery_state_off">未允许 · 点按设置</string>
 </resources>

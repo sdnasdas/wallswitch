@@ -259,6 +259,37 @@ public class WallpaperStore {
         return item;
     }
 
+    /**
+     * 用裁剪结果覆盖一张已入库壁纸的全图与缩略图（保留 id、标题与归属库）。
+     * 长按壁纸格的「编辑铅笔」重新裁剪后调用；缩略图一并重生成，列表下次刷新显示新图。
+     */
+    public static void overwrite(Context context, String id, Bitmap bitmap) throws IOException {
+        if (bitmap == null) {
+            throw new IOException("没有可保存的图像");
+        }
+        File fullDir = new File(context.getFilesDir(), DIR_FULL);
+        File thumbDir = new File(context.getFilesDir(), DIR_THUMB);
+        if (!fullDir.exists()) {
+            fullDir.mkdirs();
+        }
+        if (!thumbDir.exists()) {
+            thumbDir.mkdirs();
+        }
+        FileOutputStream fullOut = new FileOutputStream(new File(fullDir, id + FULL_EXT));
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
+        fullOut.close();
+        // 历史数据的全图可能是 .jpg：覆盖成 PNG 后删掉旧文件，避免两种扩展名并存白占空间
+        Files.deleteIfExists(new File(fullDir, id + LEGACY_FULL_EXT).toPath());
+        Bitmap thumb = scaleToFit(bitmap, THUMB_MAX_DIM);
+        FileOutputStream thumbOut = new FileOutputStream(getThumbFile(context, id));
+        thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, thumbOut);
+        thumbOut.close();
+        // scaleToFit 只有真的缩了才返回新位图（否则就是入参本身，不能回收）
+        if (thumb != bitmap && !thumb.isRecycled()) {
+            thumb.recycle();
+        }
+    }
+
     /** 取消导入：删除收件箱中的待编辑文件与其中的标题记录。 */
     public static void cancelImport(Context context, String inboxId) {
         try {
@@ -367,6 +398,16 @@ public class WallpaperStore {
     public static Bitmap getThumb(Context context, String id) {
         File thumbFile = getThumbFile(context, id);
         return BitmapFactory.decodeFile(thumbFile.getAbsolutePath());
+    }
+
+    /** 按 id 查壁纸元数据，查不到返回 null。 */
+    public static Item get(Context context, String id) {
+        for (Item item : load(context)) {
+            if (item.id.equals(id)) {
+                return item;
+            }
+        }
+        return null;
     }
 
     /** 获取某张壁纸的全图文件（新数据是无损 PNG，历史数据是 JPEG，都兼容）。 */

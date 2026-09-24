@@ -44,6 +44,9 @@ public class RecyclerView extends android.view.ViewGroup {
 
         public final void notifyDataSetChanged() {
         }
+
+        public final void notifyItemChanged(int position) {
+        }
     }
 
     public abstract static class ViewHolder {

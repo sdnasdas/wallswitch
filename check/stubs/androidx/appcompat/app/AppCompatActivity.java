@@ -11,6 +11,10 @@ public class AppCompatActivity extends android.app.Activity {
         return null;
     }
 
+    public androidx.activity.OnBackPressedDispatcher getOnBackPressedDispatcher() {
+        return null;
+    }
+
     public void onActivityResult(int requestCode, int resultCode, Bundle data) {
     }
 }

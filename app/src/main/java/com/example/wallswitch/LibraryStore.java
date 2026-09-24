@@ -292,6 +292,20 @@ public class LibraryStore {
         saveList(ctx, libs);
     }
 
+    /** 重命名库（库行点库名就地改名的写回入口；留空则保留原名）。 */
+    public static void setName(Context ctx, String libId, String name) {
+        List<Library> libs = load(ctx);
+        for (Library lib : libs) {
+            if (lib.id.equals(libId)) {
+                String trimmed = name == null ? "" : name.trim();
+                if (!trimmed.isEmpty()) {
+                    lib.name = trimmed;
+                }
+            }
+        }
+        saveList(ctx, libs);
+    }
+
     /** 返回当前启用的、覆盖对应范围的库（每个范围至多一个），没有则返回 null。 */
     public static Library enabledLibForScope(Context ctx, boolean forHome) {
         for (Library lib : load(ctx)) {

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 壁纸格长按浮出操作图标时的半透明压暗层（圆角与 RoundedGrid 一致） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#66000000" />
+    <corners android:radius="12dp" />
+</shape>

@@ -136,6 +136,46 @@ public class Switcher {
                 .getString(base + "_current", null);
     }
 
+    /**
+     * 覆盖/删除某张壁纸后，把改动推上屏（v3.14）：该图若是某范围（桌面/锁屏）的当前壁纸——
+     * 覆盖：指针不变，按新文件内容重新上屏（桌面通知引擎重绘，锁屏重新 setBitmap）；
+     * 删除：清掉指向它的指针，再推进到库里下一张。
+     * 该库未启用 / 不覆盖该范围 / 接管总开关关着时只清指针、不上屏（那时它本来也不在屏上）。
+     * 锁屏路径涉及解码与系统调用，调用方放后台线程。
+     */
+    public static void reapplyIfCurrent(Context ctx, String libId, String wallpaperId) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        for (boolean forHome : new boolean[]{true, false}) {
+            String current = getCurrent(ctx, libId, forHome);
+            if (current == null || !current.equals(wallpaperId)) {
+                continue;
+            }
+            File full = WallpaperStore.getFullFile(ctx, wallpaperId);
+            boolean deleted = full == null || !full.exists();
+            LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+            boolean onScreen = TakeoverManager.isEnabled(ctx) && lib != null && lib.enabled
+                    && (forHome ? lib.home : lib.lock);
+            if (deleted) {
+                // 指针不能指向已删的图；还在屏上则推进到下一张（候选集已不含它）
+                prefs.edit().remove(progressBase(libId, forHome) + "_current").apply();
+                if (onScreen) {
+                    next(ctx, libId, forHome);
+                }
+            } else if (onScreen) {
+                // 覆盖：指针不变，按新文件内容重新上屏
+                if (forHome) {
+                    if (WallSwitchService.isActive(ctx)) {
+                        // 引擎每次绘制都重新解码文件，通知即可
+                        WallSwitchService.notifyWallpaperChanged();
+                    }
+                } else {
+                    // 系统里存的是 setBitmap(FLAG_LOCK) 时的位图副本，必须重设一次
+                    TakeoverManager.setLockFromFile(ctx, full);
+                }
+            }
+        }
+    }
+
     /** 清除某库的切换进度（删除库时调用）。 */
     public static void clearProgress(Context ctx, String libId) {
         SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();

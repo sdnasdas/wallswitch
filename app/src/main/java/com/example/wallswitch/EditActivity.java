@@ -1,5 +1,6 @@
 package com.example.wallswitch;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
@@ -19,8 +20,13 @@ import java.io.File;
 import java.util.List;
 
 /**
- * 添加时编辑页：全屏手势裁剪，确认后按当前手势导出并入库（默认桌面+锁屏都应用），
- * 取消则丢弃收件箱文件。
+ * 编辑页：全屏手势裁剪。两种模式：
+ * <ul>
+ *   <li><b>导入模式</b>（{@link #EXTRA_INBOX_ID}）：添加时从收件箱取源图，确认后按当前手势导出并入库，
+ *       取消则丢弃收件箱文件。</li>
+ *   <li><b>重编模式</b>（{@link #EXTRA_ITEM_ID}）：长按壁纸格的「编辑铅笔」进入，
+ *       源图 = 库内已存的全图，确认后覆盖原图（保留 id/标题/归属库），取消不动任何文件。</li>
+ * </ul>
  *
  * <ul>
  *   <li>v3.4 起裁剪区铺满整屏：取景框比例 = 屏幕比例 = 壁纸上屏区域，预览与实况一致。</li>
@@ -33,9 +39,11 @@ import java.util.List;
  */
 public class EditActivity extends AppCompatActivity {
 
-    // 收件箱 id 的 Intent extra key
+    // 收件箱 id 的 Intent extra key（导入模式）
     public static final String EXTRA_INBOX_ID = "inbox_id";
-    // 目标壁纸库 id 的 Intent extra key
+    // 已入库壁纸 id 的 Intent extra key（重编模式：长按壁纸格的编辑铅笔）
+    public static final String EXTRA_ITEM_ID = "item_id";
+    // 目标壁纸库 id 的 Intent extra key（仅导入模式用）
     public static final String EXTRA_LIB_ID = "lib_id";
 
     private CropView cropView;
@@ -44,8 +52,10 @@ public class EditActivity extends AppCompatActivity {
     private ActivityResultLauncher<PickVisualMediaRequest> shotLauncher;
 
     private String inboxId;
+    private String itemId;
     private String libId;
-    private File inboxFile;
+    // 裁剪源图文件：导入模式 = 收件箱文件；重编模式 = 库内全图
+    private File sourceFile;
     // 原图像素尺寸（区域解码要把取景框映射回原图坐标）
     private int originalWidth;
     private int originalHeight;
@@ -69,15 +79,18 @@ public class EditActivity extends AppCompatActivity {
         loadSavedOverlayAsync();
         maxDim = WallpaperStore.maxWallpaperDim(this);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
+        itemId = getIntent().getStringExtra(EXTRA_ITEM_ID);
         libId = getIntent().getStringExtra(EXTRA_LIB_ID);
-        if (libId == null || LibraryStore.get(this, libId) == null) {
-            // 未指定或库已删除：回退到第一个库，没有库则建默认库
+        if (itemId == null && (libId == null || LibraryStore.get(this, libId) == null)) {
+            // 仅导入模式需要目标库：未指定或库已删除时回退到第一个库，没有库则建默认库
             List<LibraryStore.Library> libs = LibraryStore.load(this);
             libId = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
         }
         btnConfirm.setOnClickListener(v -> onConfirm());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> onCancel());
-        inboxFile = WallpaperStore.getInboxFile(this, inboxId);
+        sourceFile = itemId != null
+                ? WallpaperStore.getFullFile(this, itemId)
+                : WallpaperStore.getInboxFile(this, inboxId);
         readOriginalBounds();
         startDecode();
     }
@@ -86,7 +99,7 @@ public class EditActivity extends AppCompatActivity {
     private void readOriginalBounds() {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(inboxFile.getAbsolutePath(), bounds);
+        BitmapFactory.decodeFile(sourceFile.getAbsolutePath(), bounds);
         originalWidth = bounds.outWidth;
         originalHeight = bounds.outHeight;
     }
@@ -95,7 +108,7 @@ public class EditActivity extends AppCompatActivity {
     private void startDecode() {
         setLoading(true);
         new Thread(() -> {
-            final Bitmap decoded = WallpaperStore.decodeCropSource(inboxFile);
+            final Bitmap decoded = WallpaperStore.decodeCropSource(sourceFile);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     if (decoded != null) {
@@ -106,7 +119,9 @@ public class EditActivity extends AppCompatActivity {
                 setLoading(false);
                 if (decoded == null) {
                     Toast.makeText(this, R.string.decode_failed, Toast.LENGTH_SHORT).show();
-                    WallpaperStore.cancelImport(this, inboxId);
+                    if (itemId == null) {
+                        WallpaperStore.cancelImport(this, inboxId);
+                    }
                     finish();
                     return;
                 }
@@ -127,7 +142,8 @@ public class EditActivity extends AppCompatActivity {
     }
 
     /**
-     * 确认：按当前取景框做区域解码（回原图取那一块）并入库。
+     * 确认：按当前取景框做区域解码（回原图取那一块）。
+     * 导入模式入库为新壁纸；重编模式覆盖原壁纸文件（保留 id/标题/归属库）。
      * 区域解码拿不到（格式不支持等）时回退到「从内存位图裁」，再不行才报失败。
      */
     private void onConfirm() {
@@ -137,12 +153,28 @@ public class EditActivity extends AppCompatActivity {
         }
         if (result == null) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
-            WallpaperStore.cancelImport(this, inboxId);
+            if (itemId == null) {
+                WallpaperStore.cancelImport(this, inboxId);
+            }
             finish();
             return;
         }
+        final Context appCtx = getApplicationContext();
         try {
-            WallpaperStore.confirmImport(this, inboxId, result, libId);
+            if (itemId != null) {
+                WallpaperStore.overwrite(this, itemId, result);
+                // 覆盖后立刻把改动推上屏（这张若是桌面/锁屏的当前壁纸），不等下一次切换。
+                // 锁屏路径要解码 + setBitmap 系统调用，放后台线程；线程会跑在 finish() 之后，
+                // 所以只能用 Application 上下文（拿 Activity 当 Context 会被 lint 判 context leak）
+                new Thread(() -> {
+                    WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
+                    if (item != null && item.libId != null && !item.libId.isEmpty()) {
+                        Switcher.reapplyIfCurrent(appCtx, item.libId, itemId);
+                    }
+                }, "reapply-wallpaper").start();
+            } else {
+                WallpaperStore.confirmImport(this, inboxId, result, libId);
+            }
         } catch (Exception e) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
         }
@@ -178,12 +210,14 @@ public class EditActivity extends AppCompatActivity {
         if (region.width() <= 0 || region.height() <= 0) {
             return null;
         }
-        return WallpaperStore.decodeRegion(inboxFile, region, maxDim);
+        return WallpaperStore.decodeRegion(sourceFile, region, maxDim);
     }
 
-    /** 取消：丢弃收件箱文件并返回。 */
+    /** 取消：导入模式丢弃收件箱文件；重编模式不动任何文件，直接返回。 */
     private void onCancel() {
-        WallpaperStore.cancelImport(this, inboxId);
+        if (itemId == null) {
+            WallpaperStore.cancelImport(this, inboxId);
+        }
         finish();
     }
 

@@ -1,84 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 壁纸行（v3.2）：外层 SwipeRevealLayout 支持左滑露出删除按钮。
-     子 View 顺序固定：0 = 右侧操作区（在下层，滑开后露出），1 = 整行内容卡片（在上层，可左移）。
-     缩略图缩成 44dp 小方块（约一行文字大小），行内以标题文字为主，不再让图片占满整行。 -->
-<com.example.wallswitch.SwipeRevealLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 壁纸格（v3.14）：两列正方形网格的一格。1:1 缩略图 + 下方标题；
+     长按浮出半透明压暗层与两个圆形图标（编辑铅笔 / 红垃圾桶，无文字），点空白或返回手势收起。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginHorizontal="4dp"
-    android:layout_marginVertical="4dp">
+    android:layout_marginVertical="4dp"
+    android:orientation="vertical">
 
-    <!-- 操作区：左滑后露出的删除按钮 -->
-    <LinearLayout
-        android:id="@+id/item_actions"
-        android:layout_width="88dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:background="@drawable/item_action_bg"
-        android:clickable="true"
-        android:focusable="true"
-        android:gravity="center"
-        android:orientation="vertical">
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
-        <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:contentDescription="@string/delete"
-            android:src="@drawable/ic_delete"
-            android:tint="@android:color/white" />
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/img_thumb"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@color/divider"
+            android:contentDescription="@string/thumb_desc"
+            android:scaleType="centerCrop"
+            app:layout_constraintDimensionRatio="1:1"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:shapeAppearanceOverlay="@style/RoundedGrid" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/delete"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
-    </LinearLayout>
+        <!-- 长按浮出层：压暗 + 底部居中两个圆形图标（无文字） -->
+        <FrameLayout
+            android:id="@+id/item_actions"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@drawable/grid_overlay_bg"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
 
-    <!-- 内容区：整行卡片 -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/item_content"
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="14dp"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btn_edit"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/circle_brand"
+                    android:contentDescription="@string/edit_desc"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_edit"
+                    android:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/btn_delete"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="16dp"
+                    android:background="@drawable/circle_danger"
+                    android:contentDescription="@string/delete"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_delete"
+                    android:tint="@android:color/white" />
+            </LinearLayout>
+        </FrameLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <TextView
+        android:id="@+id/tv_wallpaper_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:clickable="true"
-        android:focusable="true"
-        app:cardBackgroundColor="@color/card_bg"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="1dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:minHeight="64dp"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="10dp">
-
-            <com.google.android.material.imageview.ShapeableImageView
-                android:id="@+id/img_thumb"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:contentDescription="@string/thumb_desc"
-                android:scaleType="centerCrop"
-                app:shapeAppearanceOverlay="@style/RoundedThumb"
-                app:strokeColor="@color/divider"
-                app:strokeWidth="1dp" />
-
-            <TextView
-                android:id="@+id/tv_wallpaper_title"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-</com.example.wallswitch.SwipeRevealLayout>
+        android:layout_marginTop="6dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />
+</LinearLayout>

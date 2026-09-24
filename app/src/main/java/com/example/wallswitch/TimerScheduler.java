@@ -29,9 +29,9 @@ public class TimerScheduler {
 
     // WorkManager 唯一任务名前缀
     private static final String WORK_PREFIX = "switch_";
-    // SharedPreferences 文件名与「定时切换」总开关 key（默认关闭：关闭时不排定任何任务）
+    // SharedPreferences 文件名；v3.14 起没有全局「定时切换」总开关（库启用+设了间隔即到点自动切，
+    // 要停就停用该库），旧的 timer_enabled key 不再读取
     private static final String PREFS_NAME = "settings";
-    private static final String KEY_TIMER_ENABLED = "timer_enabled";
     // 下次触发时间（wall clock 毫秒）的 key 前缀，供小组件倒计时显示
     private static final String KEY_NEXT_TRIGGER_PREFIX = "next_trigger_";
     // 每库「上次自动切换时间」（毫秒）与「上次结果」的 key 前缀
@@ -46,22 +46,12 @@ public class TimerScheduler {
         return thread;
     });
 
-    /** 定时切换是否已开启（默认关闭）。 */
+    /**
+     * 定时切换是否生效。v3.14 起恒为 true：不再有全局总开关，
+     * 行为 = 库启用 + 设了间隔 ⇒ 到点自动切；要停就停用那个库。
+     */
     public static boolean isTimerEnabled(Context ctx) {
-        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(KEY_TIMER_ENABLED, false);
-    }
-
-    /** 设置定时切换总开关：关闭时取消全部定时任务，开启时按各库间隔立即重排。 */
-    public static void setTimerEnabled(Context ctx, boolean enabled) {
-        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putBoolean(KEY_TIMER_ENABLED, enabled)
-                .apply();
-        if (enabled) {
-            scheduleAll(ctx);
-        } else {
-            cancelAll(ctx);
-        }
+        return true;
     }
 
     /** 该库的定时间隔（秒）：取系统下限（15 分钟）与库设置的较大值，兼容旧版本的秒级历史值。 */

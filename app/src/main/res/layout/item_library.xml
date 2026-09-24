@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 壁纸库行（v3.14）：缩略图（该库当前壁纸）+ 库名（点击就地改名）+ N 张壁纸，
+     右侧 = 启用/停用开关 + 齿轮（其余三项：范围/模式/间隔，另有「立即切换」）。
+     长按行：开关与齿轮收起，行尾浮出红垃圾桶，点击弹二次确认。 -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/item_lib_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginVertical="4dp"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardBackgroundColor="@color/card_bg"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:minHeight="72dp"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="10dp">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/img_lib_thumb"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@color/divider"
+            android:contentDescription="@string/thumb_desc"
+            android:padding="12dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_tab_wallpaper"
+            android:tint="@color/text_secondary"
+            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_lib_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <!-- 就地改名：点库名后与上面 TextView 互换可见性 -->
+            <EditText
+                android:id="@+id/et_lib_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:maxLines="1"
+                android:padding="0dp"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_lib_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/sw_lib_enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <ImageButton
+            android:id="@+id/btn_lib_settings"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/lib_settings"
+            android:padding="12dp"
+            android:src="@drawable/ic_settings"
+            android:tint="@color/text_secondary" />
+
+        <!-- 长按浮出的红垃圾桶（无文字），点击弹二次确认 -->
+        <ImageButton
+            android:id="@+id/btn_lib_delete"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/circle_danger"
+            android:contentDescription="@string/lib_delete"
+            android:padding="12dp"
+            android:src="@drawable/ic_delete"
+            android:tint="@android:color/white"
+            android:visibility="gone" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>
