@@ -181,4 +181,12 @@
     <!-- 定时自动切换日志（files/switch_log.txt）。间隔＝实际经过分钟，括号内＝配置值与顺序/随机 -->
     <string name="log_switch_time">切换时间：%1$s</string>
     <string name="log_switch_interval">  间隔上次切换时间：%1$d分钟（当前定时切换设置为%2$d分钟%3$s）</string>
+    <!-- 抽屉里的日志入口：直接读文件弹窗看，不用导出到文件夹 -->
+    <string name="log_view_title">切换日志</string>
+    <string name="log_view_hint">点开查看（只记定时自动切换）</string>
+    <string name="log_view_empty_row">还没有记录（只有定时自动切换成功才记）</string>
+    <string name="log_view_latest">最近记录：%1$s</string>
+    <string name="log_view_empty">还没有日志记录。\n\n只有「定时自动切换」成功时才会记一条：手动切换和小组件点按都不记；「开启接管」关闭时定时任务会跳过，同样不记。</string>
+    <string name="log_view_copy">复制</string>
+    <string name="log_view_copied">日志已复制</string>
 </resources>

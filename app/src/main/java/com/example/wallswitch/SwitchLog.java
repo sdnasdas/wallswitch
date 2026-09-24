@@ -36,6 +36,8 @@ public final class SwitchLog {
     private static final String KEY_VERSION = "switch_log_version";
     private static final String KEY_TIME = "switch_log_time";
     private static final String FILE_NAME = "switch_log.txt";
+    /** yyyy-MM-dd HH:mm 的长度，用于从一行里截出「切换时间」的值。 */
+    private static final int TIME_TEXT_LEN = 16;
 
     private SwitchLog() {
     }
@@ -82,21 +84,45 @@ public final class SwitchLog {
         append(ctx, sb.toString());
         prefs.edit().putString(KEY_VERSION, version).putLong(KEY_TIME, now).apply();
         // 设了导出目录就同名同步一份，方便用文件管理器看；没设则什么都不做
-        WallpaperExporter.writeTextFile(ctx, FILE_NAME, "text/plain", readAll(ctx));
+        WallpaperExporter.writeTextFile(ctx, FILE_NAME, "text/plain", readAllText(ctx));
+    }
+
+    /** 日志全文（没有或读不到返回空串）。供界面直接展示，不必先导出到文件夹。纯 IO，调用方放后台线程。 */
+    public static String readAllText(Context ctx) {
+        try {
+            return new String(Files.readAllBytes(logFile(ctx).toPath()), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 最近一条记录里的「切换时间」值（yyyy-MM-dd HH:mm）；没有日志返回 null。
+     * 供设置抽屉那一行回显——不开弹窗也知道有没有记录、最后一条是什么时候。
+     */
+    public static String latestTimeLabel(Context ctx) {
+        String all = readAllText(ctx);
+        if (all.isEmpty()) {
+            return null;
+        }
+        // 前缀取自字符串资源，避免把「切换时间：」写死在两处
+        String prefix = ctx.getString(R.string.log_switch_time, "");
+        String[] lines = all.split("\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            int at = line.indexOf(prefix);
+            if (at < 0 || line.length() < at + prefix.length() + TIME_TEXT_LEN) {
+                continue;
+            }
+            return line.substring(at + prefix.length(), at + prefix.length() + TIME_TEXT_LEN);
+        }
+        return null;
     }
 
     private static void append(Context ctx, String text) {
         try (OutputStream out = new FileOutputStream(logFile(ctx), true)) {
             out.write(text.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
-        }
-    }
-
-    private static String readAll(Context ctx) {
-        try {
-            return new String(Files.readAllBytes(logFile(ctx).toPath()), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return "";
         }
     }
 

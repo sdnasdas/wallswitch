@@ -390,6 +390,35 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" />
                         </LinearLayout>
+
+                        <!-- 切换日志：直接读私有目录那个文件弹窗展示，不用先设导出目录再去文件管理器翻 -->
+                        <LinearLayout
+                            android:id="@+id/row_switch_log"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:orientation="vertical"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/log_view_title"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/tv_switch_log"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="@string/log_view_hint"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

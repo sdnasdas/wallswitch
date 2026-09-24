@@ -1,6 +1,8 @@
 package com.example.wallswitch;
 
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -28,6 +30,7 @@ import android.widget.Filter;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -173,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshBatteryButton();
                 refreshLauncherOverlayRow();
                 refreshExportRows();
+                refreshSwitchLogRow();
                 syncTakeoverAsync();
             }
         });
@@ -197,6 +201,11 @@ public class MainActivity extends AppCompatActivity {
         View exportNowRow = findViewById(R.id.row_export_now);
         if (exportNowRow != null) {
             exportNowRow.setOnClickListener(v -> exportAllWallpapers());
+        }
+        // 切换日志：点开直接读私有目录那个文件弹窗展示（不必先设导出目录再去文件管理器翻）
+        View logRow = findViewById(R.id.row_switch_log);
+        if (logRow != null) {
+            logRow.setOnClickListener(v -> showSwitchLog());
         }
     }
 
@@ -1208,6 +1217,84 @@ public class MainActivity extends AppCompatActivity {
         }
         state.setText(LauncherPreviewOverlay.overlayFile(this).exists()
                 ? R.string.launcher_overlay_set : R.string.launcher_overlay_unset);
+    }
+
+    /** 切换日志那行的状态回显：最近一条记录的时间（没有则提示还没有记录）。纯读文件，放后台线程。 */
+    private void refreshSwitchLogRow() {
+        final TextView state = findViewById(R.id.tv_switch_log);
+        if (state == null) {
+            return;
+        }
+        new Thread(() -> {
+            final String latest = SwitchLog.latestTimeLabel(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                state.setText(latest == null
+                        ? getString(R.string.log_view_empty_row)
+                        : getString(R.string.log_view_latest, latest));
+            });
+        }, "log-row").start();
+    }
+
+    /** 读日志文件并弹窗展示。纯 IO 放后台线程，读完回主线程弹。 */
+    private void showSwitchLog() {
+        new Thread(() -> {
+            final String content = SwitchLog.readAllText(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                showSwitchLogDialog(content);
+            });
+        }, "log-read").start();
+    }
+
+    /**
+     * 日志弹窗：可滚动、可长按选中的等宽正文；非空时给一个「复制」，
+     * 方便直接粘到聊天里（比导出到文件夹再翻文件管理器省事）。
+     */
+    private void showSwitchLogDialog(String content) {
+        final boolean empty = content == null || content.trim().isEmpty();
+        TextView body = new TextView(this);
+        body.setText(empty ? getString(R.string.log_view_empty) : content);
+        body.setTextSize(12f);
+        body.setTextIsSelectable(true);
+        body.setTypeface(Typeface.MONOSPACE);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        body.setPadding(pad, pad, pad, pad);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(body);
+        // 固定高度上限，日志长了在弹窗内部滚动，不会把弹窗撑到超出屏幕
+        int maxHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.6f);
+        scroll.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+
+        // 用父类型接收：MaterialAlertDialogBuilder 只对 setTitle/setView 做了协变覆盖，
+        // setNegativeButton 继承自 AlertDialog.Builder，链式表达式静态类型是 Builder
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.log_view_title)
+                .setView(scroll)
+                .setNegativeButton(R.string.cancel, null);
+        if (!empty) {
+            builder.setNeutralButton(R.string.log_view_copy, (dialog, which) -> copySwitchLog(content));
+        }
+        builder.show();
+    }
+
+    /** 复制日志全文到剪贴板。 */
+    private void copySwitchLog(String content) {
+        try {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (manager == null) {
+                return;
+            }
+            manager.setPrimaryClip(ClipData.newPlainText(getString(R.string.log_view_title), content));
+            Toast.makeText(this, R.string.log_view_copied, Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
     }
 
     /**
