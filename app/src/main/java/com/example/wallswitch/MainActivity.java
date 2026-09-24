@@ -1524,11 +1524,16 @@ public class MainActivity extends AppCompatActivity {
             final LibraryStore.Library lib = row.lib;
             Bitmap thumb = row.thumbId == null ? null : thumbFor(row.thumbId);
             if (thumb != null) {
+                // 布局里那个 tint 是给占位图标用的，不清掉的话它会把真图也按 SRC_IN 染成单一剪影
+                // （看起来就像「这个库没有图」）；占位与真图两条路径都必须显式设置，回收复用才不会串状态
                 holder.imgThumb.setPadding(0, 0, 0, 0);
+                holder.imgThumb.setImageTintList(null);
                 holder.imgThumb.setImageBitmap(thumb);
             } else {
                 int pad = (int) (12 * getResources().getDisplayMetrics().density);
                 holder.imgThumb.setPadding(pad, pad, pad, pad);
+                holder.imgThumb.setImageTintList(
+                        ColorStateList.valueOf(getColor(R.color.text_secondary)));
                 holder.imgThumb.setImageResource(R.drawable.ic_tab_wallpaper);
             }
             holder.tvName.setText(lib.name);

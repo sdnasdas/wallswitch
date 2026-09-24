@@ -185,3 +185,8 @@
   而屏幕左边缘那条已被系统「返回」手势占用（系统优先），手指稍偏中间就拉不出抽屉 —— 现在列表页任意位置
   向右滑都能打开（只观察手势、从不拦截，竖向滚动不受影响；壁纸页不抢「右滑=回上一级」的直觉）。
   `versionCode 22 / versionName 3.15`。
+- **v3.16**：修掉库行缩略图被"染色"的 bug —— `item_library.xml` 的 `img_lib_thumb` 带 `android:tint`
+  （本是给占位图标用的），而绑定真图时**没有清 tint**，`ImageView` 的 tint 会作用到后设上去的位图
+  （SRC_IN 模式），整张壁纸被染成单一灰色剪影，看起来就像"这个库没放图/没做"。现在真图路径显式
+  `setImageTintList(null)`，占位路径显式设回 tint（两条路径都设，列表回收复用才不会串状态）。
+  `versionCode 23 / versionName 3.16`。
