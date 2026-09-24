@@ -176,9 +176,13 @@ public class MainActivity extends AppCompatActivity {
                     showLibPage();
                     return;
                 }
-                // 库列表页：交回系统默认行为（退出 App）
+                // 库列表页：交回系统默认行为（退出 App）。默认动作若只是把任务切到后台、
+                // 没销毁本实例（部分 ROM 如此），这个回调必须立刻恢复启用 —— 否则分层
+                // 永久失效：下次在壁纸页按返回、或抽屉开着按返回，会跳过「收抽屉 /
+                // 回库列表」直接退回桌面（冷启动又正常，所以时好时坏）。
                 setEnabled(false);
                 getOnBackPressedDispatcher().onBackPressed();
+                setEnabled(true);
             }
         });
     }
