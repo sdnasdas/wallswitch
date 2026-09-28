@@ -142,6 +142,8 @@ public class MainActivity extends AppCompatActivity {
         setupButtons();
         setupNotifySwitch();
         setupStatusNotifySwitch();
+        setupTransitionEffect();
+        setupUpdateCheck();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
         refreshVersion();
@@ -498,6 +500,95 @@ public class MainActivity extends AppCompatActivity {
                 StatusNotifier.update(this);
             }
         });
+    }
+
+    /**
+     * 切换动画：引擎模式换壁纸时的过渡效果（淡入/模糊过渡/无动画），点行弹出单选。
+     * 值存 settings（与引擎共用 {@link WallSwitchService#KEY_TRANSITION}），即时生效。
+     */
+    private void setupTransitionEffect() {
+        LinearLayout row = findViewById(R.id.row_transition);
+        TextView tv = findViewById(R.id.tv_transition_effect);
+        String[] values = {
+                WallSwitchService.TRANSITION_FADE,
+                WallSwitchService.TRANSITION_BLUR,
+                WallSwitchService.TRANSITION_OFF
+        };
+        String[] labels = {
+                getString(R.string.transition_fade),
+                getString(R.string.transition_blur),
+                getString(R.string.transition_off)
+        };
+        Runnable refresh = () -> {
+            String cur = WallSwitchService.transitionEffect(this);
+            for (int i = 0; i < values.length; i++) {
+                if (values[i].equals(cur)) {
+                    tv.setText(labels[i]);
+                    return;
+                }
+            }
+            tv.setText(labels[0]);
+        };
+        refresh.run();
+        row.setOnClickListener(v -> {
+            String cur = WallSwitchService.transitionEffect(this);
+            int checked = WallSwitchService.TRANSITION_OFF.equals(cur) ? 2
+                    : WallSwitchService.TRANSITION_BLUR.equals(cur) ? 1 : 0;
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.transition_effect_title)
+                    .setSingleChoiceItems(labels, checked, (d, which) -> {
+                        prefs.edit().putString(WallSwitchService.KEY_TRANSITION, values[which]).apply();
+                        refresh.run();
+                        d.dismiss();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+    }
+
+    /**
+     * 检查更新：设置页手动入口 + 启动时静默检查（有新版才弹窗，失败不打扰）。
+     * 有新版时弹窗展示远端标题（含 build 号），确认后交给系统 DownloadManager 下载。
+     */
+    private void setupUpdateCheck() {
+        TextView tvState = findViewById(R.id.tv_update_state);
+        findViewById(R.id.row_update).setOnClickListener(v -> {
+            tvState.setText(R.string.update_checking);
+            UpdateChecker.checkAsync(this, (info, error) -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (error != null || info == null) {
+                    tvState.setText(R.string.update_check_failed);
+                    return;
+                }
+                if (!UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
+                    tvState.setText(R.string.update_latest);
+                    return;
+                }
+                tvState.setText(getString(R.string.update_new_title) + " v" + info.version);
+                showUpdateDialog(info);
+            });
+        });
+        // 启动静默检查：只在发现新版时打扰，失败静默
+        UpdateChecker.checkAsync(this, (info, error) -> {
+            if (error == null && info != null && !isFinishing() && !isDestroyed()
+                    && UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
+                showUpdateDialog(info);
+            }
+        });
+    }
+
+    /** 新版弹窗：确认后交给 DownloadManager 后台下载（完成后点通知安装）。 */
+    private void showUpdateDialog(UpdateChecker.Info info) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.update_new_title)
+                .setMessage(getString(R.string.update_new_msg,
+                        info.version, UpdateChecker.localVersion(this)))
+                .setPositiveButton(R.string.update_download,
+                        (d, which) -> UpdateChecker.downloadApk(this))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     /** 确保通知可用：Android 13+ 申请权限；系统级关闭时提示并跳到通知设置页。 */
@@ -1001,7 +1092,18 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         sw.setOnCheckedChangeListener(null);
-        sw.setChecked(TakeoverManager.isEnabled(this));
+        // 开关读系统真值而非只读存储的意图：意图开着、但桌面和锁屏都已不被本 App
+        // 接管（用户在主题商店/系统壁纸功能里换走了壁纸，引擎被顶掉）时，把意图
+        // 同步回关 —— 否则开关显示开启、实际什么都没接管，定时任务也按假状态跑
+        boolean homeReal = TakeoverManager.isHomeTakenOver(this);
+        boolean lockReal = TakeoverManager.isLockTakenOver(this)
+                || TakeoverManager.isLockTakenByEngine(this);
+        boolean intent = TakeoverManager.isEnabled(this);
+        if (intent && !homeReal && !lockReal) {
+            TakeoverManager.setEnabled(this, false);
+            intent = false;
+        }
+        sw.setChecked(intent);
         sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
                 enableTakeover();
@@ -1014,21 +1116,23 @@ public class MainActivity extends AppCompatActivity {
 
     /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
     private void enableTakeover() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
-            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得
-            if (!Environment.isExternalStorageManager()) {
-                requestAllFilesAccess();
-                return;
-            }
-            doEnableTakeover();
-            return;
-        }
-        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-            savePermLauncher.launch(perm);
-            return;
-        }
+        // 【临时测试】注释掉全部权限检查，验证不授权「所有文件访问」能否存档系统壁纸。
+        // 测试结论出来后二选一：需要 → 恢复这段；不需要 → 连同声明一起删掉
+        // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        //     // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
+        //     // （真机实测 MagicOS），只能走「所有文件访问」隐式获得
+        //     if (!Environment.isExternalStorageManager()) {
+        //         requestAllFilesAccess();
+        //         return;
+        //     }
+        //     doEnableTakeover();
+        //     return;
+        // }
+        // String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
+        // if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+        //     savePermLauncher.launch(perm);
+        //     return;
+        // }
         doEnableTakeover();
     }
 

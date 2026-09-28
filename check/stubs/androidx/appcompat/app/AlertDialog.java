@@ -42,6 +42,11 @@ public class AlertDialog {
             return this;
         }
 
+        public Builder setSingleChoiceItems(CharSequence[] items, int checkedItem,
+                DialogInterface.OnClickListener listener) {
+            return this;
+        }
+
         public Builder setPositiveButton(int textId, DialogInterface.OnClickListener listener) {
             return this;
         }

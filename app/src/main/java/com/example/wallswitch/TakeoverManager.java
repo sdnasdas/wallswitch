@@ -334,8 +334,8 @@ public final class TakeoverManager {
         return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
-    /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目。 */
-    private static Uri findEntry(Context ctx, Uri collection, String name, String dir) {
+    /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目（WallSwitchService 的公共日志也复用）。 */
+    static Uri findEntry(Context ctx, Uri collection, String name, String dir) {
         try (Cursor c = ctx.getContentResolver().query(
                 collection,
                 new String[]{MediaStore.MediaColumns._ID},

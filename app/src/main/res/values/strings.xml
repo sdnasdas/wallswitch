@@ -227,4 +227,20 @@
     <string name="notif_action_next">下一张</string>
     <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
+
+    <!-- 引擎切换动画：设置页选择过渡效果（淡入/模糊过渡/无） -->
+    <string name="transition_effect_title">切换动画</string>
+    <string name="transition_fade">淡入</string>
+    <string name="transition_blur">模糊过渡</string>
+    <string name="transition_off">无动画</string>
+
+    <!-- 检查更新：对接 GitHub 滚动 Release -->
+    <string name="update_check_title">检查更新</string>
+    <string name="update_checking">检查中…</string>
+    <string name="update_check_failed">检查失败，稍后再试</string>
+    <string name="update_latest">已是最新版本</string>
+    <string name="update_new_title">发现新版本</string>
+    <string name="update_new_msg">发现新版本 v%1$s（当前 v%2$s）</string>
+    <string name="update_download">下载安装</string>
+    <string name="update_download_desc">WallSwitch 最新构建 APK，下载完成后点通知安装</string>
 </resources>
