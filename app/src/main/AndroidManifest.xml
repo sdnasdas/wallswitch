@@ -16,6 +16,9 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 检查更新要访问 GitHub（Release 版本查询 + 下载直链）：缺此权限时所有请求
+         直接以 SocketException: Permission denied 失败（真机现象：手动检查更新报"权限"错） -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- largeHeap：图片解码是本 App 的内存大头（裁剪源图按堆预算最大可到 24MP，
          ARGB_8888 下约 96MB），不申请大堆在中低端机型上容易 OOM -->
