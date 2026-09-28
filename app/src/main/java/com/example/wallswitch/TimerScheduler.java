@@ -59,6 +59,23 @@ public class TimerScheduler {
         return android.text.format.DateFormat.getTimeFormat(ctx).format(new java.util.Date(millis));
     }
 
+    // 「走秒倒计时」开关：界面、常驻通知、小组件三处都读这一个存取器，保证显示与实际一致
+    // （历史坑：开关显示关、功能却在跑，多因各处默认值/来源不一致）。默认关：
+    // 静态时间已经够用，而走秒会每秒唤醒一次 SystemUI/桌面重绘。
+    private static final String KEY_TICKING = "ticking_countdown";
+
+    /** 是否使用走秒倒计时（false = 静态「预计下次切换时间」）。 */
+    public static boolean tickingCountdown(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_TICKING, false);
+    }
+
+    /** 设置倒计时样式：true = 走秒，false = 静态。 */
+    public static void setTickingCountdown(Context ctx, boolean ticking) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_TICKING, ticking).apply();
+    }
+
     /** 该库的定时间隔（秒）：取系统下限（15 分钟）与库设置的较大值，兼容旧版本的秒级历史值。 */
     private static int intervalSeconds(LibraryStore.Library lib) {
         int seconds = lib.intervalSeconds > 0 ? lib.intervalSeconds : LibraryStore.DEFAULT_INTERVAL_SECONDS;

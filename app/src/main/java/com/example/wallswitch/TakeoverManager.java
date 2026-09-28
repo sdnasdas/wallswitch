@@ -30,37 +30,30 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * 「接管壁纸」总开关：App 级的接管意图，以及把意图落到系统上的策略。
+ * 接管状态与落地策略（对齐 Muzei：没有开关，状态 = 系统壁纸是否就是本 App）。
  *
  * <h3>语义</h3>
- * 打开 = App 接管。每个范围能不能接管，由「有没有启用的库」决定：
  * <ul>
- *   <li>桌面：有启用库 → 交给动态壁纸引擎；没有 → <b>回退系统</b>（还原接管前那张并解除引擎）</li>
- *   <li>锁屏：有启用库 → App 用 setBitmap 设锁屏；没有 → <b>回退系统</b>（还原接管前那张）</li>
+ *   <li>桌面：引擎已激活（{@link WallSwitchService#isActive}）就是接管中；没激活就需要用户
+ *       去系统选择器确认一次（{@link #RESULT_NEED_ACTIVATION}）。没有启用库时引擎显示纯色。</li>
+ *   <li>锁屏：有独立锁屏库 → 用 setBitmap 设成那张；没有 → 不动（引擎已盖住锁屏）。</li>
+ *   <li>关闭途径只有一条：用户在系统设置里换成别的壁纸。本 App <b>任何路径都不再改写系统壁纸</b>
+ *       （历史上 clear()/还原存档曾把系统壁纸写坏，已彻底移除）。</li>
  * </ul>
- * 关闭 = 两个范围都还原成接管前的样子。
  *
- * <h3>为什么「意图」与「实际」要分开</h3>
- * 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，桌面接管必须由用户在系统选择器里确认一次。
- * 所以 {@link #apply} 只做「能做的做掉、不该接管的还原」，需要用户确认时返回
- * {@link #RESULT_NEED_ACTIVATION}，由界面拉起选择器；用户取消时界面把意图关掉（开关回关）。
+ * <h3>状态判定用系统真值</h3>
+ * 桌面看 {@link WallSwitchService#isActive}；锁屏看 getWallpaperId(FLAG_LOCK) 是否等于我们
+ * 设进去时系统返回的那个 id（记在偏好里比对）—— 不是"我以为接管了"，也就没有"开关显示开、
+ * 实际没接管"这类假状态。
  *
- * <h3>接管情况判定用系统真值</h3>
- * 桌面看 {@link WallSwitchService#isActive}；锁屏看 getWallpaperId(FLAG_LOCK) 是否等于我们设进去时
- * 系统返回的那个 id（记在偏好里比对）—— 不是"我以为接管了"。
- *
- * 除 {@link #isEnabled}/{@link #setEnabled}/{@link #isHomeTakenOver}/{@link #isLockTakenOver}
- * 之外的方法都涉及系统调用或 IO，调用方应放在后台线程。
+ * {@link #isEnabled} 是上面两个真值的派生（供切换/定时等链路做统一守卫）。
+ * 除 {@link #isEnabled}/{@link #isHomeTakenOver}/{@link #isLockTakenOver} 之外的方法都涉及
+ * 系统调用或 IO，调用方应放在后台线程。
  */
 public final class TakeoverManager {
 
     private static final String PREFS_NAME = "settings";
-    private static final String KEY_ENABLED = "takeover_enabled";
     private static final String KEY_LOCK_ID = "takeover_lock_id";
-    // 可还原的系统壁纸存档：由抽屉「保存当前壁纸」（未接管时）写入相册，
-    // 文件名（时间戳命名）记在这里，供「停用所有桌面库 → 还原系统壁纸」使用
-    private static final String KEY_ARCHIVE_HOME = "takeover_archive_home";
-    private static final String KEY_ARCHIVE_LOCK = "takeover_archive_lock";
 
     private static final String SAVED_DIR = Environment.DIRECTORY_PICTURES + "/WallSwitch";
     /** 保存结果日志文件（公共 Download/WallSwitch 目录，供不用 adb 时查看）。 */
@@ -71,17 +64,10 @@ public final class TakeoverManager {
 
     /** apply 结果：无需改动。 */
     public static final int RESULT_NONE = 0;
-    /** apply 结果：已按意图调整完毕。 */
+    /** apply 结果：已按当前启用库调整完毕。 */
     public static final int RESULT_OK = 1;
-    /** apply 结果：桌面该接管但引擎未激活，需要用户在系统选择器里确认。 */
+    /** apply 结果：有启用库但引擎未激活，需要用户去系统选择器确认激活。 */
     public static final int RESULT_NEED_ACTIVATION = 2;
-
-    /** 关闭接管的结果：已还原成接管前的壁纸。 */
-    public static final int RELEASE_RESTORED = 0;
-    /** 关闭接管的结果：没有可还原的存档，未改动系统壁纸（需用户手动设置）。 */
-    public static final int RELEASE_NOTHING = 1;
-    /** 关闭接管的结果：还原过程中出错。 */
-    public static final int RELEASE_FAILED = 2;
 
     private TakeoverManager() {
     }
@@ -90,15 +76,11 @@ public final class TakeoverManager {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    // ==================== 接管意图（开关） ====================
+    // ==================== 接管状态（全部来自系统真值） ====================
 
-    /** 接管意图：用户是否打开了「接管壁纸」总开关。 */
+    /** 是否处于接管中：桌面由本 App 引擎渲染，或锁屏是本 App 设的。 */
     public static boolean isEnabled(Context ctx) {
-        return prefs(ctx).getBoolean(KEY_ENABLED, false);
-    }
-
-    public static void setEnabled(Context ctx, boolean enabled) {
-        prefs(ctx).edit().putBoolean(KEY_ENABLED, enabled).apply();
+        return isHomeTakenOver(ctx) || isLockTakenOver(ctx);
     }
 
     // ==================== 接管情况（系统真值） ====================
@@ -133,46 +115,34 @@ public final class TakeoverManager {
     // ==================== 落地 ====================
 
     /**
-     * 按「接管意图 + 当前启用库」把系统调成应有的样子（幂等，可反复调用）。
+     * 按「当前启用库 + 系统真值」把系统调成应有的样子（幂等，可反复调用）。
+     * 只做两件事：锁屏按锁屏库设置；桌面有库但引擎没激活时提示去系统选择器。
+     * <b>不还原、不 clear</b> —— 关掉接管的唯一方式是用户在系统设置里换壁纸。
      *
-     * @return {@link #RESULT_NEED_ACTIVATION} 需要用户确认激活引擎；
+     * @return {@link #RESULT_NEED_ACTIVATION} 需要用户去系统选择器确认激活引擎；
      *         {@link #RESULT_OK} 已调整；{@link #RESULT_NONE} 无需改动
      */
     public static int apply(Context ctx) {
-        boolean intent = isEnabled(ctx);
         LibraryStore.Library homeLib = LibraryStore.enabledLibForScope(ctx, true);
         LibraryStore.Library lockLib = LibraryStore.enabledLibForScope(ctx, false);
-        boolean changed = false;
 
-        // ---- 桌面：有启用库才接管，否则还原回系统 ----
-        boolean wantHome = intent && homeLib != null;
-        if (isHomeTakenOver(ctx)) {
-            if (!wantHome) {
-                changed |= restoreHome(ctx);
-            }
-        } else if (wantHome) {
-            // 该接管但引擎没激活：只能由用户在系统选择器里确认
+        // ---- 桌面：有启用库但引擎未激活 → 请用户去系统选择器确认 ----
+        if (homeLib != null && !isHomeTakenOver(ctx)) {
             return RESULT_NEED_ACTIVATION;
         }
 
-        // ---- 锁屏：有启用库就设成我们的图；没有时只在「引擎没盖着锁屏」的前提下才还原 ----
-        // 引擎一激活就同时盖住桌面和锁屏：没设锁屏库时锁屏已被引擎顺带接管，
-        // 这时还原/clear 锁屏没意义（画面上还是引擎），还会让接管状态显示错
-        boolean wantLock = intent && lockLib != null;
-        if (wantLock) {
-            changed |= applyLock(ctx, lockLib);
-        } else if (isLockTakenOver(ctx) && !isHomeTakenOver(ctx)) {
-            changed |= restoreLock(ctx);
+        // ---- 锁屏：有锁屏库就设成那张；没有就不动（引擎已盖住锁屏） ----
+        if (lockLib != null) {
+            return applyLock(ctx, lockLib) ? RESULT_OK : RESULT_NONE;
         }
-        return changed ? RESULT_OK : RESULT_NONE;
+        return RESULT_NONE;
     }
 
     /**
      * 抽屉「保存当前壁纸」（智能选源，纯 IO，调用方放后台线程）：
      * <ul>
      *   <li>接管中：导出引擎正在显示的那张（库文件已是无损 PNG，直接复制进相册，必定拿得到）</li>
-     *   <li>未接管：备份系统桌面/锁屏壁纸到相册，并记为可还原存档
-     *       （供「停用所有桌面库 → 还原系统壁纸」用）</li>
+     *   <li>未接管：把系统桌面/锁屏壁纸备份到相册（仅作人工留档，App 不会再去还原它）</li>
      * </ul>
      *
      * @return 空串表示成功；否则是失败描述
@@ -192,7 +162,6 @@ public final class TakeoverManager {
         String homeName = "wallswitch_" + stamp + "_home.png";
         String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, homeName);
         if (r.isEmpty()) {
-            prefs(ctx).edit().putString(KEY_ARCHIVE_HOME, homeName).apply();
             log.append("桌面壁纸：已存 ").append(homeName).append('\n');
         } else {
             log.append("桌面壁纸：失败 — ").append(r).append('\n');
@@ -205,7 +174,6 @@ public final class TakeoverManager {
         } else {
             String rl = saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, lockName);
             if (rl.isEmpty()) {
-                prefs(ctx).edit().putString(KEY_ARCHIVE_LOCK, lockName).apply();
                 log.append("锁屏壁纸：已存 ").append(lockName).append('\n');
             } else {
                 log.append("锁屏壁纸：失败 — ").append(rl).append('\n');
@@ -270,38 +238,6 @@ public final class TakeoverManager {
         return new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
     }
 
-    /** 激活被用户取消时的收尾：把锁屏还原（有存档才写），意图关掉。纯 IO，放后台线程。 */
-    public static int release(Context ctx) {
-        boolean canHome = hasArchive(ctx, true);
-        boolean canLock = hasArchive(ctx, false);
-        boolean okHome = restoreHome(ctx);
-        boolean okLock = restoreLock(ctx);
-        prefs(ctx).edit().remove(KEY_LOCK_ID).apply();
-        if (!canHome && !canLock) {
-            return RELEASE_NOTHING;
-        }
-        // 只统计有存档的范围：没有存档的范围本来就不该还原，不能算失败
-        boolean ok = true;
-        if (canHome && !okHome) {
-            ok = false;
-        }
-        if (canLock && !okLock) {
-            ok = false;
-        }
-        return ok ? RELEASE_RESTORED : RELEASE_FAILED;
-    }
-
-    // ==================== 可还原存档（由抽屉「保存当前壁纸」写入） ====================
-
-    /** 该范围是否有可还原的系统壁纸存档。 */
-    public static boolean hasArchive(Context ctx, boolean forHome) {
-        return archiveName(ctx, forHome) != null;
-    }
-
-    private static String archiveName(Context ctx, boolean forHome) {
-        return prefs(ctx).getString(forHome ? KEY_ARCHIVE_HOME : KEY_ARCHIVE_LOCK, null);
-    }
-
     /**
      * 把某张图设为锁屏壁纸，并记下系统返回的壁纸 id（用于判定「锁屏是否由本 App 接管」）。
      *
@@ -350,108 +286,6 @@ public final class TakeoverManager {
             return false;
         }
         return setLockFromFile(ctx, file) != 0;
-    }
-
-    /**
-     * 还原桌面：仅当存档存在且内容可信才写回；否则<b>不动系统壁纸</b>。
-     * 绝不调用 clear() —— 真机事故（2026-09-28）：clear() 把系统壁纸重置成默认（表现为一片黑），
-     * 用户原壁纸就此丢失且卸载也回不来。
-     */
-    private static boolean restoreHome(Context ctx) {
-        Bitmap bitmap = restorableBitmap(ctx, true);
-        if (bitmap == null) {
-            return false;
-        }
-        try {
-            WallpaperManager.getInstance(ctx).setBitmap(bitmap);
-            return true;
-        } catch (Exception | OutOfMemoryError e) {
-            return false;
-        } finally {
-            bitmap.recycle();
-        }
-    }
-
-    /** 还原锁屏：同 {@link #restoreHome}，无可信存档时不动锁屏壁纸（不再 clear(FLAG_LOCK)）。 */
-    private static boolean restoreLock(Context ctx) {
-        Bitmap bitmap = restorableBitmap(ctx, false);
-        if (bitmap == null) {
-            return false;
-        }
-        try {
-            WallpaperManager.getInstance(ctx)
-                    .setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
-            return true;
-        } catch (Exception | OutOfMemoryError e) {
-            return false;
-        } finally {
-            bitmap.recycle();
-        }
-    }
-
-    /** 该范围可还原的存档位图：没有存档、解码失败或内容不可信时返回 null。 */
-    private static Bitmap restorableBitmap(Context ctx, boolean forHome) {
-        String name = archiveName(ctx, forHome);
-        if (name == null) {
-            return null;
-        }
-        Bitmap bitmap = loadSavedBitmap(ctx, name);
-        if (bitmap == null) {
-            return null;
-        }
-        if (!isTrustworthyWallpaper(bitmap)) {
-            bitmap.recycle();
-            return null;
-        }
-        return bitmap;
-    }
-
-    /**
-     * 存档内容是否可信：尺寸像壁纸，且不是纯色（含全黑）。
-     * 事故教训：存档链路曾在引擎激活时把「引擎自己的黑画面」存成"原壁纸"，
-     * 还原时写回系统导致壁纸永久变黑 —— 抽样判纯色足以拦住这类坏档。
-     */
-    private static boolean isTrustworthyWallpaper(Bitmap bitmap) {
-        int w = bitmap.getWidth();
-        int h = bitmap.getHeight();
-        if (w < 200 || h < 200) {
-            return false;
-        }
-        int first = bitmap.getPixel(0, 0);
-        int stepX = Math.max(1, w / 24);
-        int stepY = Math.max(1, h / 24);
-        for (int y = 0; y < h; y += stepY) {
-            for (int x = 0; x < w; x += stepX) {
-                if (bitmap.getPixel(x, y) != first) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /** 读取接管前壁纸存档，解码失败或没有存档返回 null。 */
-    private static Bitmap loadSavedBitmap(Context ctx, String name) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Uri uri = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    name, SAVED_DIR);
-            if (uri == null) {
-                return null;
-            }
-            try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
-                if (in != null) {
-                    return BitmapFactory.decodeStream(in);
-                }
-            } catch (Exception | OutOfMemoryError e) {
-                return null;
-            }
-            return null;
-        }
-        File file = new File(ctx.getFilesDir(), name);
-        if (!file.exists()) {
-            return null;
-        }
-        return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
     /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目（WallSwitchService 的公共日志也复用）。 */

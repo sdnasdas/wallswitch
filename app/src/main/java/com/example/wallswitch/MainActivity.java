@@ -94,7 +94,6 @@ public class MainActivity extends AppCompatActivity {
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
     private ActivityResultLauncher<Uri> exportDirLauncher;
     // 接管开关是否处于「等待用户在系统选择器里确认」的状态（用来判断用户是否点了取消）
-    private boolean pendingEngineActivation = false;
     private RecyclerView recycler;
     // 两页共用一个 RecyclerView：库列表页 = LibAdapter + LinearLayoutManager，
     // 壁纸网格页 = WallpaperAdapter + GridLayoutManager(2)
@@ -103,8 +102,6 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     /** 保存当前壁纸时的不可关闭进度弹窗（showProgress/dismissTakeoverProgress 管理）。 */
     private androidx.appcompat.app.AlertDialog takeoverProgress;
-    /** 接管开关"回弹"期间置位：绕开监听，避免把程序性置位当成用户操作 */
-    private boolean revertingTakeoverSwitch;
     // 当前页：true = 壁纸网格页；false = 库列表页（首页）
     private boolean showingWallpapers = false;
     // 壁纸页正在看的库 id（也兼作「上次查看的库」，导入壁纸时的默认目标库）
@@ -148,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
         setupNotifySwitch();
         setupStatusNotifySwitch();
         setupTransitionEffect();
+        setupTickingSwitch();
         setupUpdateCheck();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
@@ -309,8 +307,7 @@ public class MainActivity extends AppCompatActivity {
         // 通知不跨重启存活、也可能被 ROM 清掉：回到应用时兜底补发/刷新常驻通知
         StatusNotifier.update(this);
         // 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关）
-        onReturnFromActivator();
-        setupTakeoverSwitch();
+        refreshTakeoverUi();
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理（目标库为空时编辑页自己回退到第一个库）
@@ -467,7 +464,12 @@ public class MainActivity extends AppCompatActivity {
         if (batteryRow != null) {
             batteryRow.setOnClickListener(v -> requestIgnoreBattery());
         }
-        setupTakeoverSwitch();
+        // 顶部横幅的「启用」：拉起系统动态壁纸选择器（与 Muzei 的启用入口一致）
+        View activate = findViewById(R.id.btn_activate);
+        if (activate != null) {
+            activate.setOnClickListener(v -> enableTakeover());
+        }
+        refreshTakeoverUi();
         refreshBatteryRow();
     }
 
@@ -604,6 +606,26 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    /**
+     * 走秒倒计时开关：控制常驻通知与小组件里的时间显示样式（走秒 / 静态）。
+     * 三处（本开关、通知、小组件）都走 {@link TimerScheduler#tickingCountdown} 同一个存取器，
+     * 默认值也只有一处定义，避免出现"开关显示关、实际却在走秒"这类不一致。
+     */
+    private void setupTickingSwitch() {
+        CompoundButton sw = findViewById(R.id.sw_ticking);
+        if (sw == null) {
+            return;
+        }
+        sw.setOnCheckedChangeListener(null);
+        sw.setChecked(TimerScheduler.tickingCountdown(this));
+        sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            TimerScheduler.setTickingCountdown(MainActivity.this, isChecked);
+            // 立即按新样式重建两处显示，免得"设置改了、通知/小组件还是旧样式"
+            StatusNotifier.update(this);
+            WidgetProvider.updateWidget(this);
+        });
+    }
+
     /** 确保通知可用：Android 13+ 申请权限；系统级关闭时提示并跳到通知设置页。 */
     private void ensureNotificationsEnabled() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
@@ -630,7 +652,7 @@ public class MainActivity extends AppCompatActivity {
             doSaveCurrentWallpaper();
         } else {
             Toast.makeText(this, "未授权读取壁纸，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
-            setupTakeoverSwitch();
+            refreshTakeoverUi();
         }
     }
 
@@ -1095,57 +1117,47 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 「接管壁纸」总开关。开关 = 接管<b>意图</b>，且**只能开不能关**：
-     * 想关闭只能去系统设置换一张壁纸，换掉后下一次同步会自动把开关置为关闭（见下方真值判断）。
-     * 关闭入口移除后不再需要"接管前壁纸"存档 —— 要备份请用抽屉里的「保存当前壁纸」。
+     * 刷新接管相关界面（对齐 Muzei：没有开关，状态即系统真值）。
+     * 顶部横幅在"未启用"时给出启用入口；已启用但没有启用库时提示会显示纯色。
+     * 状态行读系统真值，所以用户在系统设置里换了壁纸后回到应用就会自动反映。
      */
-    private void setupTakeoverSwitch() {
-        CompoundButton sw = findViewById(R.id.sw_takeover);
-        if (sw == null) {
-            return;
+    private void refreshTakeoverUi() {
+        boolean active = TakeoverManager.isHomeTakenOver(this);
+        TextView state = findViewById(R.id.tv_takeover_state);
+        if (state != null) {
+            state.setText(active ? R.string.takeover_state_on : R.string.takeover_state_off);
+            state.setTextColor(getColor(active ? R.color.brand : R.color.text_secondary));
         }
-        sw.setOnCheckedChangeListener(null);
-        // 与系统同步：意图开着、但桌面和锁屏都已不被本 App 接管
-        // （用户在主题商店/系统壁纸功能里换走了壁纸，引擎被顶掉）→ 开关同步成关闭。
-        // 这是**唯一**的关闭路径：App 内不提供关闭入口（避免误操作把壁纸状态搞乱）
-        boolean homeReal = TakeoverManager.isHomeTakenOver(this);
-        boolean lockReal = TakeoverManager.isLockTakenOver(this)
-                || TakeoverManager.isLockTakenByEngine(this);
-        boolean intent = TakeoverManager.isEnabled(this);
-        if (intent && !homeReal && !lockReal) {
-            TakeoverManager.setEnabled(this, false);
-            intent = false;
-        } else if (!intent && (homeReal || lockReal)) {
-            // 反向同步：系统里确实挂着本 App 的壁纸（用户在系统选择器里确认了激活），
-            // 但意图标记被清掉过（例如上一次从选择器返回时引擎还没绑上被误判为取消）
-            // → 把意图补回来。否则会出现"壁纸是我们的、App 开关却显示关"的假状态
-            TakeoverManager.setEnabled(this, true);
-            intent = true;
-        }
-        sw.setChecked(intent);
-        sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (revertingTakeoverSwitch) {
-                return;
-            }
-            if (isChecked) {
-                enableTakeover();
-            } else {
-                // 只能开不能关：回弹开关并把关闭方式说清楚（去系统设置换壁纸）。
-                // 回弹要绕开监听自身，否则 setChecked(true) 会被当成"用户又打开"再走一遍开启流程
-                revertingTakeoverSwitch = true;
-                buttonView.setChecked(true);
-                revertingTakeoverSwitch = false;
-                showTakeoverInfoDialog();
-            }
-        });
         View info = findViewById(R.id.iv_takeover_info);
         if (info != null) {
             info.setOnClickListener(v -> showTakeoverInfoDialog());
         }
+        View banner = findViewById(R.id.banner_takeover);
+        TextView bannerText = findViewById(R.id.tv_banner_text);
+        View activate = findViewById(R.id.btn_activate);
+        if (banner != null && bannerText != null) {
+            LibraryStore.Library homeLib = LibraryStore.enabledLibForScope(this, true);
+            if (!active) {
+                banner.setVisibility(View.VISIBLE);
+                bannerText.setText(R.string.banner_not_activated);
+                if (activate != null) {
+                    activate.setVisibility(View.VISIBLE);
+                }
+            } else if (homeLib == null) {
+                banner.setVisibility(View.VISIBLE);
+                bannerText.setText(R.string.banner_no_library);
+                // 这种情况要去的是库列表（就在下面），不需要"启用"按钮
+                if (activate != null) {
+                    activate.setVisibility(View.GONE);
+                }
+            } else {
+                banner.setVisibility(View.GONE);
+            }
+        }
         refreshTakeoverStatus();
     }
 
-    /** 关闭接管的唯一途径说明（开关回弹时与点感叹号图标时共用）。 */
+    /** 关闭接管的唯一途径说明（点感叹号图标时弹）。 */
     private void showTakeoverInfoDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.takeover_info_title)
@@ -1161,27 +1173,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 打开接管：直接落地意图并拉起系统选择器确认激活引擎（App 不提供关闭入口，
-     * 所以不再需要"接管前壁纸"存档；要备份系统壁纸请用抽屉里的「保存当前壁纸」）。
+     * 启用：直接拉起系统动态壁纸选择器（本应用没有"关闭"入口，所以不需要任何存档步骤；
+     * 要备份系统壁纸请用抽屉里的「保存当前壁纸」）。
      */
     private void enableTakeover() {
-        new Thread(() -> {
-            TakeoverManager.setEnabled(this, true);
-            final int result = TakeoverManager.apply(this);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
-                    // 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，桌面接管必须由用户在系统界面确认
-                    pendingEngineActivation = true;
-                    WallSwitchService.openActivator(this);
-                } else {
-                    Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
-                }
-                setupTakeoverSwitch();
-            });
-        }, "takeover-on").start();
+        WallSwitchService.openActivator(this);
     }
 
     /** 跳系统设置页开「所有文件访问」；部分 ROM 不支持直达本 App 时退回总列表页。 */
@@ -1286,60 +1282,21 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关），并把已做的改动还原。 */
-    private void onReturnFromActivator() {
-        if (!pendingEngineActivation) {
-            return;
-        }
-        pendingEngineActivation = false;
-        new Thread(() -> {
-            // 系统绑定动态壁纸服务需要一点时间：重试判定约 1.5 秒，
-            // 避免"用户已在选择器里确认、但引擎还没绑上"被误判成取消
-            boolean active = false;
-            for (int i = 0; i < 6 && !active; i++) {
-                active = TakeoverManager.isHomeTakenOver(this);
-                if (!active && i < 5) {
-                    try {
-                        Thread.sleep(300);
-                    } catch (InterruptedException ignored) {
-                    }
-                }
-            }
-            if (active) {
-                TakeoverManager.setEnabled(this, true);
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) {
-                        return;
-                    }
-                    Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
-                    setupTakeoverSwitch();
-                });
-                return;
-            }
-            TakeoverManager.setEnabled(this, false);
-            TakeoverManager.release(this);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                Toast.makeText(this, R.string.takeover_cancelled, Toast.LENGTH_LONG).show();
-                setupTakeoverSwitch();
-            });
-        }, "takeover-verify").start();
-    }
-
     /**
-     * 把接管意图与实际同步一次（例如刚停用/删除了库：没启用库的范围要回退给系统）。
+     * 把接管落地一次（对齐当前启用库：锁屏库 → 设锁屏；桌面有库但引擎没激活 → 提示去启用）。
      * 放后台线程，避免系统调用卡 UI。
      */
     private void syncTakeoverAsync() {
         new Thread(() -> {
-            TakeoverManager.apply(this);
+            final int result = TakeoverManager.apply(this);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                setupTakeoverSwitch();
+                if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
+                    Toast.makeText(this, R.string.takeover_need_activate, Toast.LENGTH_LONG).show();
+                }
+                refreshTakeoverUi();
             });
         }, "takeover-sync").start();
     }

@@ -89,7 +89,7 @@
     <string name="engine_restored">已关掉引擎，桌面壁纸已还原</string>
     <string name="engine_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
     <string name="status_engine_inactive">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉「开启接管」再打开可重试）</string>
-    <string name="status_takeover_off">接管已关闭：请到设置抽屉打开「开启接管」，本 App 才会接管桌面与锁屏壁纸</string>
+    <string name="status_takeover_off">本应用未启用：请点顶部的「启用」，把本应用设为动态壁纸</string>
     <string name="engine_hint">引擎模式未启用：启用后桌面由本 App 直接渲染，不再有"幽灵图"</string>
     <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
@@ -175,10 +175,15 @@
     <!-- v3.14：接管情况两行状态的取值只写 WallPaper / 系统，不加机制说明 -->
     <string name="takeover_by_app">WallPaper</string>
     <string name="takeover_by_system">系统</string>
-    <string name="takeover_on">已开启接管，桌面与锁屏由本 App 负责</string>
-    <string name="takeover_info_title">如何关闭接管</string>
+        <string name="takeover_info_title">如何关闭接管</string>
     <string name="takeover_info_msg">本应用不提供关闭接管的开关（避免误操作导致壁纸状态不一致）。\n\n若要关闭：到系统「设置 → 壁纸」手动选一张其他壁纸即可；更换后此开关会自动同步为关闭。</string>
     <string name="takeover_info_open_settings">去系统壁纸设置</string>
+    <string name="takeover_state_on">已启用</string>
+    <string name="takeover_state_off">未启用</string>
+    <string name="banner_activate">启用</string>
+    <string name="banner_not_activated">本应用未启用：桌面壁纸未由本应用接管</string>
+    <string name="banner_no_library">没有启用中的桌面库，桌面壁纸显示纯色</string>
+    <string name="takeover_need_activate">有启用中的桌面库，请点顶部「启用」把本应用设为动态壁纸</string>
 
     <!-- 抽屉：保存当前壁纸（接管中存库里正在显示的那张，未接管存系统壁纸） -->
     <string name="save_wallpaper_title">保存当前壁纸</string>
@@ -186,9 +191,7 @@
     <string name="save_wallpaper_working">正在保存…</string>
     <string name="save_wallpaper_done">已保存到相册 Pictures/WallSwitch</string>
     <string name="save_wallpaper_failed">保存失败：%1$s</string>
-    <string name="takeover_cancelled">未确认动态壁纸，已关闭接管并还原</string>
-    <string name="takeover_pending">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉开关再打开可重试）</string>
-    <!-- 范围改为单选下拉后，改范围需二次确认 -->
+            <!-- 范围改为单选下拉后，改范围需二次确认 -->
     <string name="scope_confirm_title">确认修改范围</string>
     <string name="scope_confirm_msg">把「%1$s」的范围改成「%2$s」？保存后这个库只负责该范围的切换。</string>
     <string name="scope_saved">范围已保存：%1$s</string>
@@ -236,6 +239,9 @@
     <string name="notify_status_next">下次切换</string>
     <!-- 预计下次切换时间（静态显示，不走秒：走秒每秒唤醒 SystemUI/桌面，真机实测是持续发热源） -->
     <string name="next_switch_at">预计下次切换时间：%1$s</string>
+    <!-- 倒计时样式开关：一个开关同时控制常驻通知与小组件 -->
+    <string name="ticking_countdown_title">走秒倒计时</string>
+    <string name="ticking_countdown_desc">开：通知与小组件显示走秒倒计时；关：显示静态的「预计下次切换时间」</string>
 
     <!-- 引擎切换动画：设置页选择过渡效果（淡入/模糊过渡/无） -->
     <string name="transition_effect_title">切换动画</string>

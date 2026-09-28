@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
 import android.widget.Toast;
@@ -117,11 +118,17 @@ public class WidgetProvider extends AppWidgetProvider {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
             views.setViewVisibility(R.id.widget_waiting, View.GONE);
         } else if (trigger > now) {
-            // 静态显示预计切换时刻（曾经走秒倒计时：每秒驱动桌面重绘，是持续发热源之一）
+            // 走秒模式用 Chronometer 倒计时，静态模式填「预计下次切换时间」；与常驻通知同一开关
             views.setViewVisibility(R.id.widget_waiting, View.GONE);
             views.setViewVisibility(R.id.widget_timer, View.VISIBLE);
-            views.setTextViewText(R.id.widget_timer,
-                    ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
+            if (TimerScheduler.tickingCountdown(ctx)) {
+                long base = SystemClock.elapsedRealtime() + (trigger - now);
+                views.setChronometer(R.id.widget_timer, base, null, true);
+                views.setChronometerCountDown(R.id.widget_timer, true);
+            } else {
+                views.setTextViewText(R.id.widget_timer,
+                        ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
+            }
         } else {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
             views.setViewVisibility(R.id.widget_waiting, View.VISIBLE);

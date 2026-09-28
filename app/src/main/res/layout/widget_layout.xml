@@ -20,8 +20,8 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_widget_switch" />
 
-        <!-- 预计下次切换时间（静态文案；曾经用走秒 Chronometer，每秒唤醒 SystemUI/桌面，是持续发热源） -->
-        <TextView
+        <!-- 下次切换时间：Chronometer（TextView 子类）——走秒模式当倒计时，静态模式填时间文案 -->
+        <Chronometer
             android:id="@+id/widget_timer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

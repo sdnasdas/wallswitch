@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
 
@@ -156,15 +157,22 @@ public class StatusNotifier {
         } else {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        // 下次切换时间：静态文案（曾经用走秒 Chronometer —— 每秒唤醒 SystemUI 重绘通知，
-        // 真机实测是持续发热的主要来源）。到点未执行（Doze/省电推迟）时改显「待切换」。
+        // 下次切换时间：走秒模式用 Chronometer 倒计时，静态模式填「预计下次切换时间：15:42」。
+        // 样式开关两处（通知/小组件）共用 TimerScheduler.tickingCountdown，保证显示与设置一致。
         long trigger = TimerScheduler.libTrigger(ctx, lib.id);
         long now = System.currentTimeMillis();
         if (trigger > now) {
             views.setViewVisibility(R.id.notif_timer, View.VISIBLE);
             views.setViewVisibility(R.id.notif_waiting, View.GONE);
-            views.setTextViewText(R.id.notif_timer,
-                    ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
+            if (TimerScheduler.tickingCountdown(ctx)) {
+                // Chronometer 的 base 走开机计时（elapsedRealtime），与小组件换算一致
+                long base = SystemClock.elapsedRealtime() + (trigger - now);
+                views.setChronometer(R.id.notif_timer, base, null, true);
+                views.setChronometerCountDown(R.id.notif_timer, true);
+            } else {
+                views.setTextViewText(R.id.notif_timer,
+                        ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
+            }
         } else {
             views.setViewVisibility(R.id.notif_timer, View.GONE);
             views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);

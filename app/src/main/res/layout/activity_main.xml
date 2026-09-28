@@ -30,6 +30,40 @@
             app:navigationIcon="@drawable/ic_menu"
             app:title="@string/app_title" />
 
+        <!-- 未启用 / 无启用库 提示横幅（对齐 Muzei：未启用时给出启用入口） -->
+        <LinearLayout
+            android:id="@+id/banner_takeover"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/card_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_banner_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_activate"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:minWidth="0dp"
+                android:minHeight="36dp"
+                android:text="@string/banner_activate"
+                android:textSize="13sp" />
+        </LinearLayout>
+
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -181,10 +215,12 @@
                                 android:src="@android:drawable/ic_dialog_info"
                                 app:tint="@color/text_secondary" />
 
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_takeover"
+                            <TextView
+                                android:id="@+id/tv_takeover_state"
                                 android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="14sp" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -300,8 +336,7 @@
                             <com.google.android.material.materialswitch.MaterialSwitch
                                 android:id="@+id/sw_status_notify"
                                 android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
+                                android:layout_height="wrap_content" />                        </LinearLayout>
 
                         <!-- 切换动画：引擎模式换壁纸时的过渡效果（淡入/模糊过渡/无），点击弹出选择 -->
                         <LinearLayout
@@ -327,6 +362,41 @@
                                 android:layout_height="wrap_content"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="14sp" />
+                        </LinearLayout>
+
+                        <!-- 走秒倒计时：通知与小组件的时间显示样式（静态/走秒），一个开关同时管两处 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:minHeight="44dp"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/ticking_countdown_title"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="14sp" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/ticking_countdown_desc"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_ticking"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
                         </LinearLayout>
 
                         <!-- 检查更新：启动时也静默查一次，有新版才弹窗 -->

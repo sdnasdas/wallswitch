@@ -55,7 +55,8 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
-                <TextView
+                <!-- Chronometer（TextView 子类）：走秒模式当倒计时用，静态模式用 setTextViewText 填时间 -->
+                <Chronometer
                     android:id="@+id/notif_timer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

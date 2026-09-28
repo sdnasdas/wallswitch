@@ -92,11 +92,15 @@ public class WallSwitchService extends WallpaperService {
     private static final SimpleDateFormat PERF_TIME =
             new SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault());
 
-    /** 当前桌面是否由本引擎渲染（用户已把本 App 设为动态壁纸）。 */
+    /**
+     * 当前桌面是否由本引擎渲染（用户已把本 App 设为动态壁纸）。
+     * 按**包名**比对（Muzei 同款做法，见其 WallpaperAnalytics.kt）：比精确组件名更稳 ——
+     * 部分 ROM（如 MagicOS）上报的壁纸组件可能带别名/包装，精确比较会误判成"未接管"，
+     * 那正是"壁纸是活的、App 却显示未启用"这类假状态的来源。
+     */
     public static boolean isActive(Context ctx) {
         WallpaperInfo info = WallpaperManager.getInstance(ctx).getWallpaperInfo();
-        return info != null
-                && info.getComponent().equals(new ComponentName(ctx, WallSwitchService.class));
+        return info != null && ctx.getPackageName().equals(info.getPackageName());
     }
 
     /** 壁纸内容变化（Switcher.next 已推进指针）后调用，通知所有活引擎带过渡动画重绘。 */
