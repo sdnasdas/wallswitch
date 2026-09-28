@@ -1107,6 +1107,9 @@ public class MainActivity extends AppCompatActivity {
         boolean intent = TakeoverManager.isEnabled(this);
         if (intent && !homeReal && !lockReal) {
             TakeoverManager.setEnabled(this, false);
+            // 纯状态纠偏：同时作废存档标记 —— 否则后续任何 apply() 会拿过期存档
+            // 去写系统壁纸（v3.28 事故：自动回关顺带还原，把黑档写回系统）
+            TakeoverManager.clearArchives(this);
             intent = false;
         }
         sw.setChecked(intent);
@@ -1236,17 +1239,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 关闭接管：桌面与锁屏都还原成接管前的样子。 */
+    /** 关闭接管：桌面与锁屏都还原成接管前的样子（无有效存档的范围不动系统壁纸）。 */
     private void disableTakeover() {
         new Thread(() -> {
             TakeoverManager.setEnabled(this, false);
-            final boolean ok = TakeoverManager.release(this);
+            final int result = TakeoverManager.release(this);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                Toast.makeText(this, ok ? R.string.takeover_off : R.string.takeover_restore_failed,
-                        Toast.LENGTH_SHORT).show();
+                int msg;
+                if (result == TakeoverManager.RELEASE_RESTORED) {
+                    msg = R.string.takeover_off;
+                } else if (result == TakeoverManager.RELEASE_NOTHING) {
+                    // 没有可还原的存档：如实告知（别让用户以为壁纸已还原成原样）
+                    msg = R.string.takeover_off_nothing_restored;
+                } else {
+                    msg = R.string.takeover_restore_failed;
+                }
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
                 setupTakeoverSwitch();
             });
         }, "takeover-off").start();

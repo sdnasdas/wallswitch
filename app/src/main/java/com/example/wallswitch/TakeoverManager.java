@@ -57,6 +57,14 @@ public final class TakeoverManager {
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "takeover_enabled";
     private static final String KEY_LOCK_ID = "takeover_lock_id";
+    // 存档状态（显式记录，不再靠"相册里有没有文件"推断）：
+    // valid=已存下用户原壁纸可还原；none=接管期间跳过（此刻画面是引擎的，不是用户原壁纸）；
+    // failed=读取/写入失败
+    private static final String KEY_HOME_ARCHIVE = "takeover_home_archive";
+    private static final String KEY_LOCK_ARCHIVE = "takeover_lock_archive";
+    private static final String ARCHIVE_VALID = "valid";
+    private static final String ARCHIVE_NONE = "none";
+    private static final String ARCHIVE_FAILED = "failed";
 
     private static final String SAVED_HOME_NAME = "previous_home.png";
     private static final String SAVED_LOCK_NAME = "previous_lock.png";
@@ -74,6 +82,13 @@ public final class TakeoverManager {
     public static final int RESULT_OK = 1;
     /** apply 结果：桌面该接管但引擎未激活，需要用户在系统选择器里确认。 */
     public static final int RESULT_NEED_ACTIVATION = 2;
+
+    /** 关闭接管的结果：已还原成接管前的壁纸。 */
+    public static final int RELEASE_RESTORED = 0;
+    /** 关闭接管的结果：没有可还原的存档，未改动系统壁纸（需用户手动设置）。 */
+    public static final int RELEASE_NOTHING = 1;
+    /** 关闭接管的结果：还原过程中出错。 */
+    public static final int RELEASE_FAILED = 2;
 
     private TakeoverManager() {
     }
@@ -184,8 +199,10 @@ public final class TakeoverManager {
         if (!isHomeTakenOver(ctx)) {
             String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
             if (r.isEmpty()) {
+                setArchiveState(ctx, true, ARCHIVE_VALID);
                 log.append("桌面壁纸：已存\n");
             } else {
+                setArchiveState(ctx, true, ARCHIVE_FAILED);
                 log.append("桌面壁纸：失败 — ").append(r).append('\n');
                 if (fail.length() > 0) {
                     fail.append("；");
@@ -193,13 +210,17 @@ public final class TakeoverManager {
                 fail.append("桌面壁纸：").append(r);
             }
         } else {
+            // 此刻屏上的"壁纸"是引擎画面（可能还是黑屏），不是用户原壁纸，绝不能当存档
+            setArchiveState(ctx, true, ARCHIVE_NONE);
             log.append("桌面壁纸：跳过（正由本 App 接管）\n");
         }
         if (!isLockTakenOver(ctx)) {
             String r = saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, SAVED_LOCK_NAME);
             if (r.isEmpty()) {
+                setArchiveState(ctx, false, ARCHIVE_VALID);
                 log.append("锁屏壁纸：已存\n");
             } else {
+                setArchiveState(ctx, false, ARCHIVE_FAILED);
                 log.append("锁屏壁纸：失败 — ").append(r).append('\n');
                 if (fail.length() > 0) {
                     fail.append("；");
@@ -207,6 +228,7 @@ public final class TakeoverManager {
                 fail.append("锁屏壁纸：").append(r);
             }
         } else {
+            setArchiveState(ctx, false, ARCHIVE_NONE);
             log.append("锁屏壁纸：跳过（正由本 App 接管）\n");
         }
         writeSaveLog(ctx, log.toString());
@@ -218,12 +240,51 @@ public final class TakeoverManager {
                 == android.content.pm.PackageManager.PERMISSION_GRANTED ? "已授予" : "未授予";
     }
 
-    /** 关闭接管：两个范围都还原成接管前的样子。纯 IO，调用方放后台线程。 */
-    public static boolean release(Context ctx) {
+    /** 关闭接管：两个范围都还原成接管前的样子（无有效存档的范围不动系统壁纸）。纯 IO，放后台线程。 */
+    public static int release(Context ctx) {
+        boolean canHome = hasRestorableArchive(ctx, true);
+        boolean canLock = hasRestorableArchive(ctx, false);
         boolean okHome = restoreHome(ctx);
         boolean okLock = restoreLock(ctx);
         prefs(ctx).edit().remove(KEY_LOCK_ID).apply();
-        return okHome && okLock;
+        if (!canHome && !canLock) {
+            return RELEASE_NOTHING;
+        }
+        // 只统计有存档的范围：没有存档的范围本来就不该还原，不能算失败
+        boolean ok = true;
+        if (canHome && !okHome) {
+            ok = false;
+        }
+        if (canLock && !okLock) {
+            ok = false;
+        }
+        return ok ? RELEASE_RESTORED : RELEASE_FAILED;
+    }
+
+    // ==================== 存档状态 ====================
+
+    private static void setArchiveState(Context ctx, boolean forHome, String state) {
+        prefs(ctx).edit().putString(forHome ? KEY_HOME_ARCHIVE : KEY_LOCK_ARCHIVE, state).apply();
+    }
+
+    private static String archiveState(Context ctx, boolean forHome) {
+        return prefs(ctx).getString(forHome ? KEY_HOME_ARCHIVE : KEY_LOCK_ARCHIVE, ARCHIVE_NONE);
+    }
+
+    /** 该范围是否存在可还原的存档（仅状态 valid 才算）。 */
+    public static boolean hasRestorableArchive(Context ctx, boolean forHome) {
+        return ARCHIVE_VALID.equals(archiveState(ctx, forHome));
+    }
+
+    /**
+     * 作废两处存档标记：状态纠偏（如系统侧壁纸已被换掉而自动回关）后调用，
+     * 让后续 apply() 不会拿着过期存档去写系统壁纸。
+     */
+    public static void clearArchives(Context ctx) {
+        prefs(ctx).edit()
+                .putString(KEY_HOME_ARCHIVE, ARCHIVE_NONE)
+                .putString(KEY_LOCK_ARCHIVE, ARCHIVE_NONE)
+                .apply();
     }
 
     /**
@@ -276,38 +337,81 @@ public final class TakeoverManager {
         return setLockFromFile(ctx, file) != 0;
     }
 
-    /** 还原桌面：有存档就设回去，没有就 clear() 退回系统默认（都会解除动态壁纸）。 */
+    /**
+     * 还原桌面：仅当存档存在且内容可信才写回；否则<b>不动系统壁纸</b>。
+     * 绝不调用 clear() —— 真机事故（2026-09-28）：clear() 把系统壁纸重置成默认（表现为一片黑），
+     * 用户原壁纸就此丢失且卸载也回不来。
+     */
     private static boolean restoreHome(Context ctx) {
+        Bitmap bitmap = restorableBitmap(ctx, true);
+        if (bitmap == null) {
+            return false;
+        }
         try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            Bitmap bitmap = loadSavedBitmap(ctx, SAVED_HOME_NAME);
-            if (bitmap != null) {
-                wm.setBitmap(bitmap);
-                bitmap.recycle();
-                return true;
-            }
-            wm.clear();
+            WallpaperManager.getInstance(ctx).setBitmap(bitmap);
             return true;
         } catch (Exception | OutOfMemoryError e) {
             return false;
+        } finally {
+            bitmap.recycle();
         }
     }
 
-    /** 还原锁屏：有存档就设回去，没有就 clear(FLAG_LOCK) 让它跟随系统壁纸。 */
+    /** 还原锁屏：同 {@link #restoreHome}，无可信存档时不动锁屏壁纸（不再 clear(FLAG_LOCK)）。 */
     private static boolean restoreLock(Context ctx) {
+        Bitmap bitmap = restorableBitmap(ctx, false);
+        if (bitmap == null) {
+            return false;
+        }
         try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            Bitmap bitmap = loadSavedBitmap(ctx, SAVED_LOCK_NAME);
-            if (bitmap != null) {
-                wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
-                bitmap.recycle();
-                return true;
-            }
-            wm.clear(WallpaperManager.FLAG_LOCK);
+            WallpaperManager.getInstance(ctx)
+                    .setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
             return true;
         } catch (Exception | OutOfMemoryError e) {
             return false;
+        } finally {
+            bitmap.recycle();
         }
+    }
+
+    /** 该范围可还原的存档位图：状态非 valid、解码失败或内容不可信时返回 null。 */
+    private static Bitmap restorableBitmap(Context ctx, boolean forHome) {
+        if (!hasRestorableArchive(ctx, forHome)) {
+            return null;
+        }
+        Bitmap bitmap = loadSavedBitmap(ctx, forHome ? SAVED_HOME_NAME : SAVED_LOCK_NAME);
+        if (bitmap == null) {
+            return null;
+        }
+        if (!isTrustworthyWallpaper(bitmap)) {
+            bitmap.recycle();
+            return null;
+        }
+        return bitmap;
+    }
+
+    /**
+     * 存档内容是否可信：尺寸像壁纸，且不是纯色（含全黑）。
+     * 事故教训：存档链路曾在引擎激活时把「引擎自己的黑画面」存成"原壁纸"，
+     * 还原时写回系统导致壁纸永久变黑 —— 抽样判纯色足以拦住这类坏档。
+     */
+    private static boolean isTrustworthyWallpaper(Bitmap bitmap) {
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        if (w < 200 || h < 200) {
+            return false;
+        }
+        int first = bitmap.getPixel(0, 0);
+        int stepX = Math.max(1, w / 24);
+        int stepY = Math.max(1, h / 24);
+        for (int y = 0; y < h; y += stepY) {
+            for (int x = 0; x < w; x += stepX) {
+                if (bitmap.getPixel(x, y) != first) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** 读取接管前壁纸存档，解码失败或没有存档返回 null。 */

@@ -245,20 +245,40 @@ public class WallSwitchService extends WallpaperService {
             if (lib != null) {
                 String id = Switcher.getCurrent(ctx, lib.id, true);
                 File file = currentFile(ctx, lib.id);
-                // 防打转（v3.28 教训）：指针失效时自动推进一张，但推进后仍读不到文件就累计失败，
-                // 连续 3 次不再推进 —— 否则「推进→仍缺失→通知→再推进」会无限空转：
-                // 持续刷通知/小组件、单核跑满 = 严重发热，画面永远底色
-                if (file == null && autoAdvanceFails < 3
-                        && !WallpaperStore.loadByLib(ctx, lib.id).isEmpty()) {
-                    Switcher.next(ctx, lib.id, true);
-                    id = Switcher.getCurrent(ctx, lib.id, true);
-                    file = currentFile(ctx, lib.id);
-                    if (file == null) {
-                        autoAdvanceFails++;
+                boolean fromFallback = false;
+                if (id == null || file == null) {
+                    // 指针空/文件丢。两条处置，职责分开：
+                    // ① 正常推进（含接管校验、历史链、随机池）—— 有副作用（写指针/刷通知），
+                    //    连续失败 3 次就停手，避免「推进→仍缺失→通知→再推进」空转（v3.28 教训）；
+                    // ② 推进被拦（v3.31 真机：接管开关关着，next 直接拒绝）或失败时，
+                    //    直接显示库里第一张 —— 不动指针、不算切换、不刷通知，纯「有图先亮」：
+                    //    引擎的任务就是显示壁纸，黑屏本身就是故障，不该被开关状态陪葬
+                    List<WallpaperStore.Item> items = WallpaperStore.loadByLib(ctx, lib.id);
+                    if (!items.isEmpty()) {
+                        if (autoAdvanceFails < 3) {
+                            Switcher.next(ctx, lib.id, true);
+                            id = Switcher.getCurrent(ctx, lib.id, true);
+                            file = currentFile(ctx, lib.id);
+                            if (id == null || file == null) {
+                                autoAdvanceFails++;
+                            }
+                        }
+                        if (id == null || file == null) {
+                            WallpaperStore.Item first = items.get(0);
+                            File f = WallpaperStore.getFullFile(ctx, first.id);
+                            if (f != null && f.exists()) {
+                                id = first.id;
+                                file = f;
+                                fromFallback = true;
+                            }
+                        }
                     }
                 }
                 if (id != null && file != null) {
-                    autoAdvanceFails = 0;
+                    // 兜底命中不算「推进成功」：不清零，免得每帧都再试一次带副作用的推进
+                    if (!fromFallback) {
+                        autoAdvanceFails = 0;
+                    }
                     // 缓存 key：壁纸内容 + 目标尺寸（尺寸变化即重新解码）
                     key = id + "#" + w + "x" + h;
                     if (key.equals(cachedKey) && cachedBitmap != null && !cachedBitmap.isRecycled()) {
