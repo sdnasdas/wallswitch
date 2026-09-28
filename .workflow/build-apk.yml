@@ -1,0 +1,39 @@
+# Gitee Go 流水线：等价 .github/workflows/build.yml（GitHub Actions 版）
+# 触发：push 到任一常用分支；构建：JDK17 + Gradle 8.7 + Android SDK 35，assembleDebug 固定签名。
+# 首次使用需在 Gitee 仓库「流水线」页启用，并在流水线设置里配置 4 个环境变量
+#（与 GitHub Secrets 同名，值相同；BASE64 那条勾选敏感/掩码）：
+#   WALLSWITCH_KEYSTORE_BASE64 / WALLSWITCH_KEYSTORE_PASSWORD / WALLSWITCH_KEY_ALIAS
+# 说明：Gitee Go 的 YAML 字段以网页编辑器校验为准，若提示某字段不识别，按其提示微调即可。
+version: '1.0'
+name: build-apk
+displayName: '构建 APK'
+triggers:
+  push:
+    branches:
+      include:
+        - main
+        - master
+        - ui-redesign
+        - gl-engine
+stages:
+  - name: build
+    displayName: 'Gradle 构建'
+    steps:
+      - step: build@gradle
+        name: build_apk
+        displayName: 'Android APK 构建（固定签名）'
+        jdkVersion: 17
+        gradleVersion: 8.7
+        commands:
+          # 1) 解码 keystore（环境变量在流水线设置里配置，不进仓库）
+          - 'if [ -z "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "未配置 WALLSWITCH_KEYSTORE_BASE64，无法固定签名" >&2; exit 1; fi; echo "$WALLSWITCH_KEYSTORE_BASE64" | base64 -d > "$HOME/wallswitch.keystore"'
+          # 2) 构建镜像若未预装 Android SDK 则装一套（AGP 8.5.2 需要 platform 35 + build-tools 35）
+          - 'export ANDROID_HOME="$HOME/android-sdk"; if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then mkdir -p "$ANDROID_HOME/cmdline-tools"; curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools" && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" && yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null; fi'
+          # 3) 构建 debug APK（签名三件套从环境变量注入，见 app/build.gradle）
+          - 'export WALLSWITCH_KEYSTORE_PATH="$HOME/wallswitch.keystore" && export ANDROID_HOME="$HOME/android-sdk" && gradle assembleDebug --no-daemon'
+        artifacts:
+          - name: WALLSWITCH_APK
+            path:
+              - ./app/build/outputs/apk/debug/*.apk
+        caches: []
+        notify: []
