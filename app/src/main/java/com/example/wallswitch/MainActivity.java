@@ -1115,6 +1115,12 @@ public class MainActivity extends AppCompatActivity {
         if (intent && !homeReal && !lockReal) {
             TakeoverManager.setEnabled(this, false);
             intent = false;
+        } else if (!intent && (homeReal || lockReal)) {
+            // 反向同步：系统里确实挂着本 App 的壁纸（用户在系统选择器里确认了激活），
+            // 但意图标记被清掉过（例如上一次从选择器返回时引擎还没绑上被误判为取消）
+            // → 把意图补回来。否则会出现"壁纸是我们的、App 开关却显示关"的假状态
+            TakeoverManager.setEnabled(this, true);
+            intent = true;
         }
         sw.setChecked(intent);
         sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -1286,11 +1292,30 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         pendingEngineActivation = false;
-        if (TakeoverManager.isHomeTakenOver(this)) {
-            Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
-            return;
-        }
         new Thread(() -> {
+            // 系统绑定动态壁纸服务需要一点时间：重试判定约 1.5 秒，
+            // 避免"用户已在选择器里确认、但引擎还没绑上"被误判成取消
+            boolean active = false;
+            for (int i = 0; i < 6 && !active; i++) {
+                active = TakeoverManager.isHomeTakenOver(this);
+                if (!active && i < 5) {
+                    try {
+                        Thread.sleep(300);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
+            if (active) {
+                TakeoverManager.setEnabled(this, true);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    Toast.makeText(this, R.string.takeover_on, Toast.LENGTH_SHORT).show();
+                    setupTakeoverSwitch();
+                });
+                return;
+            }
             TakeoverManager.setEnabled(this, false);
             TakeoverManager.release(this);
             runOnUiThread(() -> {
@@ -1300,7 +1325,7 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, R.string.takeover_cancelled, Toast.LENGTH_LONG).show();
                 setupTakeoverSwitch();
             });
-        }, "takeover-cancel").start();
+        }, "takeover-verify").start();
     }
 
     /**

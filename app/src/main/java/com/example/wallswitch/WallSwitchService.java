@@ -304,11 +304,14 @@ public class WallSwitchService extends WallpaperService {
                 // 引擎一旦坏掉反而一个数字都看不到
                 lastFaultDiag = faultDiag(ctx, lib);
                 perfDraws++;
-                flushPerfStatsRateLimited(ctx);
+                flushPerfStatsRateLimited(ctx, FAULT_FLUSH_INTERVAL_MS);
                 drawColor(holder);
                 return;
             }
             lastFaultDiag = null;
+            // 正常重绘也按 5 分钟限频落盘：文件里的"累计绘制"随时间怎么涨，
+            // 直接反映重绘频率（判断发热是否来自重绘太勤的唯一依据）
+            flushPerfStatsRateLimited(ctx, NORMAL_FLUSH_INTERVAL_MS);
 
             // 准备过渡素材：旧图与旧图模糊版（模糊效果用，切换时一次性预生成）
             String effect = transitionEffect(ctx);
@@ -545,10 +548,15 @@ public class WallSwitchService extends WallpaperService {
 
     private static long lastCrashWriteMs;
 
-    /** 故障态限频落盘（30 秒一次）：MediaStore 重写有成本，不能每次空绘制都写。 */
-    private static synchronized void flushPerfStatsRateLimited(Context ctx) {
+    /** 故障态限频落盘间隔（30 秒）：故障时计数几乎不涨，也要留下现场。 */
+    private static final long FAULT_FLUSH_INTERVAL_MS = 30_000L;
+    /** 正常态限频落盘间隔（5 分钟）：够密到能算出重绘频率，又不给存储添负担。 */
+    private static final long NORMAL_FLUSH_INTERVAL_MS = 5 * 60_000L;
+
+    /** 限频落盘：距上次写文件不足 intervalMs 就跳过（MediaStore 重写有成本）。 */
+    private static synchronized void flushPerfStatsRateLimited(Context ctx, long intervalMs) {
         long now = SystemClock.elapsedRealtime();
-        if (now - lastStateFlushMs < 30_000) {
+        if (now - lastStateFlushMs < intervalMs) {
             return;
         }
         lastStateFlushMs = now;
