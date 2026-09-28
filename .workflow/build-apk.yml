@@ -7,6 +7,11 @@
 version: '1.0'
 name: build-apk
 displayName: '构建 APK'
+# 探针 v3.41：测试变量注入机制——PROBE_VAR 测 variables 块是否进运行时环境；
+# WALLSWITCH_KEY_ALIAS 留空声明测通用变量关联；${{ }} 测双花括号语法
+variables:
+  PROBE_VAR: hello-probe
+  WALLSWITCH_KEY_ALIAS:
 triggers:
   push:
     branches:
@@ -27,6 +32,8 @@ stages:
         commands:
           # 0) 诊断：确认「通用变量」是否注入构建环境（只打印名称与长度，不打印值）
           - 'if [ -n "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "诊断: BASE64 已注入, 长度=${#WALLSWITCH_KEYSTORE_BASE64}"; else echo "诊断: BASE64 未进入环境"; fi; if [ -n "$WALLSWITCH_KEYSTORE_PASSWORD" ]; then echo "诊断: PASSWORD 已注入, 长度=${#WALLSWITCH_KEYSTORE_PASSWORD}"; else echo "诊断: PASSWORD 未进入环境"; fi; echo "诊断: ALIAS=${WALLSWITCH_KEY_ALIAS:-<空>}"'
+          # 0b) 探针：variables 块 / 通用变量 / 双花括号 三种机制
+          - 'echo "探针P1a(单\$运行时 PROBE_VAR)=[$PROBE_VAR]"; echo "探针P1b(花括号 PROBE_VAR)=[${PROBE_VAR:-BRACE_MISS}]"; echo "探针P2a(单\$运行时 ALIAS)=[$WALLSWITCH_KEY_ALIAS]"; echo "探针P2b(花括号 ALIAS)=[${WALLSWITCH_KEY_ALIAS:-BRACE_MISS}]"; echo '"'"'探针P3(单引号防bash展开 ${{ WALLSWITCH_KEY_ALIAS }})=[${{ WALLSWITCH_KEY_ALIAS }}]'"'"'; echo "探针P4(环境变量名清单)=$(env | grep -oE "^[A-Za-z_][A-Za-z0-9_]*" | sort | tr "\n" " ")"'
           # 1) 解码 keystore（环境变量在流水线设置里配置，不进仓库）
           - 'if [ -z "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "未配置 WALLSWITCH_KEYSTORE_BASE64，无法固定签名" >&2; exit 1; fi; echo "$WALLSWITCH_KEYSTORE_BASE64" | base64 -d > "$HOME/wallswitch.keystore"'
           # 2) 构建镜像若未预装 Android SDK 则装一套（AGP 8.5.2 需要 platform 35 + build-tools 35）
