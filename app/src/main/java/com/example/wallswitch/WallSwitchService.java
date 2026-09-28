@@ -49,7 +49,9 @@ import java.util.concurrent.Executors;
  * 性能模型（对标 Muzei 的"纹理常驻"）：
  * - 解码结果常驻内存缓存（key = 壁纸 id + Surface 尺寸），亮屏/回桌面等触发的重绘
  *   直接复用缓存、零磁盘解码；只有壁纸内容或尺寸变化才真正解码一次。
- * - 绘制走 lockHardwareCanvas 硬件画布，同一张图重复绘制由 GPU 纹理缓存承接。
+ * - 绘制走软件画布（v3.28/29/30 曾试过 lockHardwareCanvas：MagicOS 壁纸 Surface 上
+ *   提交成功但渲染不出，黑屏且系统侧空转剧热，v3.31 退回 v3.27 验证过的软件画布）；
+ *   解码结果的内存缓存（下一条）保证重绘频率再高也只是 CPU 小图 blit。
  * - 切换壁纸时的过渡动画（设置项：淡入/模糊过渡/无）只在切换的瞬间跑几百毫秒，
  *   模糊过渡的模糊版是切换时一次性预生成的（缩小 + 盒式模糊），逐帧只做透明度叠加。
  *
@@ -278,13 +280,15 @@ public class WallSwitchService extends WallpaperService {
 
             if (fresh == null) {
                 // 空库/解码失败：保持纯底色而非系统兜底图（缓存保留，等库恢复后可复用）。
-                // 故障态也要 30 秒限频落盘计数 —— v3.28 的教训：只在解码时落盘，
+                // 故障态也要 30 秒限频落盘计数与诊断 —— v3.28 的教训：只在解码时落盘，
                 // 引擎一旦坏掉反而一个数字都看不到
+                lastFaultDiag = faultDiag(ctx, lib);
                 perfDraws++;
                 flushPerfStatsRateLimited(ctx);
                 drawColor(holder);
                 return;
             }
+            lastFaultDiag = null;
 
             // 准备过渡素材：旧图与旧图模糊版（模糊效果用，切换时一次性预生成）
             String effect = transitionEffect(ctx);
@@ -415,17 +419,11 @@ public class WallSwitchService extends WallpaperService {
         }
 
         /**
-         * 拿画布：优先硬件画布（GPU 纹理缓存，重复绘制零 CPU）；
-         * 硬件画布拿不到或抛异常（部分 ROM 的壁纸 Surface 不支持）时退回软件画布，保底不黑屏。
+         * 拿画布：v3.31 起固定用软件画布。v3.28/29/30 的真机结论：MagicOS 对壁纸 Surface 的
+         * lockHardwareCanvas「提交成功但渲染不出」——黑屏且系统侧空转发热，且无任何异常可拦。
+         * 软件画布是 v3.27 验证过能正常显示的路径；解码缓存保留（省解码收益不依赖硬件画布）。
          */
         private Canvas lockCanvasSafe(SurfaceHolder holder) {
-            try {
-                Canvas c = holder.lockHardwareCanvas();
-                if (c != null) {
-                    return c;
-                }
-            } catch (Throwable ignored) {
-            }
             try {
                 return holder.lockCanvas();
             } catch (Throwable ignored) {
@@ -538,6 +536,29 @@ public class WallSwitchService extends WallpaperService {
     }
 
     private static long lastStateFlushMs;
+    /** 最近一次「读不到壁纸」的具体原因（绘制现场捕获，随性能自记落盘）。 */
+    private static volatile String lastFaultDiag;
+
+    /** 「引擎读不到当前壁纸」的具体原因：无启用库 / 指针空 / 指针指向的文件丢失 / 库空。 */
+    private static String faultDiag(Context ctx, LibraryStore.Library lib) {
+        try {
+            if (lib == null) {
+                int total = LibraryStore.load(ctx).size();
+                return "无启用的桌面库（共 " + total + " 个库，均未启用或不覆盖桌面）";
+            }
+            String current = Switcher.getCurrent(ctx, lib.id, true);
+            if (current == null) {
+                return "库「" + lib.name + "」无当前指针（条目 "
+                        + WallpaperStore.loadByLib(ctx, lib.id).size() + " 张）";
+            }
+            File file = WallpaperStore.getFullFile(ctx, current);
+            return "库「" + lib.name + "」指针指向 " + current + "，文件 "
+                    + (file != null && file.exists() ? "存在" : "丢失") + "（条目 "
+                    + WallpaperStore.loadByLib(ctx, lib.id).size() + " 张）";
+        } catch (Exception e) {
+            return "诊断失败: " + e;
+        }
+    }
 
     /** 解码（≈壁纸内容变化）后重写性能自记文件：缓存命中应远多于解码。 */
     private static void flushPerfStats(Context ctx) {
@@ -547,6 +568,7 @@ public class WallSwitchService extends WallpaperService {
                     + "累计绘制: " + perfDraws + " 次\n"
                     + "缓存命中(零解码): " + perfCacheHits + " 次\n"
                     + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
+                    + "故障诊断: " + (lastFaultDiag != null ? lastFaultDiag : "无（当前正常显示中）") + "\n"
                     + "判读: 绘制次数远大于解码且解码长期不增长 = 引擎读不到当前壁纸（异常态）\n";
             writePublicText(ctx, "engine_stats.txt", content);
         } catch (Exception ignored) {
