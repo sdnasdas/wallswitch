@@ -34,14 +34,22 @@ import java.util.regex.Pattern;
  */
 public final class UpdateChecker {
 
-    /** 滚动 Release 的 GitHub API 地址（公开接口，无需认证；限频 60 次/小时/IP 足够）。 */
+    /** 滚动 Release 的 GitHub API 地址（公开接口；国内网络下 api.github.com 经常不通，作首选）。 */
     private static final String RELEASES_API =
             "https://api.github.com/repos/sdnasdas/wallswitch/releases/tags/latest";
+    /**
+     * 兜底通道：release 页面（github.com 主域，国内可达性明显好于 api 子域，用户实测能直链下载）。
+     * 页面 HTML 含 Release 标题「latest（v3.29 · build 60）」，用全角括号定位版本号。
+     */
+    private static final String RELEASES_PAGE =
+            "https://github.com/sdnasdas/wallswitch/releases/latest";
     /** APK 直链（CI 固定 asset 名，永远指向最新构建）。 */
     private static final String APK_URL =
             "https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk";
-    /** 从 Release 标题里抠版本号（v3.27 / v3.10 都能匹配）。 */
+    /** 从标题/页面里抠版本号（v3.27 / v3.10 都能匹配）。 */
     private static final Pattern VERSION_PATTERN = Pattern.compile("v(\\d+(?:\\.\\d+)*)");
+    /** 页面兜底专用：Release 标题的版本号都紧跟全角括号，避免误匹配页面里其它版本串。 */
+    private static final Pattern PAGE_VERSION_PATTERN = Pattern.compile("（v(\\d+(?:\\.\\d+)*)");
 
     /** 远端版本信息。 */
     public static class Info {
@@ -140,7 +148,21 @@ public final class UpdateChecker {
         }
     }
 
+    /** 首选 API；api.github.com 不通（国内常态）时兜底抓 github.com 的 release 页面。 */
     private static Info fetchLatest() throws Exception {
+        try {
+            return fetchViaApi();
+        } catch (Exception apiError) {
+            try {
+                return fetchViaPage();
+            } catch (Exception ignored) {
+                // 两条通道都失败时上报首选通道的异常（更贴近真实死因）
+                throw apiError;
+            }
+        }
+    }
+
+    private static Info fetchViaApi() throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(RELEASES_API).openConnection();
         try {
             conn.setConnectTimeout(10_000);
@@ -152,15 +174,7 @@ public final class UpdateChecker {
             if (code != 200) {
                 throw new java.io.IOException("HTTP " + code);
             }
-            StringBuilder sb = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    conn.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-            }
-            JSONObject root = new JSONObject(sb.toString());
+            JSONObject root = new JSONObject(readAll(conn));
             String title = root.optString("name", "");
             Matcher m = VERSION_PATTERN.matcher(title);
             if (!m.find()) {
@@ -170,6 +184,42 @@ public final class UpdateChecker {
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** 兜底：抓 release 页面 HTML，按全角括号定位标题里的版本号。 */
+    private static Info fetchViaPage() throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(RELEASES_PAGE).openConnection();
+        try {
+            // releases/latest 会 302 到 /tag/latest，同协议跳转 HttpURLConnection 自动跟随
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(10_000);
+            conn.setRequestProperty("User-Agent", "WallSwitch-App");
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                throw new java.io.IOException("HTTP " + code);
+            }
+            String html = readAll(conn);
+            Matcher m = PAGE_VERSION_PATTERN.matcher(html);
+            if (!m.find()) {
+                throw new java.io.IOException("页面无版本号");
+            }
+            return new Info(m.group(1), "v" + m.group(1));
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** 读尽响应体（UTF-8）。 */
+    private static String readAll(HttpURLConnection conn) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                conn.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+        }
+        return sb.toString();
     }
 
     private static int[] parseSegments(String version) {

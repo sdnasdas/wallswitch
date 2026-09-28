@@ -563,6 +563,9 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (error != null || info == null) {
                     tvState.setText(R.string.update_check_failed);
+                    // 把具体死因亮给用户（网络不通/HTTP 错误一眼可辨），不再只有干巴巴的失败
+                    Toast.makeText(this, getString(R.string.update_check_failed)
+                            + "：" + (error != null ? error.toString() : "无返回"), Toast.LENGTH_LONG).show();
                     return;
                 }
                 if (!UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {

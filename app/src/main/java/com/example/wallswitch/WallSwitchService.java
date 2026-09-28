@@ -120,6 +120,24 @@ public class WallSwitchService extends WallpaperService {
     }
 
     @Override
+    public void onCreate() {
+        super.onCreate();
+        // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"
+        // 没有取证就无法定位（用户不用 adb）
+        try {
+            final Context app = getApplicationContext();
+            final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+            Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+                recordEngineCrash(app, e);
+                if (prev != null) {
+                    prev.uncaughtException(t, e);
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
     public Engine onCreateEngine() {
         return new WallEngine();
     }
@@ -136,6 +154,8 @@ public class WallSwitchService extends WallpaperService {
         /** 解码结果缓存：key = 壁纸id#宽x高，命中即免解码。只在 DRAW_EXECUTOR 线程读写。 */
         private Bitmap cachedBitmap;
         private String cachedKey;
+        /** 引擎自动推进指针却仍读不到文件的连续次数（防打转，成功解析到文件即清零）。 */
+        private int autoAdvanceFails;
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -147,7 +167,9 @@ public class WallSwitchService extends WallpaperService {
         public void onDestroy() {
             ENGINES.remove(this);
             transitionCancel = true;
-            releaseCache();
+            // 缓存释放走引擎线程：主线程直接 recycle 会与正在进行的绘制竞态（用已回收
+            // bitmap 直接崩溃），v3.28 的黑屏+发热疑似就是这类崩溃引发的进程重启循环
+            DRAW_EXECUTOR.execute(this::releaseCache);
             super.onDestroy();
         }
 
@@ -197,7 +219,8 @@ public class WallSwitchService extends WallpaperService {
         private void drawCurrentSafely(boolean afterSwitch) {
             try {
                 drawCurrent(afterSwitch);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                recordEngineCrash(WallSwitchService.this, t);
             }
         }
 
@@ -220,13 +243,20 @@ public class WallSwitchService extends WallpaperService {
             if (lib != null) {
                 String id = Switcher.getCurrent(ctx, lib.id, true);
                 File file = currentFile(ctx, lib.id);
-                if (file == null && !WallpaperStore.loadByLib(ctx, lib.id).isEmpty()) {
-                    // 引擎首次接管：库里还没有"当前"指针，推进一张
+                // 防打转（v3.28 教训）：指针失效时自动推进一张，但推进后仍读不到文件就累计失败，
+                // 连续 3 次不再推进 —— 否则「推进→仍缺失→通知→再推进」会无限空转：
+                // 持续刷通知/小组件、单核跑满 = 严重发热，画面永远底色
+                if (file == null && autoAdvanceFails < 3
+                        && !WallpaperStore.loadByLib(ctx, lib.id).isEmpty()) {
                     Switcher.next(ctx, lib.id, true);
                     id = Switcher.getCurrent(ctx, lib.id, true);
                     file = currentFile(ctx, lib.id);
+                    if (file == null) {
+                        autoAdvanceFails++;
+                    }
                 }
                 if (id != null && file != null) {
+                    autoAdvanceFails = 0;
                     // 缓存 key：壁纸内容 + 目标尺寸（尺寸变化即重新解码）
                     key = id + "#" + w + "x" + h;
                     if (key.equals(cachedKey) && cachedBitmap != null && !cachedBitmap.isRecycled()) {
@@ -247,8 +277,11 @@ public class WallSwitchService extends WallpaperService {
             }
 
             if (fresh == null) {
-                // 空库/解码失败：保持纯底色而非系统兜底图（缓存保留，等库恢复后可复用）
+                // 空库/解码失败：保持纯底色而非系统兜底图（缓存保留，等库恢复后可复用）。
+                // 故障态也要 30 秒限频落盘计数 —— v3.28 的教训：只在解码时落盘，
+                // 引擎一旦坏掉反而一个数字都看不到
                 perfDraws++;
+                flushPerfStatsRateLimited(ctx);
                 drawColor(holder);
                 return;
             }
@@ -298,7 +331,7 @@ public class WallSwitchService extends WallpaperService {
                     }
                     Canvas canvas = null;
                     try {
-                        canvas = holder.lockHardwareCanvas();
+                        canvas = lockCanvasSafe(holder);
                         if (canvas != null) {
                             canvas.drawColor(0xFF1A1A1A);
                             Bitmap to = cachedBitmap;
@@ -337,7 +370,7 @@ public class WallSwitchService extends WallpaperService {
         private void drawColor(SurfaceHolder holder) {
             Canvas canvas = null;
             try {
-                canvas = holder.lockHardwareCanvas();
+                canvas = lockCanvasSafe(holder);
                 if (canvas != null) {
                     canvas.drawColor(0xFF1A1A1A);
                 }
@@ -352,7 +385,7 @@ public class WallSwitchService extends WallpaperService {
         private void drawBitmap(SurfaceHolder holder, int w, int h, Bitmap bmp, int alpha) {
             Canvas canvas = null;
             try {
-                canvas = holder.lockHardwareCanvas();
+                canvas = lockCanvasSafe(holder);
                 if (canvas != null) {
                     canvas.drawColor(0xFF1A1A1A);
                     drawBitmap(canvas, w, h, bmp, alpha);
@@ -381,8 +414,26 @@ public class WallSwitchService extends WallpaperService {
             }
         }
 
-        /** 当前指针指向的壁纸文件；无指针或文件已丢失返回 null。 */
-        private File currentFile(Context ctx, String libId) {
+        /**
+         * 拿画布：优先硬件画布（GPU 纹理缓存，重复绘制零 CPU）；
+         * 硬件画布拿不到或抛异常（部分 ROM 的壁纸 Surface 不支持）时退回软件画布，保底不黑屏。
+         */
+        private Canvas lockCanvasSafe(SurfaceHolder holder) {
+            try {
+                Canvas c = holder.lockHardwareCanvas();
+                if (c != null) {
+                    return c;
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                return holder.lockCanvas();
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+
+        /** 当前指针指向的壁纸文件；无指针或文件已丢失返回 null。 */        private File currentFile(Context ctx, String libId) {
             String id = Switcher.getCurrent(ctx, libId, true);
             if (id == null) {
                 return null;
@@ -459,14 +510,44 @@ public class WallSwitchService extends WallpaperService {
         }
     }
 
+    /** 引擎线程/进程崩溃取证：堆栈写公共目录，5 秒限频防崩溃循环刷爆存储。 */
+    private static synchronized void recordEngineCrash(Context ctx, Throwable t) {
+        try {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastCrashWriteMs < 5_000) {
+                return;
+            }
+            lastCrashWriteMs = now;
+            writePublicText(ctx, "engine_crash.txt",
+                    PERF_TIME.format(new Date()) + "\n"
+                            + android.util.Log.getStackTraceString(t) + "\n");
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static long lastCrashWriteMs;
+
+    /** 故障态限频落盘（30 秒一次）：MediaStore 重写有成本，不能每次空绘制都写。 */
+    private static synchronized void flushPerfStatsRateLimited(Context ctx) {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastStateFlushMs < 30_000) {
+            return;
+        }
+        lastStateFlushMs = now;
+        flushPerfStats(ctx);
+    }
+
+    private static long lastStateFlushMs;
+
     /** 解码（≈壁纸内容变化）后重写性能自记文件：缓存命中应远多于解码。 */
     private static void flushPerfStats(Context ctx) {
         try {
-            String content = "WallSwitch 引擎性能自记（每次壁纸内容变化后重写）\n"
+            String content = "WallSwitch 引擎性能自记（正常=每次壁纸内容变化后重写；故障态=每 30 秒重写）\n"
                     + "更新时间: " + PERF_TIME.format(new Date()) + "\n"
                     + "累计绘制: " + perfDraws + " 次\n"
                     + "缓存命中(零解码): " + perfCacheHits + " 次\n"
-                    + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n";
+                    + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
+                    + "判读: 绘制次数远大于解码且解码长期不增长 = 引擎读不到当前壁纸（异常态）\n";
             writePublicText(ctx, "engine_stats.txt", content);
         } catch (Exception ignored) {
         }
