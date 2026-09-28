@@ -4,7 +4,8 @@ $ErrorActionPreference = 'Continue'
 $javac = 'C:\Users\EDY\.jdks\corretto-17.0.20.1\bin\javac.exe'
 $androidJar = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platforms\android-34\android.jar'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$src = Join-Path $root '..\app\src\main\java\com\example\wallswitch'
+$src = Join-Path $root '..\app\src\main\java'
+$wallSrc = Join-Path $src 'com\example\wallswitch'
 $stubs = Join-Path $root 'stubs'
 $work = Join-Path $root 'work'
 New-Item -ItemType Directory -Force (Join-Path $work 'stubs\com\example\wallswitch') | Out-Null
@@ -24,8 +25,10 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('package com.example.wallswitch;')
 [void]$sb.AppendLine('public final class R {')
 $counter = 0
+# R.* 引用只可能来自我们自己的包，扫描时限定 com\example\wallswitch 子目录
+$wallFiles = @(Get-ChildItem $wallSrc -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
 foreach ($type in $types) {
-    $names = Select-String -Path (Join-Path $src '*.java') -Pattern "\bR\.$type\.(\w+)" -AllMatches |
+    $names = Select-String -Path $wallFiles -Pattern "\bR\.$type\.(\w+)" -AllMatches |
         ForEach-Object { $_.Matches } |
         ForEach-Object { $_.Groups[1].Value } |
         Sort-Object -Unique
@@ -42,7 +45,8 @@ Set-Content -Path (Join-Path $work 'stubs\com\example\wallswitch\R.java') -Value
 
 # 2) javac 类型检查（sourcepath 挂上桩目录，androidx 引用由桩解析）
 #    用参数数组传递，避免 PowerShell 5.1 对 native 参数的解析问题
-$files = @(Get-ChildItem $src -Filter '*.java' | ForEach-Object { $_.FullName })
+#    递归收集整个 app/src/main/java（含 vendor 进来的 net.rbgrn 子包）
+$files = @(Get-ChildItem $src -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
 $javacArgs = @(
     '-J-Duser.language=en',
     '-J-Duser.country=US',
