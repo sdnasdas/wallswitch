@@ -63,6 +63,10 @@ public class AlertDialog {
             return this;
         }
 
+        public Builder setCancelable(boolean cancelable) {
+            return this;
+        }
+
         public Builder setOnDismissListener(DialogInterface.OnDismissListener listener) {
             return this;
         }

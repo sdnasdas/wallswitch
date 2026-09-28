@@ -30,6 +30,7 @@ import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -100,6 +101,8 @@ public class MainActivity extends AppCompatActivity {
     private LibAdapter libAdapter;
     private WallpaperAdapter wallpaperAdapter;
     private SharedPreferences prefs;
+    /** 开启接管时的不可关闭进度弹窗（showTakeoverProgress/dismissTakeoverProgress 管理）。 */
+    private androidx.appcompat.app.AlertDialog takeoverProgress;
     // 当前页：true = 壁纸网格页；false = 库列表页（首页）
     private boolean showingWallpapers = false;
     // 壁纸页正在看的库 id（也兼作「上次查看的库」，导入壁纸时的默认目标库）
@@ -1116,23 +1119,21 @@ public class MainActivity extends AppCompatActivity {
 
     /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
     private void enableTakeover() {
-        // 【临时测试】注释掉全部权限检查，验证不授权「所有文件访问」能否存档系统壁纸。
-        // 测试结论出来后二选一：需要 → 恢复这段；不需要 → 连同声明一起删掉
-        // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        //     // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
-        //     // （真机实测 MagicOS），只能走「所有文件访问」隐式获得
-        //     if (!Environment.isExternalStorageManager()) {
-        //         requestAllFilesAccess();
-        //         return;
-        //     }
-        //     doEnableTakeover();
-        //     return;
-        // }
-        // String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
-        // if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-        //     savePermLauncher.launch(perm);
-        //     return;
-        // }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
+            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得（v3.28 实验证实必需）
+            if (!Environment.isExternalStorageManager()) {
+                requestAllFilesAccess();
+                return;
+            }
+            doEnableTakeover();
+            return;
+        }
+        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
+        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+            savePermLauncher.launch(perm);
+            return;
+        }
         doEnableTakeover();
     }
 
@@ -1158,17 +1159,30 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void doEnableTakeover() {
-        Toast.makeText(this, R.string.takeover_saving, Toast.LENGTH_SHORT).show();
+        showTakeoverProgress();
         new Thread(() -> {
             final String saveFail = TakeoverManager.savePreviousWallpapers(this);
-            TakeoverManager.setEnabled(this, true);
-            final int result = TakeoverManager.apply(this);
+            final int result;
+            if (saveFail.isEmpty()) {
+                TakeoverManager.setEnabled(this, true);
+                result = TakeoverManager.apply(this);
+            } else {
+                // 存档失败绝不能落地接管：没有存档就没有还原的依据，宁可开不成
+                result = TakeoverManager.RESULT_NONE;
+            }
             runOnUiThread(() -> {
+                dismissTakeoverProgress();
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
                 if (!saveFail.isEmpty()) {
-                    Toast.makeText(this, "存档失败：" + saveFail, Toast.LENGTH_LONG).show();
+                    setupTakeoverSwitch();
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle(R.string.takeover_save_failed_title)
+                            .setMessage(getString(R.string.takeover_save_failed_msg, saveFail))
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                    return;
                 }
                 if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
                     // 普通 App 没有 SET_WALLPAPER_COMPONENT 权限，桌面接管必须由用户在系统界面确认
@@ -1180,6 +1194,43 @@ public class MainActivity extends AppCompatActivity {
                 setupTakeoverSwitch();
             });
         }, "takeover-on").start();
+    }
+
+    /** 开启接管期间的进度弹窗：转圈提示、不可关闭（假进度，存档+落地全程只有几秒）。 */
+    private void showTakeoverProgress() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int pad = (int) (getResources().getDisplayMetrics().density * 20);
+        box.setPadding(pad, pad, pad, pad);
+        ProgressBar bar = new ProgressBar(this);
+        box.addView(bar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView tv = new TextView(this);
+        tv.setText(R.string.takeover_saving);
+        tv.setPadding(pad / 2, 0, 0, 0);
+        tv.setTextColor(getColor(R.color.text_primary));
+        box.addView(tv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        takeoverProgress = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.takeover_progress_title)
+                .setView(box)
+                .setCancelable(false)
+                .create();
+        takeoverProgress.show();
+    }
+
+    /** 收起进度弹窗（容错：Activity 已销毁时 dismiss 会抛，吞掉即可）。 */
+    private void dismissTakeoverProgress() {
+        if (takeoverProgress != null) {
+            try {
+                takeoverProgress.dismiss();
+            } catch (Exception ignored) {
+            }
+            takeoverProgress = null;
+        }
     }
 
     /** 关闭接管：桌面与锁屏都还原成接管前的样子。 */

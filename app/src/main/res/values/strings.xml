@@ -176,6 +176,9 @@
     <string name="takeover_by_app">WallPaper</string>
     <string name="takeover_by_system">系统</string>
     <string name="takeover_saving">正在记录接管前的壁纸…</string>
+    <string name="takeover_progress_title">开启接管</string>
+    <string name="takeover_save_failed_title">无法开启接管</string>
+    <string name="takeover_save_failed_msg">存档失败：%1$s\n\n为保证随时能还原，本次未开启接管。</string>
     <string name="takeover_on">已开启接管，桌面与锁屏由本 App 负责</string>
     <string name="takeover_off">已关闭接管，桌面与锁屏壁纸已还原</string>
     <string name="takeover_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
