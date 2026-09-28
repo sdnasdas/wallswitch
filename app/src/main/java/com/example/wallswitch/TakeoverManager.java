@@ -1,6 +1,5 @@
 package com.example.wallswitch;
 
-import android.Manifest;
 import android.app.WallpaperManager;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -20,6 +19,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,18 +57,11 @@ public final class TakeoverManager {
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "takeover_enabled";
     private static final String KEY_LOCK_ID = "takeover_lock_id";
-    // 存档状态（显式记录，不再靠"相册里有没有文件"推断）：
-    // valid=已存下用户原壁纸可还原；none=接管期间跳过（此刻画面是引擎的，不是用户原壁纸）；
-    // failed=读取/写入失败
-    private static final String KEY_HOME_ARCHIVE = "takeover_home_archive";
-    private static final String KEY_LOCK_ARCHIVE = "takeover_lock_archive";
-    private static final String ARCHIVE_VALID = "valid";
-    private static final String ARCHIVE_NONE = "none";
-    private static final String ARCHIVE_FAILED = "failed";
+    // 可还原的系统壁纸存档：由抽屉「保存当前壁纸」（未接管时）写入相册，
+    // 文件名（时间戳命名）记在这里，供「停用所有桌面库 → 还原系统壁纸」使用
+    private static final String KEY_ARCHIVE_HOME = "takeover_archive_home";
+    private static final String KEY_ARCHIVE_LOCK = "takeover_archive_lock";
 
-    private static final String SAVED_HOME_NAME = "previous_home.png";
-    private static final String SAVED_LOCK_NAME = "previous_lock.png";
-    /** 存档所在公共相册子目录（MediaStore RELATIVE_PATH）。 */
     private static final String SAVED_DIR = Environment.DIRECTORY_PICTURES + "/WallSwitch";
     /** 保存结果日志文件（公共 Download/WallSwitch 目录，供不用 adb 时查看）。 */
     private static final String SAVE_LOG_NAME = "takeover_save_log.txt";
@@ -175,75 +168,112 @@ public final class TakeoverManager {
     }
 
     /**
-     * 打开接管前调用：把「接管前」的桌面与锁屏壁纸各存一份（各自有才存），
-     * 关闭或某范围没有启用库时用来还原。纯 IO，调用方放后台线程。
-     * 每次执行都会把详细结果写入公共 Download/WallSwitch/takeover_save_log.txt。
+     * 抽屉「保存当前壁纸」（智能选源，纯 IO，调用方放后台线程）：
+     * <ul>
+     *   <li>接管中：导出引擎正在显示的那张（库文件已是无损 PNG，直接复制进相册，必定拿得到）</li>
+     *   <li>未接管：备份系统桌面/锁屏壁纸到相册，并记为可还原存档
+     *       （供「停用所有桌面库 → 还原系统壁纸」用）</li>
+     * </ul>
      *
-     * @return 空串表示都存好了；否则是失败范围与原因的描述
+     * @return 空串表示成功；否则是失败描述
      */
-    public static String savePreviousWallpapers(Context ctx) {
-        StringBuilder fail = new StringBuilder();
+    public static String saveCurrentWallpaper(Context ctx) {
         StringBuilder log = new StringBuilder();
-        log.append("存档时间：").append(
-                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()))
-                .append('\n');
-        log.append("权限：READ_MEDIA_IMAGES=")
-                .append(granted(ctx, Manifest.permission.READ_MEDIA_IMAGES))
-                .append("，READ_EXTERNAL_STORAGE=")
-                .append(granted(ctx, Manifest.permission.READ_EXTERNAL_STORAGE))
-                .append('\n');
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            log.append("所有文件访问：").append(Environment.isExternalStorageManager() ? "已开启" : "未开启")
-                    .append('\n');
+        String stamp = stamp();
+        log.append("保存时间：").append(stamp).append('\n');
+        if (isHomeTakenOver(ctx)) {
+            log.append("来源：引擎正在显示的壁纸（接管中）\n");
+            String fail = exportCurrentLibraryImage(ctx, stamp, log);
+            writeSaveLog(ctx, log.toString());
+            return fail;
         }
-        if (!isHomeTakenOver(ctx)) {
-            String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, SAVED_HOME_NAME);
-            if (r.isEmpty()) {
-                setArchiveState(ctx, true, ARCHIVE_VALID);
-                log.append("桌面壁纸：已存\n");
+        log.append("来源：系统壁纸（未接管）\n");
+        StringBuilder fail = new StringBuilder();
+        String homeName = "wallswitch_" + stamp + "_home.png";
+        String r = saveWallpaper(ctx, WallpaperManager.FLAG_SYSTEM, homeName);
+        if (r.isEmpty()) {
+            prefs(ctx).edit().putString(KEY_ARCHIVE_HOME, homeName).apply();
+            log.append("桌面壁纸：已存 ").append(homeName).append('\n');
+        } else {
+            log.append("桌面壁纸：失败 — ").append(r).append('\n');
+            fail.append("桌面：").append(r);
+        }
+        String lockName = "wallswitch_" + stamp + "_lock.png";
+        if (!hasSeparateLockWallpaper(ctx) || isLockTakenOver(ctx)) {
+            // 锁屏跟随桌面（没单独设），或锁屏本来就是我们设的：没有"用户的锁屏壁纸"可备份
+            log.append("锁屏壁纸：跳过（无独立锁屏壁纸）\n");
+        } else {
+            String rl = saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, lockName);
+            if (rl.isEmpty()) {
+                prefs(ctx).edit().putString(KEY_ARCHIVE_LOCK, lockName).apply();
+                log.append("锁屏壁纸：已存 ").append(lockName).append('\n');
             } else {
-                setArchiveState(ctx, true, ARCHIVE_FAILED);
-                log.append("桌面壁纸：失败 — ").append(r).append('\n');
+                log.append("锁屏壁纸：失败 — ").append(rl).append('\n');
                 if (fail.length() > 0) {
                     fail.append("；");
                 }
-                fail.append("桌面壁纸：").append(r);
+                fail.append("锁屏：").append(rl);
             }
-        } else {
-            // 此刻屏上的"壁纸"是引擎画面（可能还是黑屏），不是用户原壁纸，绝不能当存档
-            setArchiveState(ctx, true, ARCHIVE_NONE);
-            log.append("桌面壁纸：跳过（正由本 App 接管）\n");
-        }
-        if (!isLockTakenOver(ctx)) {
-            String r = saveWallpaper(ctx, WallpaperManager.FLAG_LOCK, SAVED_LOCK_NAME);
-            if (r.isEmpty()) {
-                setArchiveState(ctx, false, ARCHIVE_VALID);
-                log.append("锁屏壁纸：已存\n");
-            } else {
-                setArchiveState(ctx, false, ARCHIVE_FAILED);
-                log.append("锁屏壁纸：失败 — ").append(r).append('\n');
-                if (fail.length() > 0) {
-                    fail.append("；");
-                }
-                fail.append("锁屏壁纸：").append(r);
-            }
-        } else {
-            setArchiveState(ctx, false, ARCHIVE_NONE);
-            log.append("锁屏壁纸：跳过（正由本 App 接管）\n");
         }
         writeSaveLog(ctx, log.toString());
         return fail.toString();
     }
 
-    private static String granted(Context ctx, String permission) {
-        return ctx.checkSelfPermission(permission)
-                == android.content.pm.PackageManager.PERMISSION_GRANTED ? "已授予" : "未授予";
+    /** 系统是否单独设过锁屏壁纸（与桌面不同）——只有不同才存在"用户的锁屏壁纸"可备份。 */
+    private static boolean hasSeparateLockWallpaper(Context ctx) {
+        try {
+            WallpaperManager wm = WallpaperManager.getInstance(ctx);
+            return wm.getWallpaperId(WallpaperManager.FLAG_LOCK)
+                    != wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM);
+        } catch (Exception e) {
+            return true;
+        }
     }
 
-    /** 关闭接管：两个范围都还原成接管前的样子（无有效存档的范围不动系统壁纸）。纯 IO，放后台线程。 */
+    /** 接管中保存：把库中当前指针指向的图（=引擎正在显示的）复制进相册。 */
+    private static String exportCurrentLibraryImage(Context ctx, String stamp, StringBuilder log) {
+        LibraryStore.Library lib = LibraryStore.enabledLibForScope(ctx, true);
+        if (lib == null) {
+            return "没有启用中的桌面库";
+        }
+        String id = Switcher.getCurrent(ctx, lib.id, true);
+        File full = id == null ? null : WallpaperStore.getFullFile(ctx, id);
+        if (full == null || !full.exists()) {
+            return "没有正在显示的壁纸可保存";
+        }
+        String name = "wallswitch_" + stamp + ".png";
+        try (InputStream in = new FileInputStream(full)) {
+            boolean written;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                written = saveStreamToAlbum(ctx, name, in);
+            } else {
+                File outFile = new File(ctx.getFilesDir(), name);
+                try (OutputStream out = new FileOutputStream(outFile)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                    written = true;
+                }
+            }
+            log.append(written ? "已导出 " + name + "\n" : "导出失败（MediaStore 未写入）\n");
+            return written ? "" : "写入相册失败";
+        } catch (Exception | OutOfMemoryError e) {
+            log.append("导出异常：").append(e).append('\n');
+            return "导出异常：" + e;
+        }
+    }
+
+    /** 时间戳（文件名用，如 20260928_153005）。 */
+    private static String stamp() {
+        return new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+    }
+
+    /** 激活被用户取消时的收尾：把锁屏还原（有存档才写），意图关掉。纯 IO，放后台线程。 */
     public static int release(Context ctx) {
-        boolean canHome = hasRestorableArchive(ctx, true);
-        boolean canLock = hasRestorableArchive(ctx, false);
+        boolean canHome = hasArchive(ctx, true);
+        boolean canLock = hasArchive(ctx, false);
         boolean okHome = restoreHome(ctx);
         boolean okLock = restoreLock(ctx);
         prefs(ctx).edit().remove(KEY_LOCK_ID).apply();
@@ -261,30 +291,15 @@ public final class TakeoverManager {
         return ok ? RELEASE_RESTORED : RELEASE_FAILED;
     }
 
-    // ==================== 存档状态 ====================
+    // ==================== 可还原存档（由抽屉「保存当前壁纸」写入） ====================
 
-    private static void setArchiveState(Context ctx, boolean forHome, String state) {
-        prefs(ctx).edit().putString(forHome ? KEY_HOME_ARCHIVE : KEY_LOCK_ARCHIVE, state).apply();
+    /** 该范围是否有可还原的系统壁纸存档。 */
+    public static boolean hasArchive(Context ctx, boolean forHome) {
+        return archiveName(ctx, forHome) != null;
     }
 
-    private static String archiveState(Context ctx, boolean forHome) {
-        return prefs(ctx).getString(forHome ? KEY_HOME_ARCHIVE : KEY_LOCK_ARCHIVE, ARCHIVE_NONE);
-    }
-
-    /** 该范围是否存在可还原的存档（仅状态 valid 才算）。 */
-    public static boolean hasRestorableArchive(Context ctx, boolean forHome) {
-        return ARCHIVE_VALID.equals(archiveState(ctx, forHome));
-    }
-
-    /**
-     * 作废两处存档标记：状态纠偏（如系统侧壁纸已被换掉而自动回关）后调用，
-     * 让后续 apply() 不会拿着过期存档去写系统壁纸。
-     */
-    public static void clearArchives(Context ctx) {
-        prefs(ctx).edit()
-                .putString(KEY_HOME_ARCHIVE, ARCHIVE_NONE)
-                .putString(KEY_LOCK_ARCHIVE, ARCHIVE_NONE)
-                .apply();
+    private static String archiveName(Context ctx, boolean forHome) {
+        return prefs(ctx).getString(forHome ? KEY_ARCHIVE_HOME : KEY_ARCHIVE_LOCK, null);
     }
 
     /**
@@ -374,12 +389,13 @@ public final class TakeoverManager {
         }
     }
 
-    /** 该范围可还原的存档位图：状态非 valid、解码失败或内容不可信时返回 null。 */
+    /** 该范围可还原的存档位图：没有存档、解码失败或内容不可信时返回 null。 */
     private static Bitmap restorableBitmap(Context ctx, boolean forHome) {
-        if (!hasRestorableArchive(ctx, forHome)) {
+        String name = archiveName(ctx, forHome);
+        if (name == null) {
             return null;
         }
-        Bitmap bitmap = loadSavedBitmap(ctx, forHome ? SAVED_HOME_NAME : SAVED_LOCK_NAME);
+        Bitmap bitmap = loadSavedBitmap(ctx, name);
         if (bitmap == null) {
             return null;
         }
@@ -579,6 +595,39 @@ public final class TakeoverManager {
         }
 
         return null;
+    }
+
+    /** 把输入流原样写进公共相册（库里的全图已是无损 PNG，接管中保存时直接复制字节）。 */
+    private static boolean saveStreamToAlbum(Context ctx, String name, InputStream in) {
+        ContentResolver cr = ctx.getContentResolver();
+        Uri existing = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, SAVED_DIR);
+        if (existing != null) {
+            try {
+                cr.delete(existing, null, null);
+            } catch (Exception ignored) {
+            }
+        }
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "image/png");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVED_DIR);
+        Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) {
+            return false;
+        }
+        try (OutputStream out = cr.openOutputStream(uri)) {
+            if (out == null) {
+                return false;
+            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static boolean saveToMediaStore(Context ctx, String name, Bitmap bitmap) {

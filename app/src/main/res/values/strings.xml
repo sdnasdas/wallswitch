@@ -175,14 +175,17 @@
     <!-- v3.14：接管情况两行状态的取值只写 WallPaper / 系统，不加机制说明 -->
     <string name="takeover_by_app">WallPaper</string>
     <string name="takeover_by_system">系统</string>
-    <string name="takeover_saving">正在记录接管前的壁纸…</string>
-    <string name="takeover_progress_title">开启接管</string>
-    <string name="takeover_save_failed_title">无法开启接管</string>
-    <string name="takeover_save_failed_msg">存档失败：%1$s\n\n为保证随时能还原，本次未开启接管。</string>
     <string name="takeover_on">已开启接管，桌面与锁屏由本 App 负责</string>
-    <string name="takeover_off_nothing_restored">已关闭接管（接管前的壁纸无法自动还原，请手动设置）</string>
-    <string name="takeover_off">已关闭接管，桌面与锁屏壁纸已还原</string>
-    <string name="takeover_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
+    <string name="takeover_info_title">如何关闭接管</string>
+    <string name="takeover_info_msg">本应用不提供关闭接管的开关（避免误操作导致壁纸状态不一致）。\n\n若要关闭：到系统「设置 → 壁纸」手动选一张其他壁纸即可；更换后此开关会自动同步为关闭。</string>
+    <string name="takeover_info_open_settings">去系统壁纸设置</string>
+
+    <!-- 抽屉：保存当前壁纸（接管中存库里正在显示的那张，未接管存系统壁纸） -->
+    <string name="save_wallpaper_title">保存当前壁纸</string>
+    <string name="save_wallpaper_desc">接管中：保存正在显示的那张；未接管：备份系统壁纸到相册</string>
+    <string name="save_wallpaper_working">正在保存…</string>
+    <string name="save_wallpaper_done">已保存到相册 Pictures/WallSwitch</string>
+    <string name="save_wallpaper_failed">保存失败：%1$s</string>
     <string name="takeover_cancelled">未确认动态壁纸，已关闭接管并还原</string>
     <string name="takeover_pending">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉开关再打开可重试）</string>
     <!-- 范围改为单选下拉后，改范围需二次确认 -->
@@ -231,6 +234,8 @@
     <string name="notif_action_next">下一张</string>
     <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
+    <!-- 预计下次切换时间（静态显示，不走秒：走秒每秒唤醒 SystemUI/桌面，真机实测是持续发热源） -->
+    <string name="next_switch_at">预计下次切换时间：%1$s</string>
 
     <!-- 引擎切换动画：设置页选择过渡效果（淡入/模糊过渡/无） -->
     <string name="transition_effect_title">切换动画</string>

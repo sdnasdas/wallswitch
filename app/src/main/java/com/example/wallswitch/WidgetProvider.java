@@ -8,14 +8,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
 import android.widget.Toast;
 
 /**
- * 桌面小组件：1x1 显示切换图标与「下次定时切换倒计时」，点击直接切换（无确认弹窗）。
+ * 桌面小组件：1x1 显示切换图标与「预计下次切换时间」，点击直接切换（无确认弹窗）。
  * 点击会切换桌面与锁屏各自的启用库（每个范围至多一个启用库）。
+ * 时间用静态文案（不走秒）：走秒 Chronometer 会每秒驱动桌面重绘，真机实测是发热来源之一。
  */
 public class WidgetProvider extends AppWidgetProvider {
 
@@ -117,12 +117,11 @@ public class WidgetProvider extends AppWidgetProvider {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
             views.setViewVisibility(R.id.widget_waiting, View.GONE);
         } else if (trigger > now) {
-            // Chronometer 的 base 用开机计时（elapsedRealtime），这里把墙钟时间换算过去
-            long base = SystemClock.elapsedRealtime() + (trigger - now);
+            // 静态显示预计切换时刻（曾经走秒倒计时：每秒驱动桌面重绘，是持续发热源之一）
             views.setViewVisibility(R.id.widget_waiting, View.GONE);
             views.setViewVisibility(R.id.widget_timer, View.VISIBLE);
-            views.setChronometer(R.id.widget_timer, base, null, true);
-            views.setChronometerCountDown(R.id.widget_timer, true);
+            views.setTextViewText(R.id.widget_timer,
+                    ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
         } else {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
             views.setViewVisibility(R.id.widget_waiting, View.VISIBLE);

@@ -20,12 +20,13 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_widget_switch" />
 
-        <!-- 下次定时切换倒计时（未开启定时切换时隐藏） -->
-        <Chronometer
+        <!-- 预计下次切换时间（静态文案；曾经用走秒 Chronometer，每秒唤醒 SystemUI/桌面，是持续发热源） -->
+        <TextView
             android:id="@+id/widget_timer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
+            android:gravity="center"
             android:textColor="@color/text_primary"
             android:textSize="10sp" />
 

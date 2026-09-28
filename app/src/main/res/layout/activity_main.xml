@@ -170,6 +170,17 @@
                                 android:textColor="@color/text_primary"
                                 android:textSize="16sp" />
 
+                            <!-- 关闭接管的说明入口：App 内不提供关闭开关，点它说明去系统设置怎么关 -->
+                            <ImageView
+                                android:id="@+id/iv_takeover_info"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:layout_marginEnd="8dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:contentDescription="@string/takeover_info_title"
+                                android:src="@android:drawable/ic_dialog_info"
+                                app:tint="@color/text_secondary" />
+
                             <com.google.android.material.materialswitch.MaterialSwitch
                                 android:id="@+id/sw_takeover"
                                 android:layout_width="wrap_content"
@@ -433,6 +444,34 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
                                 android:text="@string/export_now_desc"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <!-- 保存当前壁纸：接管中存库里正在显示的那张，未接管存系统静态壁纸 -->
+                        <LinearLayout
+                            android:id="@+id/row_save_wallpaper"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:orientation="vertical"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/save_wallpaper_title"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="@string/save_wallpaper_desc"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="12sp" />
                         </LinearLayout>

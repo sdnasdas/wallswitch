@@ -101,8 +101,10 @@ public class MainActivity extends AppCompatActivity {
     private LibAdapter libAdapter;
     private WallpaperAdapter wallpaperAdapter;
     private SharedPreferences prefs;
-    /** 开启接管时的不可关闭进度弹窗（showTakeoverProgress/dismissTakeoverProgress 管理）。 */
+    /** 保存当前壁纸时的不可关闭进度弹窗（showProgress/dismissTakeoverProgress 管理）。 */
     private androidx.appcompat.app.AlertDialog takeoverProgress;
+    /** 接管开关"回弹"期间置位：绕开监听，避免把程序性置位当成用户操作 */
+    private boolean revertingTakeoverSwitch;
     // 当前页：true = 壁纸网格页；false = 库列表页（首页）
     private boolean showingWallpapers = false;
     // 壁纸页正在看的库 id（也兼作「上次查看的库」，导入壁纸时的默认目标库）
@@ -376,6 +378,11 @@ public class MainActivity extends AppCompatActivity {
         if (exportNowRow != null) {
             exportNowRow.setOnClickListener(v -> exportAllWallpapers());
         }
+        // 保存当前壁纸：接管中导出引擎正在显示的那张；未接管备份系统壁纸（并记为可还原存档）
+        View saveWallpaperRow = findViewById(R.id.row_save_wallpaper);
+        if (saveWallpaperRow != null) {
+            saveWallpaperRow.setOnClickListener(v -> startSaveCurrentWallpaper());
+        }
         // 切换日志：点开直接读私有目录那个文件弹窗展示（不必先设导出目录再去文件管理器翻）；
         // 长按清空（老版本写的记录是旧格式，换新格式后一般想清掉重记）
         View logRow = findViewById(R.id.row_switch_log);
@@ -617,10 +624,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 存档权限申请结果：授权就继续开启接管，拒绝则放弃开启（没有存档不能安全还原）。 */
+    /** 存档权限申请结果：授权就继续保存当前壁纸，拒绝则放弃。 */
     private void onSavePermissionResult(boolean granted) {
         if (granted) {
-            doEnableTakeover();
+            doSaveCurrentWallpaper();
         } else {
             Toast.makeText(this, "未授权读取壁纸，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
             setupTakeoverSwitch();
@@ -1088,9 +1095,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 「接管壁纸」总开关。开关 = 接管<b>意图</b>；桌面/锁屏各自是否真的被接管，看下面两行系统真值。
-     * 打开时先存下接管前的桌面/锁屏壁纸；桌面接管需要用户在系统选择器里确认一次，
-     * 取消则开关自动回关（见 onReturnFromActivator）。
+     * 「接管壁纸」总开关。开关 = 接管<b>意图</b>，且**只能开不能关**：
+     * 想关闭只能去系统设置换一张壁纸，换掉后下一次同步会自动把开关置为关闭（见下方真值判断）。
+     * 关闭入口移除后不再需要"接管前壁纸"存档 —— 要备份请用抽屉里的「保存当前壁纸」。
      */
     private void setupTakeoverSwitch() {
         CompoundButton sw = findViewById(R.id.sw_takeover);
@@ -1098,96 +1105,65 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         sw.setOnCheckedChangeListener(null);
-        // 开关读系统真值而非只读存储的意图：意图开着、但桌面和锁屏都已不被本 App
-        // 接管（用户在主题商店/系统壁纸功能里换走了壁纸，引擎被顶掉）时，把意图
-        // 同步回关 —— 否则开关显示开启、实际什么都没接管，定时任务也按假状态跑
+        // 与系统同步：意图开着、但桌面和锁屏都已不被本 App 接管
+        // （用户在主题商店/系统壁纸功能里换走了壁纸，引擎被顶掉）→ 开关同步成关闭。
+        // 这是**唯一**的关闭路径：App 内不提供关闭入口（避免误操作把壁纸状态搞乱）
         boolean homeReal = TakeoverManager.isHomeTakenOver(this);
         boolean lockReal = TakeoverManager.isLockTakenOver(this)
                 || TakeoverManager.isLockTakenByEngine(this);
         boolean intent = TakeoverManager.isEnabled(this);
         if (intent && !homeReal && !lockReal) {
             TakeoverManager.setEnabled(this, false);
-            // 纯状态纠偏：同时作废存档标记 —— 否则后续任何 apply() 会拿过期存档
-            // 去写系统壁纸（v3.28 事故：自动回关顺带还原，把黑档写回系统）
-            TakeoverManager.clearArchives(this);
             intent = false;
         }
         sw.setChecked(intent);
         sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (revertingTakeoverSwitch) {
+                return;
+            }
             if (isChecked) {
                 enableTakeover();
             } else {
-                disableTakeover();
+                // 只能开不能关：回弹开关并把关闭方式说清楚（去系统设置换壁纸）。
+                // 回弹要绕开监听自身，否则 setChecked(true) 会被当成"用户又打开"再走一遍开启流程
+                revertingTakeoverSwitch = true;
+                buttonView.setChecked(true);
+                revertingTakeoverSwitch = false;
+                showTakeoverInfoDialog();
             }
         });
+        View info = findViewById(R.id.iv_takeover_info);
+        if (info != null) {
+            info.setOnClickListener(v -> showTakeoverInfoDialog());
+        }
         refreshTakeoverStatus();
     }
 
-    /** 打开接管：先存接管前的壁纸，再落地（桌面可能需要用户在系统选择器里确认一次）。 */
+    /** 关闭接管的唯一途径说明（开关回弹时与点感叹号图标时共用）。 */
+    private void showTakeoverInfoDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.takeover_info_title)
+                .setMessage(R.string.takeover_info_msg)
+                .setPositiveButton(R.string.takeover_info_open_settings, (d, which) -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_SET_WALLPAPER));
+                    } catch (Exception ignored) {
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /**
+     * 打开接管：直接落地意图并拉起系统选择器确认激活引擎（App 不提供关闭入口，
+     * 所以不再需要"接管前壁纸"存档；要备份系统壁纸请用抽屉里的「保存当前壁纸」）。
+     */
     private void enableTakeover() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
-            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得（v3.28 实验证实必需）
-            if (!Environment.isExternalStorageManager()) {
-                requestAllFilesAccess();
-                return;
-            }
-            doEnableTakeover();
-            return;
-        }
-        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-            savePermLauncher.launch(perm);
-            return;
-        }
-        doEnableTakeover();
-    }
-
-    /** 跳系统设置页开「所有文件访问」；部分 ROM 不支持直达本 App 时退回总列表页。 */
-    private void requestAllFilesAccess() {
-        Toast.makeText(this, "需要「所有文件访问」权限来备份当前壁纸，请允许后返回", Toast.LENGTH_LONG).show();
-        try {
-            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
-        } catch (Exception e) {
-            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-        }
-    }
-
-    /** 从「所有文件访问」设置页返回：已开启就继续开启接管，没开就取消。 */
-    private void onAllFilesAccessResult() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            doEnableTakeover();
-        } else {
-            Toast.makeText(this, "未开启「所有文件访问」，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
-            setupTakeoverSwitch();
-        }
-    }
-
-    private void doEnableTakeover() {
-        showTakeoverProgress();
         new Thread(() -> {
-            final String saveFail = TakeoverManager.savePreviousWallpapers(this);
-            final int result;
-            if (saveFail.isEmpty()) {
-                TakeoverManager.setEnabled(this, true);
-                result = TakeoverManager.apply(this);
-            } else {
-                // 存档失败绝不能落地接管：没有存档就没有还原的依据，宁可开不成
-                result = TakeoverManager.RESULT_NONE;
-            }
+            TakeoverManager.setEnabled(this, true);
+            final int result = TakeoverManager.apply(this);
             runOnUiThread(() -> {
-                dismissTakeoverProgress();
                 if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                if (!saveFail.isEmpty()) {
-                    setupTakeoverSwitch();
-                    new MaterialAlertDialogBuilder(this)
-                            .setTitle(R.string.takeover_save_failed_title)
-                            .setMessage(getString(R.string.takeover_save_failed_msg, saveFail))
-                            .setPositiveButton(android.R.string.ok, null)
-                            .show();
                     return;
                 }
                 if (result == TakeoverManager.RESULT_NEED_ACTIVATION) {
@@ -1202,8 +1178,73 @@ public class MainActivity extends AppCompatActivity {
         }, "takeover-on").start();
     }
 
-    /** 开启接管期间的进度弹窗：转圈提示、不可关闭（假进度，存档+落地全程只有几秒）。 */
-    private void showTakeoverProgress() {
+    /** 跳系统设置页开「所有文件访问」；部分 ROM 不支持直达本 App 时退回总列表页。 */
+    private void requestAllFilesAccess() {
+        Toast.makeText(this, "需要「所有文件访问」权限来读取当前系统壁纸，请允许后返回", Toast.LENGTH_LONG).show();
+        try {
+            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        }
+    }
+
+    /** 从「所有文件访问」设置页返回：已开启就继续保存当前壁纸，没开就取消。 */
+    private void onAllFilesAccessResult() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            doSaveCurrentWallpaper();
+        } else {
+            Toast.makeText(this, "未开启「所有文件访问」，无法读取当前系统壁纸", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * 抽屉「保存当前壁纸」入口：接管中不需要权限（图就在库里），
+     * 未接管要读系统壁纸，需要「所有文件访问」（Android 11+）/ 读存储权限（更低版本）。
+     */
+    private void startSaveCurrentWallpaper() {
+        if (TakeoverManager.isHomeTakenOver(this)) {
+            doSaveCurrentWallpaper();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
+            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得（v3.28 实验证实必需）
+            if (!Environment.isExternalStorageManager()) {
+                requestAllFilesAccess();
+                return;
+            }
+            doSaveCurrentWallpaper();
+            return;
+        }
+        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
+        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+            savePermLauncher.launch(perm);
+            return;
+        }
+        doSaveCurrentWallpaper();
+    }
+
+    /** 后台执行保存，全程盖不可关闭的进度弹窗，结果用 Toast 告知。 */
+    private void doSaveCurrentWallpaper() {
+        showProgress(R.string.save_wallpaper_title, R.string.save_wallpaper_working);
+        new Thread(() -> {
+            final String fail = TakeoverManager.saveCurrentWallpaper(this);
+            runOnUiThread(() -> {
+                dismissTakeoverProgress();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                CharSequence msg = fail.isEmpty()
+                        ? getString(R.string.save_wallpaper_done)
+                        : getString(R.string.save_wallpaper_failed, fail);
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+            });
+        }, "save-wallpaper").start();
+    }
+
+    /** 进度弹窗：转圈提示、不可关闭（假进度；存档/导出全程只有几秒）。 */
+    private void showProgress(int titleRes, int msgRes) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.HORIZONTAL);
         box.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -1214,14 +1255,14 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         TextView tv = new TextView(this);
-        tv.setText(R.string.takeover_saving);
+        tv.setText(msgRes);
         tv.setPadding(pad / 2, 0, 0, 0);
         tv.setTextColor(getColor(R.color.text_primary));
         box.addView(tv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         takeoverProgress = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.takeover_progress_title)
+                .setTitle(titleRes)
                 .setView(box)
                 .setCancelable(false)
                 .create();
@@ -1238,31 +1279,6 @@ public class MainActivity extends AppCompatActivity {
             takeoverProgress = null;
         }
     }
-
-    /** 关闭接管：桌面与锁屏都还原成接管前的样子（无有效存档的范围不动系统壁纸）。 */
-    private void disableTakeover() {
-        new Thread(() -> {
-            TakeoverManager.setEnabled(this, false);
-            final int result = TakeoverManager.release(this);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                int msg;
-                if (result == TakeoverManager.RELEASE_RESTORED) {
-                    msg = R.string.takeover_off;
-                } else if (result == TakeoverManager.RELEASE_NOTHING) {
-                    // 没有可还原的存档：如实告知（别让用户以为壁纸已还原成原样）
-                    msg = R.string.takeover_off_nothing_restored;
-                } else {
-                    msg = R.string.takeover_restore_failed;
-                }
-                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-                setupTakeoverSwitch();
-            });
-        }, "takeover-off").start();
-    }
-
 
     /** 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关），并把已做的改动还原。 */
     private void onReturnFromActivator() {

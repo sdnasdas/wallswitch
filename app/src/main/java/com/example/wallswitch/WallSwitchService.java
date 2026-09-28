@@ -589,7 +589,9 @@ public class WallSwitchService extends WallpaperService {
                     + "缓存命中(零解码): " + perfCacheHits + " 次\n"
                     + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
                     + "故障诊断: " + (lastFaultDiag != null ? lastFaultDiag : "无（当前正常显示中）") + "\n"
-                    + "判读: 绘制次数远大于解码且解码长期不增长 = 引擎读不到当前壁纸（异常态）\n";
+                    + (lastFaultDiag != null
+                    ? "判读: 引擎读不到当前壁纸（异常态）\n"
+                    : "判读: 正常（解码次数应≈切换次数，缓存命中应远多于解码）\n");
             writePublicText(ctx, "engine_stats.txt", content);
         } catch (Exception ignored) {
         }

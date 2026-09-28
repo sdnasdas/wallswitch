@@ -8,7 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
 
@@ -25,9 +24,9 @@ import java.util.concurrent.Executors;
  * 而且伪装「正在播放」换进度条还会被系统换成自带暂停键的播放模板、吃掉按钮行。
  * 自绘布局零冲突、按钮常显，观感随深浅色（复用应用自己的 text/divider 颜色）。
  *
- * 倒计时用 Chronometer 控件：base 换算与桌面小组件一致（elapsedRealtime），
- * 由 SystemUI 渲染走秒，不耗电、进程被杀也在走；到点未执行（Doze 推迟）时
- * 改显「待切换」，与小组件的处理一致。
+ * 下次切换时间用**静态文案**（「预计下次切换时间：15:42」），由切换/改设置时刷新。
+ * 早期用走秒 Chronometer：真机实测它每秒唤醒 SystemUI 重绘通知，是持续发热的主要来源，已废弃；
+ * 到点未执行（Doze 推迟）时改显「待切换」，与小组件一致。
  *
  * 为什么常驻（setOngoing）：当前壁纸与切换节奏是用户想随时瞄一眼的状态，
  * 混在「到点通知」的历次记录里会被冲掉；ongoing 不会被一键清理清掉
@@ -157,18 +156,16 @@ public class StatusNotifier {
         } else {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        // 倒计时：Chronometer 的 base 用开机计时（elapsedRealtime），与小组件换算一致；
-        // 通知的 when 走墙钟是模板字段，RemoteViews 自绘 Chronometer 必须换算
+        // 下次切换时间：静态文案（曾经用走秒 Chronometer —— 每秒唤醒 SystemUI 重绘通知，
+        // 真机实测是持续发热的主要来源）。到点未执行（Doze/省电推迟）时改显「待切换」。
         long trigger = TimerScheduler.libTrigger(ctx, lib.id);
         long now = System.currentTimeMillis();
         if (trigger > now) {
-            long base = SystemClock.elapsedRealtime() + (trigger - now);
             views.setViewVisibility(R.id.notif_timer, View.VISIBLE);
             views.setViewVisibility(R.id.notif_waiting, View.GONE);
-            views.setChronometer(R.id.notif_timer, base, null, true);
-            views.setChronometerCountDown(R.id.notif_timer, true);
+            views.setTextViewText(R.id.notif_timer,
+                    ctx.getString(R.string.next_switch_at, TimerScheduler.clockText(ctx, trigger)));
         } else {
-            // 到点未执行（Doze/省电推迟）：倒计时已失效，改显「待切换」，与小组件一致
             views.setViewVisibility(R.id.notif_timer, View.GONE);
             views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
         }

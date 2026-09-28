@@ -54,6 +54,11 @@ public class TimerScheduler {
         return true;
     }
 
+    /** 触发时刻的时钟文案（如 15:42），跟随系统的 12/24 小时制设置。 */
+    public static String clockText(Context ctx, long millis) {
+        return android.text.format.DateFormat.getTimeFormat(ctx).format(new java.util.Date(millis));
+    }
+
     /** 该库的定时间隔（秒）：取系统下限（15 分钟）与库设置的较大值，兼容旧版本的秒级历史值。 */
     private static int intervalSeconds(LibraryStore.Library lib) {
         int seconds = lib.intervalSeconds > 0 ? lib.intervalSeconds : LibraryStore.DEFAULT_INTERVAL_SECONDS;
