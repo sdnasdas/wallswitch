@@ -22,6 +22,9 @@ public class ItemTouchHelper {
     public void attachToRecyclerView(RecyclerView recyclerView) {
     }
 
+    public void startDrag(RecyclerView.ViewHolder viewHolder) {
+    }
+
     /** 桩：真实类为 androidx.recyclerview.widget.ItemTouchHelper.Callback。 */
     public abstract static class Callback {
 

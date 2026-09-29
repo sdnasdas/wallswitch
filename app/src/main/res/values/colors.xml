@@ -11,4 +11,7 @@
     <color name="text_secondary">#5F6368</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
+    <!-- 范围槽位卡片专用：浅品牌色底 + 25% 品牌描边，和白色库行拉开层级 -->
+    <color name="slot_bg">#EAF3FC</color>
+    <color name="slot_stroke">#401E88E5</color>
 </resources>

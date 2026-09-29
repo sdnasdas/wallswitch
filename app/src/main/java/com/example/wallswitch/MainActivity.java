@@ -127,11 +127,18 @@ public class MainActivity extends AppCompatActivity {
     private View slotCards;
     private TextView tvSlotHomeName, tvSlotHomeDesc, tvSlotLockName, tvSlotLockDesc;
     private ImageView imgSlotHomeThumb, imgSlotLockThumb;
-    // 拖拽落位到卡片：两张卡片本体 + 手指最后的窗口 Y + 正在拖的库 id + 当前高亮的那张
     private View cardSlotHome, cardSlotLock;
-    private float dragTouchRawY = -1f;
-    private String draggingLibId;
     private View highlightedSlotCard;
+    // 库行排序拖拽（长按行的空白处手动 startDrag 起来的那套）
+    private ItemTouchHelper libDragHelper;
+    // 长按头像拖出的浮动头像：跟随手指，松手落在范围卡片上 = 把该库设成那个范围
+    private ImageView avatarFloat;
+    private View avatarOrigin;
+    private String avatarDragLibId;
+    private float avatarGrabX, avatarGrabY, avatarLastRawX, avatarLastRawY;
+    private int[] avatarContentLoc;
+    // 拖起时缓存的 [桌面, 锁屏] 窗口矩形（left, top, right, bottom），避免每帧查位置
+    private int[][] slotRects;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -346,7 +353,7 @@ public class MainActivity extends AppCompatActivity {
         switchAndToast(lib, forHome);
     }
 
-    /** 刷新两张范围卡片：未设置（范围图标）/ 已设置（当前壁纸缩略图 + 库名 + 模式·间隔）。 */
+    /** 刷新两张范围卡片：范围名是固定小标题，下面两行跟着槽位走（未设置 / 库名 + 模式·间隔）。 */
     private void refreshSlotCards() {
         if (slotCards == null) {
             return;
@@ -360,23 +367,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void bindSlotCard(boolean forHome, TextView name, TextView desc, ImageView thumb) {
+        int placeholder = forHome ? R.drawable.ic_home : R.drawable.ic_lock;
         LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
         if (lib == null) {
-            name.setText(getString(forHome ? R.string.slot_home_title : R.string.slot_lock_title));
+            name.setText(R.string.slot_none_name);
             desc.setText(R.string.slot_unset);
-            bindThumb(thumb, null, forHome ? R.drawable.ic_home : R.drawable.ic_lock);
+            bindThumb(thumb, null, placeholder, 30);
             return;
         }
         name.setText(lib.name);
         desc.setText(slotIntervalDisplay(forHome));
-        bindThumb(thumb, slotThumbId(lib.id, forHome), forHome ? R.drawable.ic_home : R.drawable.ic_lock);
+        bindThumb(thumb, slotThumbId(lib.id, forHome), placeholder, 30);
     }
 
     /**
      * 缩略图位统一绑定：有图清掉占位用的内边距与着色（不清会把真图按 SRC_IN 染成剪影），
-     * 没图退回指定线性图标。回收复用时两条路径都显式设置，状态才不串。
+     * 没图退回指定线性图标（按 padDp 居中）。回收复用时两条路径都显式设置，状态才不串。
      */
-    private void bindThumb(ImageView view, String wallpaperId, int placeholderRes) {
+    private void bindThumb(ImageView view, String wallpaperId, int placeholderRes, int padDp) {
         if (view == null) {
             return;
         }
@@ -386,7 +394,7 @@ public class MainActivity extends AppCompatActivity {
             view.setImageTintList(null);
             view.setImageBitmap(bmp);
         } else {
-            int pad = (int) (10 * getResources().getDisplayMetrics().density);
+            int pad = (int) (padDp * getResources().getDisplayMetrics().density);
             view.setPadding(pad, pad, pad, pad);
             view.setImageTintList(ColorStateList.valueOf(getColor(R.color.text_secondary)));
             view.setImageResource(placeholderRes);
@@ -901,17 +909,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 库行长按拖拽：两种落位方式 ——
-     * 1) 在列表内上下挪位 = 排序，落位后把新顺序写回 libraries.json；
-     * 2) 拖到顶部某张范围卡片上松手 = 把该库设成那个范围的壁纸库（走二次确认）。
-     * 壁纸页 / 删除态不启用拖拽。
+     * 库行拖拽（v3.61 起分两种起手，都由调用方手动 startDrag，不用 ItemTouchHelper 的自动长按）：
+     * 1) 长按行的空白/文字区 = 排序，落位后把新顺序写回 libraries.json；
+     * 2) 长按行的头像 = 拖出半透明浮动头像，松手落在哪张范围卡片上就把该库设成那个范围。
+     * 分工靠「谁是这次的触摸目标」实现：头像自己吃掉 DOWN，长按就只触发它的回调，不会连带触发行排序。
      */
     private void setupLibDrag() {
-        ItemTouchHelper helper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
+        libDragHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
                 ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
             @Override
             public boolean isLongPressDragEnabled() {
-                return !showingWallpapers && !libAdapter.isDeleteMode();
+                // 关掉自动长按：排序改由库行的长按回调手动 startDrag，头像那条长按走浮动头像
+                return false;
             }
 
             @Override
@@ -925,37 +934,11 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onSelectedChanged(RecyclerView.ViewHolder viewHolder, int actionState) {
-                super.onSelectedChanged(viewHolder, actionState);
-                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
-                    draggingLibId = libAdapter.libIdAt(viewHolder.getBindingAdapterPosition());
-                    // 只在按住拖动这一会儿放开裁剪，让被拖的行能爬到范围卡片上全程跟手；
-                    // 平时保持裁剪，否则列表滚动时行会糊到卡片和顶栏上
-                    setListClipChildren(false);
-                } else if (actionState == ItemTouchHelper.ACTION_STATE_IDLE) {
-                    draggingLibId = null;
-                    dragTouchRawY = -1f;
-                    setListClipChildren(true);
-                }
-            }
-
-            @Override
             public void clearView(@NonNull RecyclerView recyclerView,
                                   @NonNull RecyclerView.ViewHolder viewHolder) {
                 super.clearView(recyclerView, viewHolder);
-                if (showingWallpapers) {
-                    return;
-                }
-                String libId = draggingLibId;
-                float dropY = dragTouchRawY;
-                draggingLibId = null;
-                highlightSlotCard(null);
-                // 落位动画一开始就恢复裁剪（IDLE 也会再来一次，双保险：万一没走到就把裁剪一直开着）
-                dragTouchRawY = -1f;
-                setListClipChildren(true);
-                LibraryStore.reorder(MainActivity.this, libAdapter.currentIds());
-                if (libId != null) {
-                    assignSlotByDrop(libId, dropY);
+                if (!showingWallpapers) {
+                    LibraryStore.reorder(MainActivity.this, libAdapter.currentIds());
                 }
             }
 
@@ -963,28 +946,65 @@ public class MainActivity extends AppCompatActivity {
             public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
             }
         });
-        helper.attachToRecyclerView(recycler);
-        // ItemTouchHelper 不对外暴露触点坐标，而列表内的行永远拖不出 RecyclerView 边界（碰不到卡片矩形），
-        // 所以自己旁听一份事件流拿手指位置：返回 false 不消费，拖拽仍由 ItemTouchHelper 全权处理。
-        recycler.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
-            @Override
-            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                if (draggingLibId == null) {
-                    return false;
-                }
-                if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                    dragTouchRawY = e.getRawY();
-                    highlightSlotCard(slotCardAt(dragTouchRawY));
-                }
-                return false;
-            }
-        });
+        libDragHelper.attachToRecyclerView(recycler);
     }
 
-    /** 松手点落在哪张范围卡片上：命中就弹二次确认（与在弹窗里选库同一条落库路径）。 */
-    private void assignSlotByDrop(String libId, float rawY) {
-        View card = slotCardAt(rawY);
-        if (card == null) {
+    /**
+     * 长按头像起手：把头像复制成一个半透明浮动图钉在内容层上，跟着手指走；
+     * 原头像压暗表示「被拿起来了」，命中的范围卡片降透明度表示「松手就给我」。
+     */
+    private void startAvatarDrag(LibHolder holder, String libId) {
+        Drawable icon = holder.imgThumb.getDrawable();
+        if (icon == null || libId == null) {
+            return;
+        }
+        ViewGroup content = findViewById(android.R.id.content);
+        int[] thumbLoc = new int[2];
+        int[] contentLoc = new int[2];
+        holder.imgThumb.getLocationInWindow(thumbLoc);
+        content.getLocationInWindow(contentLoc);
+        avatarContentLoc = contentLoc;
+        avatarOrigin = holder.imgThumb;
+        avatarOrigin.setAlpha(0.3f);
+        avatarDragLibId = libId;
+        avatarGrabX = avatarLastRawX - thumbLoc[0];
+        avatarGrabY = avatarLastRawY - thumbLoc[1];
+        ImageView floatView = new ImageView(this);
+        floatView.setImageDrawable(icon);
+        floatView.setAlpha(0.75f);
+        content.addView(floatView, new ViewGroup.LayoutParams(
+                holder.imgThumb.getWidth(), holder.imgThumb.getHeight()));
+        floatView.setX(thumbLoc[0] - contentLoc[0]);
+        floatView.setY(thumbLoc[1] - contentLoc[1]);
+        avatarFloat = floatView;
+        cacheSlotCardRects();
+        // 拖拽期间别让列表抢走手势：否则手指一动就是滚列表，浮动头像会断流
+        recycler.requestDisallowInterceptTouchEvent(true);
+    }
+
+    /** 浮动头像跟随手指（只在拖起来之后调用）。 */
+    private void moveAvatarFloat(float rawX, float rawY) {
+        avatarFloat.setX(rawX - avatarContentLoc[0] - avatarGrabX);
+        avatarFloat.setY(rawY - avatarContentLoc[1] - avatarGrabY);
+        highlightSlotCard(slotCardAt(rawX, rawY));
+    }
+
+    /** 松手收尾：命中卡片就走二次确认，然后清掉浮动头像与各种临时状态。 */
+    private void finishAvatarDrag(boolean commit, float rawX, float rawY) {
+        String libId = avatarDragLibId;
+        View card = commit ? slotCardAt(rawX, rawY) : null;
+        if (avatarFloat != null) {
+            ((ViewGroup) avatarFloat.getParent()).removeView(avatarFloat);
+            avatarFloat = null;
+        }
+        if (avatarOrigin != null) {
+            avatarOrigin.setAlpha(1f);
+            avatarOrigin = null;
+        }
+        avatarDragLibId = null;
+        highlightSlotCard(null);
+        recycler.requestDisallowInterceptTouchEvent(false);
+        if (card == null || libId == null) {
             return;
         }
         boolean forHome = card == cardSlotHome;
@@ -995,24 +1015,32 @@ public class MainActivity extends AppCompatActivity {
         confirmSlotLib(forHome, libId, null);
     }
 
-    /** 按窗口 Y 找命中的范围卡片（拖拽期间卡片在列表上方，只需比纵向区间）。 */
-    private View slotCardAt(float rawY) {
-        if (rawY < 0) {
-            return null;
-        }
-        if (inVerticalBounds(cardSlotHome, rawY)) {
-            return cardSlotHome;
-        }
-        return inVerticalBounds(cardSlotLock, rawY) ? cardSlotLock : null;
+    /** 拖起来时缓存两张卡片的窗口矩形，之后每帧只比数值，不再逐事件查位置。 */
+    private void cacheSlotCardRects() {
+        slotRects = new int[][]{cardWindowRect(cardSlotHome), cardWindowRect(cardSlotLock)};
     }
 
-    private boolean inVerticalBounds(View view, float rawY) {
-        if (view == null || view.getVisibility() != View.VISIBLE) {
-            return false;
+    private int[] cardWindowRect(View card) {
+        if (card == null || card.getVisibility() != View.VISIBLE) {
+            return null;
         }
         int[] loc = new int[2];
-        view.getLocationInWindow(loc);
-        return rawY >= loc[1] && rawY <= loc[1] + view.getHeight();
+        card.getLocationInWindow(loc);
+        return new int[]{loc[0], loc[1], loc[0] + card.getWidth(), loc[1] + card.getHeight()};
+    }
+
+    /** 手指落点命中哪张范围卡片（浮动头像松手时用）。 */
+    private View slotCardAt(float rawX, float rawY) {
+        if (slotRects == null) {
+            return null;
+        }
+        for (int i = 0; i < slotRects.length; i++) {
+            int[] r = slotRects[i];
+            if (r != null && rawX >= r[0] && rawX <= r[2] && rawY >= r[1] && rawY <= r[3]) {
+                return i == 0 ? cardSlotHome : cardSlotLock;
+            }
+        }
+        return null;
     }
 
     /** 拖到卡片上时给该卡片半透明高亮（只在目标变化时改属性，别每个 MOVE 事件都刷一遍）。 */
@@ -1026,22 +1054,6 @@ public class MainActivity extends AppCompatActivity {
         highlightedSlotCard = card;
         if (card != null) {
             card.setAlpha(0.6f);
-        }
-    }
-
-    /**
-     * 拖拽期间临时放开列表裁剪：被拖的行是 RecyclerView 的孩子，而「行 → RecyclerView →
-     * FrameLayout → main_root」这条链上每一层都会裁剪自己的孩子，只放开一层仍会被上层切掉，
-     * 所以三层一起改。只动 clipChildren，不碰 clipToPadding（列表底部那 88dp 留白靠它才让行画进去）。
-     */
-    private void setListClipChildren(boolean clip) {
-        View v = recycler;
-        for (int i = 0; i < 3 && v != null; i++) {
-            if (v instanceof ViewGroup) {
-                ((ViewGroup) v).setClipChildren(clip);
-            }
-            Object parent = v.getParent();
-            v = parent instanceof View ? (View) parent : null;
         }
     }
 
@@ -1161,11 +1173,11 @@ public class MainActivity extends AppCompatActivity {
         LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
         if (lib == null) {
             row.setText(R.string.slot_lib_none);
-            bindThumb(thumb, null, R.drawable.ic_tab_wallpaper);
+            bindThumb(thumb, null, R.drawable.ic_tab_wallpaper, 10);
             return;
         }
         row.setText(lib.name);
-        bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper);
+        bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 10);
     }
 
     /** 库选择列表：第 0 项「不切换」（清空本范围），其余带各自缩略图；当前占位库打勾。 */
@@ -2214,7 +2226,7 @@ public class MainActivity extends AppCompatActivity {
             if (position == 0) {
                 name.setText(R.string.slot_lib_none);
                 sub.setText(R.string.slot_none_sub);
-                bindThumb(thumb, null, R.drawable.ic_tab_wallpaper);
+                bindThumb(thumb, null, R.drawable.ic_tab_wallpaper, 10);
                 check.setVisibility(liveId == null ? View.VISIBLE : View.INVISIBLE);
                 return row;
             }
@@ -2222,7 +2234,7 @@ public class MainActivity extends AppCompatActivity {
             name.setText(lib.name);
             sub.setText(getString(R.string.lib_count,
                     WallpaperStore.loadByLib(MainActivity.this, lib.id).size()));
-            bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper);
+            bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 10);
             check.setVisibility(lib.id.equals(liveId) ? View.VISIBLE : View.INVISIBLE);
             return row;
         }
@@ -2333,11 +2345,6 @@ public class MainActivity extends AppCompatActivity {
             return ids;
         }
 
-        /** 某个列表位置的库 id（拖拽起手时记住拖的是哪个库）；越界返回 null。 */
-        String libIdAt(int position) {
-            return position < 0 || position >= rows.size() ? null : rows.get(position).lib.id;
-        }
-
         /** 拖拽换位：只动内存与动画，落盘由 ItemTouchHelper 的 clearView 统一做。 */
         boolean move(int from, int to) {
             if (from < 0 || to < 0 || from >= rows.size() || to >= rows.size()) {
@@ -2440,7 +2447,45 @@ public class MainActivity extends AppCompatActivity {
                 notifyItemChanged(holder.getBindingAdapterPosition());
                 updateLibDeleteToolbar();
             });
-            // 长按不设监听：让位给 ItemTouchHelper 的长按拖拽排序
+            // 长按行的空白/文字区 = 排序拖拽（ItemTouchHelper 的自动长按已关，这里手动起手）
+            holder.card.setOnLongClickListener(v -> {
+                if (deleteMode || showingWallpapers) {
+                    return false;
+                }
+                libDragHelper.startDrag(holder);
+                return true;
+            });
+            // 长按头像 = 拖出浮动头像去设范围；头像自己吃掉点击，所以点头像仍是进该库的壁纸页
+            holder.imgThumb.setOnClickListener(v -> {
+                if (!deleteMode) {
+                    showWallpaperPage(lib.id);
+                }
+            });
+            holder.imgThumb.setOnLongClickListener(v -> {
+                if (deleteMode) {
+                    return false;
+                }
+                startAvatarDrag(holder, lib.id);
+                return true;
+            });
+            // 头像吃掉 DOWN，所以这次手势的 MOVE/UP 都会回到这里 —— 浮动头像就靠它跟手
+            holder.imgThumb.setOnTouchListener((v, event) -> {
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    avatarLastRawX = event.getRawX();
+                    avatarLastRawY = event.getRawY();
+                } else if (action == MotionEvent.ACTION_MOVE && avatarFloat != null) {
+                    avatarLastRawX = event.getRawX();
+                    avatarLastRawY = event.getRawY();
+                    moveAvatarFloat(avatarLastRawX, avatarLastRawY);
+                } else if (avatarFloat != null && (action == MotionEvent.ACTION_UP
+                        || action == MotionEvent.ACTION_CANCEL)) {
+                    finishAvatarDrag(action == MotionEvent.ACTION_UP,
+                            event.getRawX(), event.getRawY());
+                    return true;    // 拖过了就不算点击，别把壁纸页顶出来
+                }
+                return false;
+            });
         }
 
         @Override

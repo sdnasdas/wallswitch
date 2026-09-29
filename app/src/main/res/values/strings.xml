@@ -201,7 +201,8 @@
     <!-- v3.60 范围槽位卡片：桌面/锁屏各自绑定一个库，库不再有启用/范围属性 -->
     <string name="slot_home_title">桌面壁纸库</string>
     <string name="slot_lock_title">锁屏壁纸库</string>
-    <string name="slot_unset">未设置 · 点按选择，也可把库拖上来</string>
+    <string name="slot_unset">点按选择，或长按库的头像拖到这里</string>
+    <string name="slot_none_name">未设置</string>
     <string name="slot_switch_now">马上切换一张</string>
     <string name="slot_settings_desc">设置本范围的库/模式/间隔</string>
     <string name="slot_none_toast">先点齿轮给这个范围选一个壁纸库</string>

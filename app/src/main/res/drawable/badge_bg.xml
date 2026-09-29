@@ -2,6 +2,6 @@
 <!-- 库行范围标签的小圆角背景 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/divider" />
+    <solid android:color="@color/slot_bg" />
     <corners android:radius="6dp" />
 </shape>
