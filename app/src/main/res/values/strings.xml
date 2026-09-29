@@ -205,12 +205,7 @@
     <string name="slot_none_name">未设置</string>
     <string name="slot_help_desc">操作指南</string>
     <string name="slot_guide_title">这张卡片怎么用</string>
-    <string name="slot_guide_msg">左右滑动卡片：在「桌面壁纸库」与「锁屏壁纸库」之间切换，可以一直滑
-
-单击卡片：设置这一面的壁纸库、切换模式与间隔
-双击卡片：马上切一张
-
-长按下面壁纸库的头像，拖到卡片上：把这个库设成当前显示的这一面（要设另一面，先滑到那一面再拖）</string>
+    <string name="slot_guide_msg">左右滑动可切换桌面 / 锁屏，单击修改配置、双击手动触发切换</string>
     <string name="slot_none_toast">先单击卡片给这个范围选一个壁纸库</string>
     <string name="slot_already_set">这个范围已经是该库了</string>
     <string name="slot_lib_label">壁纸库</string>

@@ -79,12 +79,20 @@ public class WidgetProvider extends AppWidgetProvider {
         LibraryStore.Library home = LibraryStore.slotLib(app, true);
         if (home != null) {
             attempted = true;
-            ok |= Switcher.next(app, home.id, true);
+            boolean switched = Switcher.next(app, home.id, true);
+            ok |= switched;
+            if (switched) {
+                TimerScheduler.restartScope(app, true);
+            }
         }
         LibraryStore.Library lock = LibraryStore.slotLib(app, false);
         if (lock != null) {
             attempted = true;
-            ok |= Switcher.next(app, lock.id, false);
+            boolean switched = Switcher.next(app, lock.id, false);
+            ok |= switched;
+            if (switched) {
+                TimerScheduler.restartScope(app, false);
+            }
         }
         // 全部失败时提示具体原因（此前静默失败，用户会误以为已切换）；Toast 必须回到主线程弹
         if (attempted && !ok) {
@@ -92,7 +100,11 @@ public class WidgetProvider extends AppWidgetProvider {
             new Handler(Looper.getMainLooper()).post(() ->
                     Toast.makeText(app, reason, Toast.LENGTH_LONG).show());
         }
-        updateWidget(app);
+        // 切换成功时 restartScope 已经刷过小组件（顺手把新倒计时带上去）；
+        // 这里只补一次「谁都没切成」的情形，避免点一下重绘两遍
+        if (!ok) {
+            updateWidget(app);
+        }
     }
 
     /** 渲染所有已放置的小组件（切换完成后由 Switcher 调用刷新缩略图）。 */

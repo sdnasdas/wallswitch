@@ -320,8 +320,9 @@ public class Switcher {
             if (deleted) {
                 // 指针不能指向已删的图；还在屏上则推进到下一张（候选集已不含它）
                 prefs.edit().remove(progressBase(libId, forHome) + "_current").apply();
-                if (onScreen) {
-                    next(ctx, libId, forHome);
+                // 真的推进上屏了一张，就等于替用户切了一次：这一轮的定时从此刻重新起算
+                if (onScreen && next(ctx, libId, forHome)) {
+                    TimerScheduler.restartScope(ctx, forHome);
                 }
             } else if (onScreen) {
                 // 覆盖：指针不变，按新文件内容重新上屏

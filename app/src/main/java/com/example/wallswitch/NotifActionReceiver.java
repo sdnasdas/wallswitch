@@ -40,6 +40,10 @@ public class NotifActionReceiver extends BroadcastReceiver {
                 if (lib != null) {
                     attempted = true;
                     ok = prev ? Switcher.prev(app, lib.id, true) : Switcher.next(app, lib.id, true);
+                    if (ok) {
+                        // 通知按钮也算一次手动切换：桌面这轮的定时从此刻重新起算
+                        TimerScheduler.restartScope(app, true);
+                    }
                 }
                 if (attempted && !ok && Switcher.lastError() != null) {
                     // lastError 为 null 表示无副作用的空操作（如随机模式已无可回退的上一张），不弹提示

@@ -1,6 +1,7 @@
 package com.example.wallswitch;
 
 import android.Manifest;
+import android.animation.TimeInterpolator;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -33,6 +34,8 @@ import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewConfiguration;
+import android.view.animation.PathInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.Button;
@@ -146,8 +149,14 @@ public class MainActivity extends AppCompatActivity {
     private int[] avatarContentLoc;
     // 拖起时缓存的当前卡片窗口矩形（left, top, right, bottom），避免每帧查位置
     private int[] slotRect;
-    // 淡出途中还没落地的换页动作（连点时先补跑它，再走新的）
+    // 推移途中还没落地的换页动作（连点时先补跑它并复位，再走新的）
     private Runnable pendingPageSwap;
+    // 判定「这次按压算点击还是算滑动」的系统点击容差（约 8dp）；
+    // 只能在 onCreate 里取——字段初始化发生在 attachBaseContext 之前，那时还拿不到系统服务
+    private int pressSlopPx;
+    /** 页面推移的缓动：起步快、落位慢。框架里的 FastOutSlowInInterpolator 是隐藏类，
+     *  取它的贝塞尔控制点 (0.4, 0, 0.2, 1) 用公开的 PathInterpolator 复刻。 */
+    private static final TimeInterpolator PAGE_INTERPOLATOR = new PathInterpolator(0.4f, 0f, 0.2f, 1f);
     // 检查更新那一行：状态文字 + App 内下载进度条（进度只在下载中轮询刷新，不下即时停）
     private TextView tvUpdateState;
     private ProgressBar pbUpdate;
@@ -159,6 +168,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 点击容差要在建 holder 之前就位（Holder 构造时把它交给 PressGuard）
+        pressSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
         setContentView(R.layout.activity_main);
         // 全面屏/刘海屏适配：内容避开状态栏、刘海与底部手势条（Android 15 强制边到边）
         InsetsHelper.apply(this, R.id.main_root);
@@ -260,9 +271,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 库列表页（首页）入口：带过渡动画（首屏在 onCreate 里直接走 applyLibPage，不放动画）。 */
+    /** 库列表页（首页）入口：带推移过渡（首屏在 onCreate 里直接走 applyLibPage，不放动画）。 */
     private void showLibPage() {
-        transitionPages(this::applyLibPage);
+        transitionPages(this::applyLibPage, false);
     }
 
     /** 真正落地库列表页：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库 + 顶栏删除按钮（长按行拖拽排序）。 */
@@ -281,12 +292,12 @@ public class MainActivity extends AppCompatActivity {
         updateLibDeleteToolbar();
     }
 
-    /** 壁纸网格页入口：库已经不在了就不切页。 */
+    /** 壁纸网格页入口：库已经不在了就不切页；进一层 = 往左推。 */
     private void showWallpaperPage(String libId) {
         if (LibraryStore.get(this, libId) == null) {
             return;
         }
-        transitionPages(() -> applyWallpaperPage(libId));
+        transitionPages(() -> applyWallpaperPage(libId), true);
     }
 
     /** 真正落地壁纸网格页：← 返回库列表 + 库名 + ＋ 添加壁纸，两列正方形网格。 */
@@ -315,50 +326,69 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 页面切换的过渡：槽位卡片带 + 列表带整体淡出 90ms，中途换内容，再淡入 130ms。
-     * 连点时先把上一次没落地的换页补跑完（withEndAction 被 cancel 就不执行了，
-     * 不管它的话界面会停在半透明或旧页面上）。
+     * 页面切换的推移：内容整块（槽位滑块带 + 列表带）往层级方向滑走 40% 屏宽并同时淡出，
+     * 中途换内容，新内容从来的对面滑进来淡入。方向跟着层级走 —— 进壁纸页 = 往左推，
+     * 返回库列表 = 往右推，于是「库列表在左、壁纸页在右」的空间感是连贯的。
+     * 连点时先把上一次没落地的换页补跑完并复位，免得界面停在半张页面上。
      */
-    private void transitionPages(Runnable swap) {
+    private void transitionPages(final Runnable swap, final boolean forward) {
         if (pendingPageSwap != null) {
             Runnable prev = pendingPageSwap;
             pendingPageSwap = null;
-            resetPageFade();
+            settlePages();
             prev.run();
+            settlePages();
         }
+        // 滑走距离按列表带宽算（两块同宽，取谁都一样）
+        float width = findViewById(R.id.list_container).getWidth();
+        final float away = (forward ? -1f : 1f) * width * 0.4f;
+        final long ms = forward ? 180L : 200L;
         pendingPageSwap = swap;
-        animatePages(0f, 90, () -> {
+        animatePages(away, 0f, ms, () -> {
             Runnable todo = pendingPageSwap;
             pendingPageSwap = null;
             if (todo != null) {
                 todo.run();
             }
-            animatePages(1f, 130, null);
+            // 新内容先摆到对面再起手（同一帧内做完，不会先在原位闪一下）
+            placePages(-away, 0f);
+            animatePages(0f, 1f, ms, null);
         });
     }
 
-    /** 两块内容一起淡入淡出；结束回调只挂在列表带上，免得两处各跑一次换页。 */
-    private void animatePages(float to, long duration, Runnable end) {
+    /** 两块内容一起做位移+透明度的动画；结束回调只挂在列表带上，免得换页动作跑两次。 */
+    private void animatePages(float tx, float alpha, long duration, Runnable end) {
         if (slotCards != null) {
-            slotCards.animate().alpha(to).setDuration(duration).start();
+            slotCards.animate().translationX(tx).alpha(alpha)
+                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR).start();
         }
         View list = findViewById(R.id.list_container);
         if (end == null) {
-            list.animate().alpha(to).setDuration(duration).start();
+            list.animate().translationX(tx).alpha(alpha)
+                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR).start();
         } else {
-            list.animate().alpha(to).setDuration(duration).withEndAction(end).start();
+            list.animate().translationX(tx).alpha(alpha)
+                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR)
+                    .withEndAction(end).start();
         }
     }
 
-    /** 取消进行中的淡入淡出并把两块拉回不透明（连点时用）。 */
-    private void resetPageFade() {
+    /** 直接把两块摆到指定位置与透明度（不走动画，用于进场起点）。 */
+    private void placePages(float tx, float alpha) {
         if (slotCards != null) {
             slotCards.animate().cancel();
-            slotCards.setAlpha(1f);
+            slotCards.setTranslationX(tx);
+            slotCards.setAlpha(alpha);
         }
         View list = findViewById(R.id.list_container);
         list.animate().cancel();
-        list.setAlpha(1f);
+        list.setTranslationX(tx);
+        list.setAlpha(alpha);
+    }
+
+    /** 收尾复位：掐掉动画并回到原位全不透明（连点时用）。 */
+    private void settlePages() {
+        placePages(0f, 1f);
     }
 
     /** 刷新库列表与空状态。 */
@@ -443,9 +473,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 卡片右上角感叹号：滑块、单击、双击、拖拽设库这四件事一次说清。 */
+    /** 卡片右上角感叹号：一句话说明这面卡片能干什么（用 Material 弹窗，与其它弹窗同款样式）。 */
     private void showSlotGuide() {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.slot_guide_title)
                 .setMessage(R.string.slot_guide_msg)
                 .setPositiveButton(R.string.close, null)
@@ -611,7 +641,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 自愈：每次回到应用都按当前设置重排定时（WorkManager 任务本身可自动恢复，这里兜底）
+        // 自愈：每次回到应用都核对一遍排定（槽位配置没变时走 KEEP，不碰系统里已有的周期格子，
+        // 因此不会像以前每次 UPDATE 那样把自动切换整轮往后推）
         TimerScheduler.scheduleAll(this);
         // 打开应用同样是“设备活跃”时机：后台补跑被 Doze/ROM 冻结而漏掉的定时切换
         new Thread(() -> {
@@ -1555,11 +1586,17 @@ public class MainActivity extends AppCompatActivity {
         final Context app = getApplicationContext();
         new Thread(() -> {
             final boolean ok = Switcher.next(app, lib.id, forHome);
+            if (ok) {
+                // 手动切完 = 这一轮已经切过一次，定时从此刻重新起算（免得刚切完紧接着又被自动切）
+                TimerScheduler.restartScope(app, forHome);
+            }
             runOnUiThread(() -> {
                 if (ok) {
                     Toast.makeText(this, R.string.switch_done, Toast.LENGTH_SHORT).show();
-                    // 切完锁屏后「锁屏：WallPaper / 系统」这行会变，立刻刷新，别等下次进应用
+                    // 切完锁屏后「桌面/锁屏：WallPaper / 系统」这行会变，立刻刷新，别等下次进应用
                     refreshTakeoverStatus();
+                    // 下次预计时间也被重排了，状态行同步刷新
+                    refreshTimerStatus();
                     // 范围卡片的缩略图 = 该范围在屏那张，切完就该换
                     refreshSlotCards();
                 } else {
@@ -2321,6 +2358,10 @@ public class MainActivity extends AppCompatActivity {
         final Context app = getApplicationContext();
         new Thread(() -> {
             final boolean ok = Switcher.setCurrent(app, lib.id, item.id, true);
+            if (ok) {
+                // 指定一张上图 = 手动切了一次，桌面这轮的定时从此刻重新起算
+                TimerScheduler.restartScope(app, true);
+            }
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
@@ -2612,7 +2653,7 @@ public class MainActivity extends AppCompatActivity {
         public LibHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View view = LayoutInflater.from(MainActivity.this)
                     .inflate(R.layout.item_library, parent, false);
-            return new LibHolder(view);
+            return new LibHolder(view, pressSlopPx);
         }
 
 
@@ -2663,6 +2704,9 @@ public class MainActivity extends AppCompatActivity {
             }
             // 点库名 → 就地改名（删除态不响应）；点行内其他位置 → 进该库壁纸页 / 勾选
             holder.tvName.setOnClickListener(v -> {
+                if (holder.namePress.dragged()) {
+                    return;
+                }
                 if (!deleteMode) {
                     enterRename(holder, lib);
                 }
@@ -2677,6 +2721,10 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
             holder.card.setOnClickListener(v -> {
+                // 右滑开抽屉这类滑动手势的起点就在行上，松手也还在行内：滑动过就不算点击
+                if (holder.cardPress.dragged()) {
+                    return;
+                }
                 if (!deleteMode) {
                     showWallpaperPage(lib.id);
                     return;
@@ -2699,6 +2747,9 @@ public class MainActivity extends AppCompatActivity {
             });
             // 长按头像 = 拖出浮动头像去设范围；头像自己吃掉点击，所以点头像仍是进该库的壁纸页
             holder.imgThumb.setOnClickListener(v -> {
+                if (holder.thumbPress.dragged()) {
+                    return;
+                }
                 if (!deleteMode) {
                     showWallpaperPage(lib.id);
                 }
@@ -2712,6 +2763,8 @@ public class MainActivity extends AppCompatActivity {
             });
             // 头像吃掉 DOWN，所以这次手势的 MOVE/UP 都会回到这里 —— 浮动头像就靠它跟手
             holder.imgThumb.setOnTouchListener((v, event) -> {
+                // 头像是可点的，这个监听会替它记账「按压有没有滑动过」
+                holder.thumbPress.onTouch(v, event);
                 int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_DOWN) {
                     avatarLastRawX = event.getRawX();
@@ -2795,7 +2848,7 @@ public class MainActivity extends AppCompatActivity {
         public WpHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View view = LayoutInflater.from(MainActivity.this)
                     .inflate(R.layout.item_wallpaper, parent, false);
-            return new WpHolder(view);
+            return new WpHolder(view, pressSlopPx);
         }
 
         @Override
@@ -2807,6 +2860,9 @@ public class MainActivity extends AppCompatActivity {
             holder.actions.setVisibility(position == revealed ? View.VISIBLE : View.GONE);
             // 点格：有浮出图标时先收起（相当于取消），否则进预览
             holder.itemView.setOnClickListener(v -> {
+                if (holder.press.dragged()) {
+                    return;
+                }
                 if (hideRevealed()) {
                     return;
                 }
@@ -2862,9 +2918,14 @@ public class MainActivity extends AppCompatActivity {
         final View badgeHome;
         final View badgeLock;
         final CheckBox cbDelete;
+        /** 行、头像、库名各一份按压记账：右滑开抽屉的起点可能落在这三者任一上。 */
+        final PressGuard cardPress, thumbPress, namePress;
 
-        LibHolder(@NonNull View itemView) {
+        LibHolder(@NonNull View itemView, int slopPx) {
             super(itemView);
+            cardPress = new PressGuard(slopPx);
+            thumbPress = new PressGuard(slopPx);
+            namePress = new PressGuard(slopPx);
             card = itemView;
             imgThumb = itemView.findViewById(R.id.img_lib_thumb);
             tvName = itemView.findViewById(R.id.tv_lib_name);
@@ -2873,6 +2934,10 @@ public class MainActivity extends AppCompatActivity {
             badgeHome = itemView.findViewById(R.id.badge_lib_home);
             badgeLock = itemView.findViewById(R.id.badge_lib_lock);
             cbDelete = itemView.findViewById(R.id.cb_lib_delete);
+            // 行的按压记账一次挂上就行（头像那份挂在它的头像监听回调里，见 onBindViewHolder）
+            card.setOnTouchListener(cardPress);
+            // 库名自己可点（就地改名），事件到不了行，所以单独记一笔
+            tvName.setOnTouchListener(namePress);
         }
     }
 
@@ -2885,15 +2950,55 @@ public class MainActivity extends AppCompatActivity {
         final View btnEdit;
         final View btnSetHome;
         final View btnDelete;
+        /** 格子的按压记账：右滑（或任何滑动）后松手不该被当成「点开预览」。 */
+        final PressGuard press;
 
-        WpHolder(@NonNull View itemView) {
+        WpHolder(@NonNull View itemView, int slopPx) {
             super(itemView);
+            press = new PressGuard(slopPx);
             imgThumb = itemView.findViewById(R.id.img_thumb);
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
             actions = itemView.findViewById(R.id.item_actions);
             btnEdit = itemView.findViewById(R.id.btn_edit);
             btnSetHome = itemView.findViewById(R.id.btn_set_home);
             btnDelete = itemView.findViewById(R.id.btn_delete);
+            itemView.setOnTouchListener(press);
+        }
+    }
+
+    /**
+     * 「这次按压算不算点击」的记账器。
+     * 普通可点的 View 只要 ACTION_UP 还落在自己范围内就 performClick，它不看手指移动了多少；
+     * 而右滑开抽屉是旁听式手势（不抢事件），起点和终点常常都在同一行里 —— 结果抽屉拉开了，
+     * 顺手还把那个库/预览页也打开了。这里在点击回调里先问一句「移动超过容差没有」。
+     * 只旁听不改事件流（onTouch 返回 false），点击与长按的原有流程一律不动。
+     */
+    private static final class PressGuard implements View.OnTouchListener {
+
+        private final int slopPx;
+        private float downX, downY;
+        private boolean dragged;
+
+        PressGuard(int slopPx) {
+            this.slopPx = slopPx;
+        }
+
+        boolean dragged() {
+            return dragged;
+        }
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                downX = event.getRawX();
+                downY = event.getRawY();
+                dragged = false;
+            } else if (action == MotionEvent.ACTION_MOVE && !dragged) {
+                dragged = Math.abs(event.getRawX() - downX) > slopPx
+                        || Math.abs(event.getRawY() - downY) > slopPx;
+            }
+            return false;
         }
     }
 }

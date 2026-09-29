@@ -38,6 +38,8 @@ public class TimerScheduler {
     // 每范围「上次自动切换时间」（毫秒）与「上次结果」的 key 前缀
     private static final String KEY_LAST_RUN_PREFIX = "last_run_";
     private static final String KEY_LAST_RESULT_PREFIX = "last_result_";
+    // 每范围「上次排定时的指纹」（库id|间隔秒），决定重排该用 KEEP 还是 UPDATE
+    private static final String KEY_SPEC_PREFIX = "slot_spec_";
     // 上次执行结果：成功
     public static final String RESULT_OK = "ok";
     // 查询 WorkManager 任务状态的单线程执行器（ListenableFuture 回调，避免占用主线程）
@@ -94,14 +96,27 @@ public class TimerScheduler {
         syncFromWorkManager(ctx);
     }
 
-    /** 只负责把该范围的周期任务交给 WorkManager（槽位没库则取消任务；不再写估算值）。 */
+    /** 只负责把该范围的周期任务交给 WorkManager（槽位没库则取消任务；不再写估算值）。
+     *  排定策略按「库id|间隔」指纹决定：指纹没变用 KEEP —— 不碰系统里那张格子的起算时刻；
+     *  指纹变了才 UPDATE。此前每次回到应用都 UPDATE，而 UPDATE 等于「从现在重新起算」，
+     *  于是每打开一次 App，自动切换就被推后一整轮（间隔内开得越勤越不来）。 */
     private static void scheduleInternal(Context ctx, boolean forHome) {
+        scheduleInternal(ctx, forHome, false);
+    }
+
+    /** force = true 时无视指纹强制 UPDATE（手动切换后要重新起算周期就走这条）。 */
+    private static void scheduleInternal(Context ctx, boolean forHome, boolean force) {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         if (libId == null || libId.isEmpty()) {
             cancelScope(ctx, forHome);
             return;
         }
         int seconds = intervalSeconds(ctx, forHome);
+        String spec = libId + "|" + seconds;
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        ExistingPeriodicWorkPolicy policy =
+                !force && spec.equals(prefs.getString(KEY_SPEC_PREFIX + suffix(forHome), null))
+                        ? ExistingPeriodicWorkPolicy.KEEP : ExistingPeriodicWorkPolicy.UPDATE;
         try {
             Data data = new Data.Builder()
                     .putBoolean(SwitchWorker.EXTRA_FOR_HOME, forHome).build();
@@ -110,9 +125,33 @@ public class TimerScheduler {
                     .setInputData(data)
                     .build();
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-                    WORK_PREFIX + suffix(forHome), ExistingPeriodicWorkPolicy.UPDATE, request);
+                    WORK_PREFIX + suffix(forHome), policy, request);
+            // KEEP 那条分支在任务已被系统清理时等于重新排一个，两种情况下这份指纹都该记下
+            prefs.edit().putString(KEY_SPEC_PREFIX + suffix(forHome), spec).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * 手动上屏一张之后调用（卡片双击、通知的上一张/下一张、小组件点按、长按设为主页、
+     * 删掉正在屏上的那张）：该范围的下一轮从此刻重新起算，免得刚手动切完紧接着又被定时切一张。
+     * 只写这本账 + 强制重排周期，不做 WorkManager 状态查询（刚算出来的值查回来还是它，白跑一次异步往返）。
+     */
+    public static void restartScope(Context ctx, boolean forHome) {
+        String libId = LibraryStore.slotLibId(ctx, forHome);
+        if (libId == null || libId.isEmpty()) {
+            // 这个范围本来就没排定，没什么可重排的
+            return;
+        }
+        long now = System.currentTimeMillis();
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong(KEY_LAST_RUN_PREFIX + suffix(forHome), now)
+                .putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome),
+                        now + intervalSeconds(ctx, forHome) * 1000L)
+                .apply();
+        scheduleInternal(ctx, forHome, true);
+        WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
     }
 
     /** 取消指定范围的定时任务，并清除该范围的倒计时记录。 */
@@ -123,6 +162,8 @@ public class TimerScheduler {
         }
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .remove(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome))
+                // 指纹一起清掉：以后重新占上同一个库要当作"变了"，强制重新起算
+                .remove(KEY_SPEC_PREFIX + suffix(forHome))
                 .apply();
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
