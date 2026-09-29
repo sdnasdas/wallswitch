@@ -208,6 +208,8 @@
     <string name="slot_lib_label">壁纸库</string>
     <string name="slot_lib_none">不切换（清空本范围）</string>
     <string name="slot_every_prefix">每 </string>
+    <string name="slot_replace_title">范围冲突</string>
+    <string name="slot_replace_ok">继续换</string>
     <string name="slot_replace_msg">「%1$s」正在负责%2$s。同一个范围同时只能有一个库负责，继续会把 %1$s 换下来。</string>
     <!-- 定时自动切换日志（files/switch_log.txt）：一条两行 —— 时间 + 范围与壁纸标题，第二行是实际/配置间隔 -->
     <string name="log_interval_line">实际间隔 %1$d 分钟 · 设置 %2$d 分钟 · %3$s</string>

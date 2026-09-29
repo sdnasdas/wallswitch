@@ -1027,10 +1027,10 @@ public class MainActivity extends AppCompatActivity {
     private void confirmReplaceSlot(final boolean forHome, String oldName, final String newLibId,
                                     final Spinner spinner, final int originalSelection) {
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.lib_enable_conflict_title)
+                .setTitle(R.string.slot_replace_title)
                 .setMessage(getString(R.string.slot_replace_msg, oldName,
                         getString(forHome ? R.string.slot_home_title : R.string.slot_lock_title)))
-                .setPositiveButton(R.string.lib_enable_conflict_ok, (dialog, which) ->
+                .setPositiveButton(R.string.slot_replace_ok, (dialog, which) ->
                         applySlotLib(forHome, newLibId))
                 .setNegativeButton(R.string.cancel, (dialog, which) ->
                         spinner.setSelection(originalSelection))
