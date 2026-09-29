@@ -1,7 +1,6 @@
 package com.example.wallswitch;
 
 import android.Manifest;
-import android.animation.TimeInterpolator;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -35,7 +34,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewConfiguration;
-import android.view.animation.PathInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.Button;
@@ -154,9 +152,6 @@ public class MainActivity extends AppCompatActivity {
     // 判定「这次按压算点击还是算滑动」的系统点击容差（约 8dp）；
     // 只能在 onCreate 里取——字段初始化发生在 attachBaseContext 之前，那时还拿不到系统服务
     private int pressSlopPx;
-    /** 页面推移的缓动：起步快、落位慢。框架里的 FastOutSlowInInterpolator 是隐藏类，
-     *  取它的贝塞尔控制点 (0.4, 0, 0.2, 1) 用公开的 PathInterpolator 复刻。 */
-    private static final TimeInterpolator PAGE_INTERPOLATOR = new PathInterpolator(0.4f, 0f, 0.2f, 1f);
     // 检查更新那一行：状态文字 + App 内下载进度条（进度只在下载中轮询刷新，不下即时停）
     private TextView tvUpdateState;
     private ProgressBar pbUpdate;
@@ -271,9 +266,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 库列表页（首页）入口：带推移过渡（首屏在 onCreate 里直接走 applyLibPage，不放动画）。 */
+    /** 库列表页（首页）入口：带淡入淡出过渡（首屏在 onCreate 里直接走 applyLibPage，不放动画）。 */
     private void showLibPage() {
-        transitionPages(this::applyLibPage, false);
+        transitionPages(this::applyLibPage);
     }
 
     /** 真正落地库列表页：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库 + 顶栏删除按钮（长按行拖拽排序）。 */
@@ -292,12 +287,12 @@ public class MainActivity extends AppCompatActivity {
         updateLibDeleteToolbar();
     }
 
-    /** 壁纸网格页入口：库已经不在了就不切页；进一层 = 往左推。 */
+    /** 壁纸网格页入口：库已经不在了就不切页。 */
     private void showWallpaperPage(String libId) {
         if (LibraryStore.get(this, libId) == null) {
             return;
         }
-        transitionPages(() -> applyWallpaperPage(libId), true);
+        transitionPages(() -> applyWallpaperPage(libId));
     }
 
     /** 真正落地壁纸网格页：← 返回库列表 + 库名 + ＋ 添加壁纸，两列正方形网格。 */
@@ -326,69 +321,51 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 页面切换的推移：内容整块（槽位滑块带 + 列表带）往层级方向滑走 40% 屏宽并同时淡出，
-     * 中途换内容，新内容从来的对面滑进来淡入。方向跟着层级走 —— 进壁纸页 = 往左推，
-     * 返回库列表 = 往右推，于是「库列表在左、壁纸页在右」的空间感是连贯的。
-     * 连点时先把上一次没落地的换页补跑完并复位，免得界面停在半张页面上。
+     * 页面切换的过渡：槽位卡片带 + 列表带整体淡出 90ms，中途换内容，再淡入 130ms。
+     * 连点时先把上一次没落地的换页补跑完（withEndAction 被 cancel 就不执行了，
+     * 不管它的话界面会停在半透明或旧页面上）。
+     * v3.66 试过水平推移（滑走 40% 屏宽再从对面滑进来），真机用着不合适已回退，方向感待后续重做。
      */
-    private void transitionPages(final Runnable swap, final boolean forward) {
+    private void transitionPages(Runnable swap) {
         if (pendingPageSwap != null) {
             Runnable prev = pendingPageSwap;
             pendingPageSwap = null;
-            settlePages();
+            resetPageFade();
             prev.run();
-            settlePages();
         }
-        // 滑走距离按列表带宽算（两块同宽，取谁都一样）
-        float width = findViewById(R.id.list_container).getWidth();
-        final float away = (forward ? -1f : 1f) * width * 0.4f;
-        final long ms = forward ? 180L : 200L;
         pendingPageSwap = swap;
-        animatePages(away, 0f, ms, () -> {
+        animatePages(0f, 90, () -> {
             Runnable todo = pendingPageSwap;
             pendingPageSwap = null;
             if (todo != null) {
                 todo.run();
             }
-            // 新内容先摆到对面再起手（同一帧内做完，不会先在原位闪一下）
-            placePages(-away, 0f);
-            animatePages(0f, 1f, ms, null);
+            animatePages(1f, 130, null);
         });
     }
 
-    /** 两块内容一起做位移+透明度的动画；结束回调只挂在列表带上，免得换页动作跑两次。 */
-    private void animatePages(float tx, float alpha, long duration, Runnable end) {
+    /** 两块内容一起淡入淡出；结束回调只挂在列表带上，免得换页动作跑两次。 */
+    private void animatePages(float to, long duration, Runnable end) {
         if (slotCards != null) {
-            slotCards.animate().translationX(tx).alpha(alpha)
-                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR).start();
+            slotCards.animate().alpha(to).setDuration(duration).start();
         }
         View list = findViewById(R.id.list_container);
         if (end == null) {
-            list.animate().translationX(tx).alpha(alpha)
-                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR).start();
+            list.animate().alpha(to).setDuration(duration).start();
         } else {
-            list.animate().translationX(tx).alpha(alpha)
-                    .setDuration(duration).setInterpolator(PAGE_INTERPOLATOR)
-                    .withEndAction(end).start();
+            list.animate().alpha(to).setDuration(duration).withEndAction(end).start();
         }
     }
 
-    /** 直接把两块摆到指定位置与透明度（不走动画，用于进场起点）。 */
-    private void placePages(float tx, float alpha) {
+    /** 取消进行中的淡入淡出并把两块拉回不透明（连点时用）。 */
+    private void resetPageFade() {
         if (slotCards != null) {
             slotCards.animate().cancel();
-            slotCards.setTranslationX(tx);
-            slotCards.setAlpha(alpha);
+            slotCards.setAlpha(1f);
         }
         View list = findViewById(R.id.list_container);
         list.animate().cancel();
-        list.setTranslationX(tx);
-        list.setAlpha(alpha);
-    }
-
-    /** 收尾复位：掐掉动画并回到原位全不透明（连点时用）。 */
-    private void settlePages() {
-        placePages(0f, 1f);
+        list.setAlpha(1f);
     }
 
     /** 刷新库列表与空状态。 */
@@ -473,10 +450,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 卡片右上角感叹号：一句话说明这面卡片能干什么（用 Material 弹窗，与其它弹窗同款样式）。 */
+    /** 卡片右上角感叹号：只弹一句说明，不加大标题（用户嫌标题抢戏）。 */
     private void showSlotGuide() {
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.slot_guide_title)
                 .setMessage(R.string.slot_guide_msg)
                 .setPositiveButton(R.string.close, null)
                 .show();

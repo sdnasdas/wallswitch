@@ -204,7 +204,6 @@
     <string name="slot_unset">点按选择，或长按库的头像拖到这里</string>
     <string name="slot_none_name">未设置</string>
     <string name="slot_help_desc">操作指南</string>
-    <string name="slot_guide_title">这张卡片怎么用</string>
     <string name="slot_guide_msg">左右滑动可切换桌面 / 锁屏，单击修改配置、双击手动触发切换</string>
     <string name="slot_none_toast">先单击卡片给这个范围选一个壁纸库</string>
     <string name="slot_already_set">这个范围已经是该库了</string>
