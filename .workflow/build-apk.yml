@@ -1,7 +1,6 @@
 # Gitee Go 流水线：等价 .github/workflows/build.yml（GitHub Actions 版）
 # 触发：push 到任一常用分支；构建：JDK17 + Gradle 8.7 + Android SDK 35，assembleDebug 固定签名。
-# 首次使用需在 Gitee 仓库「流水线」页启用，并在流水线设置里配置 4 个环境变量
-#（与 GitHub Secrets 同名，值相同；BASE64 那条勾选敏感/掩码）：
+# 签名三件套来自网页端「通用变量」（经 variables.global 引用，与 GitHub Secrets 同名同值）：
 #   WALLSWITCH_KEYSTORE_BASE64 / WALLSWITCH_KEYSTORE_PASSWORD / WALLSWITCH_KEY_ALIAS
 # 说明：Gitee Go 的 YAML 字段以网页编辑器校验为准，若提示某字段不识别，按其提示微调即可。
 version: '1.0'
@@ -31,12 +30,10 @@ stages:
         jdkVersion: 17
         gradleVersion: 8.7
         commands:
-          # 0) 诊断：确认「通用变量」是否注入构建环境（只打印名称与长度，不打印值）
-          - 'if [ -n "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "诊断: BASE64 已注入, 长度=${#WALLSWITCH_KEYSTORE_BASE64}"; else echo "诊断: BASE64 未进入环境"; fi; if [ -n "$WALLSWITCH_KEYSTORE_PASSWORD" ]; then echo "诊断: PASSWORD 已注入, 长度=${#WALLSWITCH_KEYSTORE_PASSWORD}"; else echo "诊断: PASSWORD 未进入环境"; fi; echo "诊断: ALIAS=${WALLSWITCH_KEY_ALIAS:-<空>}"'
-          # 1) 解码 keystore（环境变量在流水线设置里配置，不进仓库）
+          # 1) 解码 keystore（通用变量注入，不进仓库）
           - 'if [ -z "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "未配置 WALLSWITCH_KEYSTORE_BASE64，无法固定签名" >&2; exit 1; fi; echo "$WALLSWITCH_KEYSTORE_BASE64" | base64 -d > "$HOME/wallswitch.keystore"'
-          # 2) 构建镜像若未预装 Android SDK 则装一套（AGP 8.5.2 需要 platform 35 + build-tools 35）
-          - 'export ANDROID_HOME="$HOME/android-sdk"; if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then mkdir -p "$ANDROID_HOME/cmdline-tools"; curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools" && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" && yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null; fi'
+          # 2) 构建镜像若未预装 Android SDK 则装一套（AGP 8.5.2 要 platform 35、build-tools 34 为其默认需求——两个都预装，34 缺失时 AGP 每次构建会重装一遍）
+          - 'export ANDROID_HOME="$HOME/android-sdk"; if [ ! -d "$ANDROID_HOME/platforms/android-35" ] || [ ! -d "$ANDROID_HOME/build-tools/34.0.0" ]; then mkdir -p "$ANDROID_HOME/cmdline-tools"; curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools" && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" && yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0" "platform-tools" > /dev/null; fi'
           # 3) 构建 debug APK（先删掉 Gitee 预置 init.gradle——它把仓库换成无 androidx 的 aliyun jcenter 镜像，必致依赖解析失败）
           - >-
             rm -f "$HOME/.gradle/init.gradle";
