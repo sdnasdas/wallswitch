@@ -1,10 +1,7 @@
 package com.example.wallswitch;
 
-import android.app.DownloadManager;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.net.Uri;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -27,8 +24,8 @@ import java.util.regex.Pattern;
  *
  * 比对方式：版本号按「.」分段逐段数值比较（3.10 > 3.9，不能按字符串比）。
  *
- * 下载：交给系统 DownloadManager 后台下载到公共 Download/WallSwitch/，
- * 通知栏可看进度，完成后点通知即进安装页；DownloadManager 不可用时回退浏览器直链。
+ * 下载不在本类：这里只负责查版本与提供直链（{@link #apkUrl}），
+ * 下载与安装入口见 {@link UpdateDownloader}。
  *
  * 网络用的是系统 HttpURLConnection：全项目刻意只此几个 GET 请求，为此引入
  * OkHttp 类网络库不值当（agents.md 的零依赖约定优先）。
@@ -151,47 +148,7 @@ public final class UpdateChecker {
         return false;
     }
 
-    /** 用系统 DownloadManager 下载最新 APK（公共 Download/WallSwitch/，点完成通知即装）。 */
-    public static void downloadApk(Context ctx) {
-        downloadApk(ctx, source(ctx));
-    }
-
-    /** 用系统 DownloadManager 从指定源下载最新 APK。 */
-    public static void downloadApk(Context ctx, String source) {
-        try {
-            DownloadManager dm =
-                    (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
-            if (dm == null) {
-                openInBrowser(ctx, source);
-                return;
-            }
-            DownloadManager.Request req = new DownloadManager.Request(
-                    Uri.parse(apkUrl(source)));
-            req.setTitle(ctx.getString(R.string.app_name) + " " + localVersion(ctx) + " 安装包");
-            req.setDescription(ctx.getString(R.string.update_download_desc));
-            req.setMimeType("application/vnd.android.package-archive");
-            req.setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            req.setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_DOWNLOADS, "WallSwitch/app-debug.apk");
-            dm.enqueue(req);
-        } catch (Exception e) {
-            openInBrowser(ctx, source);
-        }
-    }
-
-    /** DownloadManager 走不通时的兜底：浏览器打开直链。 */
-    private static void openInBrowser(Context ctx, String source) {
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(apkUrl(source)));
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(intent);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static String apkUrl(String source) {
+    static String apkUrl(String source) {
         return SRC_GITHUB.equals(source) ? GITHUB_APK : GITEE_APK;
     }
 

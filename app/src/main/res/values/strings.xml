@@ -264,7 +264,7 @@
     <string name="transition_blur">模糊过渡</string>
     <string name="transition_off">无动画</string>
 
-    <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选 -->
+    <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选；下载与安装入口都在 App 内 -->
     <string name="update_check_title">检查更新</string>
     <string name="update_source_title">更新源</string>
     <string name="update_source_desc">下载最新 APK 用的仓库；Gitee 国内直连，GitHub 需代理</string>
@@ -275,6 +275,12 @@
     <string name="update_latest">已是最新版本</string>
     <string name="update_new_title">发现新版本</string>
     <string name="update_new_msg">发现新版本 v%1$s（当前 v%2$s）</string>
-    <string name="update_download">下载安装</string>
-    <string name="update_download_desc">WallSwitch 最新构建 APK，下载完成后点通知安装</string>
+    <string name="update_download">下载</string>
+    <string name="update_local_version">当前 v%1$s</string>
+    <string name="update_downloading">下载中 %1$d%%</string>
+    <string name="update_ready">v%1$s 已下载，点按安装</string>
+    <string name="update_ready_toast">下载完成，点「检查更新」这一行即可安装</string>
+    <string name="update_failed">下载失败，点按重试</string>
+    <string name="update_pkg_gone">安装包已不在本机（可能被系统清理），请重新检查更新</string>
+    <string name="update_need_install_perm">还没允许本应用安装未知应用，已跳到授权页，打开后回来再点一次</string>
 </resources>

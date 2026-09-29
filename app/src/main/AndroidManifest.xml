@@ -19,6 +19,9 @@
     <!-- 检查更新要访问 GitHub（Release 版本查询 + 下载直链）：缺此权限时所有请求
          直接以 SocketException: Permission denied 失败（真机现象：手动检查更新报"权限"错） -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App 内下载完更新包后要自己拉起安装页（Android 8+ 起属于「安装未知应用」，
+         用户授权一次即可；不走系统下载器是为了进度和安装包都留在 App 里） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- largeHeap：图片解码是本 App 的内存大头（裁剪源图按堆预算最大可到 24MP，
          ARGB_8888 下约 96MB），不申请大堆在中低端机型上容易 OOM -->
@@ -82,5 +85,16 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 更新包在 App 私有 cache 里，安装页拿不到裸路径，经此授权一个临时只读 content URI -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

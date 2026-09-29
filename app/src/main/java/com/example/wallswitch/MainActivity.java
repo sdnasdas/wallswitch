@@ -20,6 +20,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
@@ -139,6 +141,13 @@ public class MainActivity extends AppCompatActivity {
     private int[] avatarContentLoc;
     // 拖起时缓存的 [桌面, 锁屏] 窗口矩形（left, top, right, bottom），避免每帧查位置
     private int[][] slotRects;
+    // 检查更新那一行：状态文字 + App 内下载进度条（进度只在下载中轮询刷新，不下即时停）
+    private TextView tvUpdateState;
+    private ProgressBar pbUpdate;
+    private final Handler updateTick = new Handler(Looper.getMainLooper());
+    // 本次更新的目标（弹窗确认下载时记下）：下载失败后点这一行直接按原目标重下
+    private String lastUpdateSource;
+    private String lastUpdateVersion;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -477,6 +486,9 @@ public class MainActivity extends AppCompatActivity {
         StatusNotifier.update(this);
         // 从系统选择器返回：用户没确认就把接管意图关掉（开关自动回关）
         refreshTakeoverUi();
+        // 从安装页/安装授权页返回：更新那一行按当前下载状态重刷（可能已经下完待装，或包已装上）
+        UpdateDownloader.pruneInstalled(this);
+        bindUpdateState();
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
             // 还有待编辑项：继续逐张处理（目标库为空时编辑页自己回退到第一个库）
@@ -765,32 +777,16 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 检查更新：设置页手动入口 + 启动时静默检查（有新版才弹窗，失败不打扰）。
-     * 有新版时弹窗展示远端标题（含 build 号），确认后交给系统 DownloadManager 下载。
+     * 下载走 App 内链路（{@link UpdateDownloader}）：进度条与「点按安装」都收在这一行上，
+     * 不再挂系统下载器的通知——那条通知一被划掉，安装包就找不回来了。
      */
     private void setupUpdateCheck() {
-        TextView tvState = findViewById(R.id.tv_update_state);
-        findViewById(R.id.row_update).setOnClickListener(v -> {
-            String source = UpdateChecker.source(this);
-            tvState.setText(R.string.update_checking);
-            UpdateChecker.checkAsync(this, source, (info, error) -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                if (error != null || info == null) {
-                    tvState.setText(R.string.update_check_failed);
-                    // 把具体死因亮给用户（网络不通/HTTP 错误一眼可辨），不再只有干巴巴的失败
-                    Toast.makeText(this, getString(R.string.update_check_failed)
-                            + "：" + (error != null ? error.toString() : "无返回"), Toast.LENGTH_LONG).show();
-                    return;
-                }
-                if (!UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
-                    tvState.setText(R.string.update_latest);
-                    return;
-                }
-                tvState.setText(getString(R.string.update_new_title) + " v" + info.version);
-                showUpdateDialog(info, source);
-            });
-        });
+        tvUpdateState = findViewById(R.id.tv_update_state);
+        pbUpdate = findViewById(R.id.pb_update);
+        findViewById(R.id.row_update).setOnClickListener(v -> onUpdateRowTapped());
+        // 上回下的包已经装上了就清账，别让这一行一直挂着「点按安装」
+        UpdateDownloader.pruneInstalled(this);
+        bindUpdateState();
         // 启动静默检查：只在发现新版时打扰，失败静默（走当前所选源）
         UpdateChecker.checkAsync(this, (info, error) -> {
             if (error == null && info != null && !isFinishing() && !isDestroyed()
@@ -800,17 +796,122 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 新版弹窗：确认后交给 DownloadManager 后台下载（完成后点通知安装）。 */
+    /** 这一行点下去干什么，完全由下载状态决定：下载中不理、有包就装、其余去检查。 */
+    private void onUpdateRowTapped() {
+        int state = UpdateDownloader.state(this);
+        if (state == UpdateDownloader.DOWNLOADING) {
+            return;
+        }
+        if (state == UpdateDownloader.READY) {
+            if (!UpdateDownloader.hasInstallPermission(this)) {
+                UpdateDownloader.openInstallPermissionSettings(this);
+                Toast.makeText(this, R.string.update_need_install_perm, Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!UpdateDownloader.install(this)) {
+                Toast.makeText(this, R.string.update_pkg_gone, Toast.LENGTH_SHORT).show();
+                bindUpdateState();
+            }
+            return;
+        }
+        if (state == UpdateDownloader.FAILED && lastUpdateVersion != null) {
+            // 上回下到一半失败：直接按原目标重下，不用再走一遍检查
+            startUpdateDownload(lastUpdateSource, lastUpdateVersion);
+            return;
+        }
+        checkUpdateNow();
+    }
+
+    /** 手动检查：结果只改这一行的文字，发现新版才弹窗。 */
+    private void checkUpdateNow() {
+        String source = UpdateChecker.source(this);
+        tvUpdateState.setText(R.string.update_checking);
+        UpdateChecker.checkAsync(this, source, (info, error) -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (error != null || info == null) {
+                tvUpdateState.setText(R.string.update_check_failed);
+                // 把具体死因亮给用户（网络不通/HTTP 错误一眼可辨），不再只有干巴巴的失败
+                Toast.makeText(this, getString(R.string.update_check_failed)
+                        + "：" + (error != null ? error.toString() : "无返回"), Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
+                tvUpdateState.setText(R.string.update_latest);
+                return;
+            }
+            tvUpdateState.setText(getString(R.string.update_new_title) + " v" + info.version);
+            showUpdateDialog(info, source);
+        });
+    }
+
+    /** 新版弹窗：确认后 App 内开始下载，下完再点这一行拉安装页。 */
     private void showUpdateDialog(UpdateChecker.Info info, String source) {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.update_new_title)
                 .setMessage(getString(R.string.update_new_msg,
                         info.version, UpdateChecker.localVersion(this)))
                 .setPositiveButton(R.string.update_download,
-                        (d, which) -> UpdateChecker.downloadApk(this, source))
+                        (d, which) -> startUpdateDownload(source, info.version))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
+
+    /** 记下目标版本后开下：进度条马上转起来，失败时这一行也认得该重下哪个版本。 */
+    private void startUpdateDownload(String source, String version) {
+        lastUpdateSource = source;
+        lastUpdateVersion = version;
+        UpdateDownloader.start(this, source, version);
+        bindUpdateState();
+    }
+
+    /** 按下载状态刷这一行；只有下载中才留一个 300ms 的轮询，其余状态立刻停手（不白耗）。 */
+    private void bindUpdateState() {
+        int state = UpdateDownloader.state(this);
+        updateTick.removeCallbacks(updatePoller);
+        if (state == UpdateDownloader.DOWNLOADING) {
+            pbUpdate.setVisibility(View.VISIBLE);
+            pbUpdate.setProgress(UpdateDownloader.percent());
+            tvUpdateState.setText(getString(R.string.update_downloading,
+                    UpdateDownloader.percent()));
+            updateTick.postDelayed(updatePoller, 300);
+            return;
+        }
+        pbUpdate.setVisibility(View.GONE);
+        if (state == UpdateDownloader.READY) {
+            tvUpdateState.setText(getString(R.string.update_ready,
+                    UpdateDownloader.readyVersion(this)));
+        } else if (state == UpdateDownloader.FAILED) {
+            tvUpdateState.setText(R.string.update_failed);
+        } else {
+            tvUpdateState.setText(getString(R.string.update_local_version,
+                    UpdateChecker.localVersion(this)));
+        }
+    }
+
+    /** 下载进度轮询：状态一离开下载中就收尾刷行，并告诉用户下一步是点这一行装。 */
+    private final Runnable updatePoller = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            int state = UpdateDownloader.state(MainActivity.this);
+            if (state == UpdateDownloader.DOWNLOADING) {
+                bindUpdateState();
+                return;
+            }
+            bindUpdateState();
+            if (state == UpdateDownloader.READY) {
+                Toast.makeText(MainActivity.this, R.string.update_ready_toast,
+                        Toast.LENGTH_LONG).show();
+            } else if (state == UpdateDownloader.FAILED) {
+                Toast.makeText(MainActivity.this, R.string.update_failed,
+                        Toast.LENGTH_SHORT).show();
+            }
+        }
+    };
 
     /**
      * 走秒倒计时开关：控制常驻通知与小组件里的时间显示样式（走秒 / 静态）。

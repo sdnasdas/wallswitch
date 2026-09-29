@@ -681,6 +681,18 @@
                                 android:textSize="14sp" />
                         </LinearLayout>
 
+                        <!-- App 内下载进度条：只在「下载中」显形，下完即隐（不靠系统通知看进度） -->
+                        <ProgressBar
+                            android:id="@+id/pb_update"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:layout_marginBottom="4dp"
+                            android:max="100"
+                            android:progressTint="@color/brand"
+                            android:visibility="gone" />
+
                         <TextView
                             android:id="@+id/tv_timer_status"
                             android:layout_width="match_parent"
