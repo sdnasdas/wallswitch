@@ -2,7 +2,8 @@
 # 触发：push 到任一常用分支；构建：JDK17 + Gradle 8.7 + Android SDK 35，assembleDebug 固定签名。
 # 签名三件套来自网页端「通用变量」（经 variables.global 引用，与 GitHub Secrets 同名同值）：
 #   WALLSWITCH_KEYSTORE_BASE64 / WALLSWITCH_KEYSTORE_PASSWORD / WALLSWITCH_KEY_ALIAS
-# 另需 GITEE_API_TOKEN（私人令牌，需 projects 权限）用于构建后发布 Release。
+# 另需 BUILD_API_TOKEN（私人令牌，需 projects 权限）用于构建后发布 Release
+#（Gitee 禁止通用变量以 GITEE_ 开头，故不用原名 GITEE_API_TOKEN）。
 # 说明：Gitee Go 的 YAML 字段以网页编辑器校验为准，若提示某字段不识别，按其提示微调即可。
 version: '1.0'
 name: build-apk
@@ -13,7 +14,7 @@ variables:
     - WALLSWITCH_KEYSTORE_BASE64
     - WALLSWITCH_KEYSTORE_PASSWORD
     - WALLSWITCH_KEY_ALIAS
-    - GITEE_API_TOKEN
+    - BUILD_API_TOKEN
 triggers:
   push:
     branches:
@@ -50,15 +51,15 @@ stages:
           #    下载地址恒定：https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk
           #    令牌未配置时跳过发版（构建仍然成功）。
           - >-
-            if [ -z "$GITEE_API_TOKEN" ]; then echo "跳过发版：未配置 GITEE_API_TOKEN"; else
+            if [ -z "$BUILD_API_TOKEN" ]; then echo "跳过发版：未配置 BUILD_API_TOKEN"; else
             API="https://gitee.com/api/v5/repos/lxrzyt/wallsw/releases";
-            OLD=$(curl -s "$API/tags/latest?access_token=$GITEE_API_TOKEN");
+            OLD=$(curl -s "$API/tags/latest?access_token=$BUILD_API_TOKEN");
             ID=$(printf '%s' "$OLD" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
-            if [ -n "$ID" ]; then curl -s -X DELETE "$API/$ID?access_token=$GITEE_API_TOKEN" > /dev/null && echo "已删旧 Release #$ID"; fi;
-            NEW=$(curl -s -X POST "$API" -d "access_token=$GITEE_API_TOKEN" -d "tag_name=latest" -d "name=latest" --data-urlencode "body=CI 自动构建，变更见仓库提交记录");
+            if [ -n "$ID" ]; then curl -s -X DELETE "$API/$ID?access_token=$BUILD_API_TOKEN" > /dev/null && echo "已删旧 Release #$ID"; fi;
+            NEW=$(curl -s -X POST "$API" -d "access_token=$BUILD_API_TOKEN" -d "tag_name=latest" -d "name=latest" --data-urlencode "body=CI 自动构建，变更见仓库提交记录");
             NID=$(printf '%s' "$NEW" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
             echo "新 Release id=$NID";
-            curl -s -X POST "$API/$NID/attach_files" -F "access_token=$GITEE_API_TOKEN" -F "file=@app/build/outputs/apk/debug/app-debug.apk" | grep -o '"browser_download_url": *"[^"]*"'; fi
+            curl -s -X POST "$API/$NID/attach_files" -F "access_token=$BUILD_API_TOKEN" -F "file=@app/build/outputs/apk/debug/app-debug.apk" | grep -o '"browser_download_url": *"[^"]*"'; fi
         artifacts:
           - name: WALLSWITCH_APK
             path:
