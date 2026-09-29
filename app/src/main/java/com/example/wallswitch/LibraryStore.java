@@ -141,6 +141,27 @@ public class LibraryStore {
         }
     }
 
+    /** 按 id 顺序重排库列表（首页拖拽排序落位后调用）。从磁盘重读再排，避免用界面上的旧快照覆盖掉新状态。 */
+    public static void reorder(Context ctx, List<String> idsInOrder) {
+        List<Library> libs = load(ctx);
+        List<Library> result = new ArrayList<>();
+        for (String id : idsInOrder) {
+            for (Library lib : libs) {
+                if (lib.id.equals(id)) {
+                    result.add(lib);
+                    break;
+                }
+            }
+        }
+        // 磁盘上新出现的库（理论上不该有）按原相对顺序排到末尾，保证不丢库
+        for (Library lib : libs) {
+            if (!idsInOrder.contains(lib.id)) {
+                result.add(lib);
+            }
+        }
+        saveList(ctx, result);
+    }
+
     /** 按 id 查找库，找不到返回 null。 */
     public static Library get(Context ctx, String libId) {
         for (Library lib : load(ctx)) {

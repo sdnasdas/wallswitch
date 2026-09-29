@@ -10,7 +10,12 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,11 +26,13 @@ import android.text.InputType;
 import android.util.LruCache;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -46,6 +53,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -56,8 +64,10 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * 主页 v3.14：层级导航 —— 首页 = 壁纸库列表，点库行进该库的两列正方形网格壁纸页。
@@ -108,6 +118,8 @@ public class MainActivity extends AppCompatActivity {
     private String currentLibId;
     // 正在就地改名的库 id（null = 没有；返回键用它判断「取消改名」而不是退出）
     private String renamingLibId;
+    // 顶栏删除按钮（库页专用）：普通态 = 垃圾桶进删除态，删除态 = 勾图标确认批量删除
+    private MenuItem libDeleteItem;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -139,6 +151,8 @@ public class MainActivity extends AppCompatActivity {
         recycler = findViewById(R.id.recycler);
         libAdapter = new LibAdapter();
         wallpaperAdapter = new WallpaperAdapter();
+        setupLibDeleteMenu();
+        setupLibDrag();
         setupBackPressed();
         setupDrawer();
         setupButtons();
@@ -182,7 +196,12 @@ public class MainActivity extends AppCompatActivity {
                     drawer.closeDrawer(Gravity.START);
                     return;
                 }
-                if (wallpaperAdapter.hideRevealed() || libAdapter.hideRevealed()) {
+                if (libAdapter.isDeleteMode()) {
+                    // 删除态：返回键 = 退出删除态（而不是退 App）
+                    exitLibDeleteMode();
+                    return;
+                }
+                if (wallpaperAdapter.hideRevealed()) {
                     return;
                 }
                 // 正在就地改名：返回 = 取消改名并收起输入法，而不是退出 App
@@ -205,10 +224,10 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 库列表页（首页）：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库。 */
+    /** 库列表页（首页）：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库 + 顶栏删除按钮（长按行拖拽排序）。 */
     private void showLibPage() {
         showingWallpapers = false;
-        libAdapter.hideRevealed();
+        exitLibDeleteMode();
         Toolbar toolbar = findViewById(R.id.toolbar);
         toolbar.setTitle(R.string.app_title);
         toolbar.setNavigationIcon(R.drawable.ic_menu);
@@ -217,6 +236,7 @@ public class MainActivity extends AppCompatActivity {
         recycler.setAdapter(libAdapter);
         ((Button) findViewById(R.id.btn_add)).setText(R.string.lib_new);
         refreshLibs();
+        updateLibDeleteToolbar();
     }
 
     /** 壁纸网格页：← 返回库列表 + 库名 + ＋ 添加壁纸，两列正方形网格。 */
@@ -239,6 +259,8 @@ public class MainActivity extends AppCompatActivity {
         recycler.setAdapter(wallpaperAdapter);
         ((Button) findViewById(R.id.btn_add)).setText(R.string.add_wallpaper);
         refreshList();
+        // 删除按钮是库页专属，进壁纸页要收起来
+        updateLibDeleteToolbar();
     }
 
     /** 刷新库列表与空状态。 */
@@ -354,10 +376,16 @@ public class MainActivity extends AppCompatActivity {
                 syncTakeoverAsync();
             }
         });
-        // 「桌面图标预览底图」：点按选/换一张自己的首页截图，长按清除。全局只设一次。
+        // 「桌面图标预览底图」：未设置时点按直接选图；已设置时点按浮出查看/更换/清除，长按仍为快捷清除
         View overlayRow = findViewById(R.id.row_launcher_overlay);
         if (overlayRow != null) {
-            overlayRow.setOnClickListener(v -> pickLauncherOverlay());
+            overlayRow.setOnClickListener(v -> {
+                if (LauncherPreviewOverlay.overlayFile(this).exists()) {
+                    showLauncherOverlayMenu();
+                } else {
+                    pickLauncherOverlay();
+                }
+            });
             overlayRow.setOnLongClickListener(v -> {
                 confirmClearLauncherOverlay();
                 return true;
@@ -714,36 +742,131 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 删库二次确认（长按库行浮出的红垃圾桶触发）：文案写明库里的 N 张壁纸会一并删除；
-     * 确认按钮统一成红色垃圾桶图标（无文字）。
+     * 顶栏删除按钮：只给库页用（壁纸页隐藏）。普通态是灰色垃圾桶，点一下进删除态；
+     * 删除态变勾图标，点击 = 对勾选项二次确认。菜单用代码加（本地类型检查的 R 桩不含 menu 资源）。
      */
-    private void confirmDeleteLib(final LibraryStore.Library lib) {
-        final int count = WallpaperStore.loadByLib(this, lib.id).size();
+    private void setupLibDeleteMenu() {
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        libDeleteItem = toolbar.getMenu().add(0, 0, 0, R.string.lib_delete_mode_title);
+        libDeleteItem.setIcon(R.drawable.ic_delete);
+        libDeleteItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        libDeleteItem.setVisible(false);
+        libDeleteItem.setOnMenuItemClickListener(item -> {
+            if (libAdapter.isDeleteMode()) {
+                confirmDeleteSelectedLibs();
+            } else {
+                enterLibDeleteMode();
+            }
+            return true;
+        });
+    }
+
+    /** 库行长按拖拽排序：落位后把新顺序写回 libraries.json；壁纸页 / 删除态不启用拖拽。 */
+    private void setupLibDrag() {
+        ItemTouchHelper helper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
+                ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
+            @Override
+            public boolean isLongPressDragEnabled() {
+                return !showingWallpapers && !libAdapter.isDeleteMode();
+            }
+
+            @Override
+            public boolean onMove(@NonNull RecyclerView recyclerView,
+                                  @NonNull RecyclerView.ViewHolder from,
+                                  @NonNull RecyclerView.ViewHolder to) {
+                if (showingWallpapers) {
+                    return false;
+                }
+                return libAdapter.move(from.getBindingAdapterPosition(), to.getBindingAdapterPosition());
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView recyclerView,
+                                  @NonNull RecyclerView.ViewHolder viewHolder) {
+                super.clearView(recyclerView, viewHolder);
+                if (!showingWallpapers) {
+                    LibraryStore.reorder(MainActivity.this, libAdapter.currentIds());
+                }
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+            }
+        });
+        helper.attachToRecyclerView(recycler);
+    }
+
+    private void enterLibDeleteMode() {
+        libAdapter.setDeleteMode(true);
+        findViewById(R.id.btn_add).setVisibility(View.GONE);
+        updateLibDeleteToolbar();
+    }
+
+    private void exitLibDeleteMode() {
+        if (!libAdapter.isDeleteMode()) {
+            return;
+        }
+        libAdapter.setDeleteMode(false);
+        findViewById(R.id.btn_add).setVisibility(View.VISIBLE);
+        updateLibDeleteToolbar();
+    }
+
+    /** 顶栏随页面/删除态刷新：壁纸页隐藏按钮；删除态换勾图标，标题显示已选数。 */
+    private void updateLibDeleteToolbar() {
+        if (libDeleteItem == null) {
+            return;
+        }
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        boolean deleteMode = libAdapter.isDeleteMode();
+        libDeleteItem.setVisible(!showingWallpapers);
+        libDeleteItem.setIcon(deleteMode ? R.drawable.ic_check : R.drawable.ic_delete);
+        libDeleteItem.setTitle(getString(
+                deleteMode ? R.string.lib_delete_confirm : R.string.lib_delete_mode_title));
+        if (!showingWallpapers) {
+            toolbar.setTitle(deleteMode
+                    ? getString(R.string.lib_delete_mode_count, libAdapter.selectedCount())
+                    : getString(R.string.app_title));
+        }
+    }
+
+    /**
+     * 删除态点勾：先弹二次确认（文案写明库数与总壁纸数，确认按钮统一红色垃圾桶图标），
+     * 确认后逐库删除。没勾选时只提示不动作。
+     */
+    private void confirmDeleteSelectedLibs() {
+        List<LibraryStore.Library> selected = libAdapter.selectedLibs();
+        if (selected.isEmpty()) {
+            Toast.makeText(this, R.string.lib_delete_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(getString(R.string.lib_delete_title, lib.name))
-                .setMessage(getString(R.string.lib_delete_msg, count))
-                .setPositiveButton(" ", (d, which) -> deleteLib(lib))
+                .setTitle(getString(R.string.lib_delete_batch_title, selected.size()))
+                .setMessage(R.string.lib_delete_batch_msg)
+                .setPositiveButton(" ", (d, which) -> deleteLibs(selected))
                 .setNegativeButton(R.string.cancel, null)
                 .show();
-        // 确认按钮换成红色垃圾桶图标（决策：删除按钮统一图标、不带文字）
+        // 确认按钮统一红色垃圾桶图标（沿用原删库确认的样式）
         Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         positive.setText("");
         positive.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_delete, 0, 0, 0);
         positive.setCompoundDrawableTintList(ColorStateList.valueOf(getColor(R.color.danger)));
     }
 
-    /** 删库：连带清库内壁纸文件、切换进度与定时任务（都在 LibraryStore.delete 内部）。 */
-    private void deleteLib(LibraryStore.Library lib) {
-        LibraryStore.delete(this, lib.id);
-        if (lib.id.equals(currentLibId())) {
+    /** 批量删库：连带清库内壁纸文件、切换进度与定时任务（都在 LibraryStore.delete 内部）。 */
+    private void deleteLibs(List<LibraryStore.Library> libs) {
+        boolean removedCurrent = false;
+        for (LibraryStore.Library lib : libs) {
+            LibraryStore.delete(this, lib.id);
+            if (lib.id.equals(currentLibId())) {
+                removedCurrent = true;
+            }
+        }
+        if (removedCurrent) {
             currentLibId = null;
             prefs.edit().remove(LibraryStore.KEY_CURRENT_LIB).apply();
         }
-        if (showingWallpapers) {
-            showLibPage();
-        } else {
-            refreshLibs();
-        }
+        exitLibDeleteMode();
+        refreshLibs();
         refreshTimerStatus();
         // 删除启用中的库会改变「谁在被接管」，同步一次接管状态
         syncTakeoverAsync();
@@ -1398,6 +1521,73 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    /** 已设置底图后点按抽屉行：浮出查看/更换/清除菜单（长按仍是清除快捷方式）。 */
+    private void showLauncherOverlayMenu() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.launcher_overlay_title)
+                .setItems(new CharSequence[]{
+                        getString(R.string.launcher_overlay_action_view),
+                        getString(R.string.launcher_overlay_action_change),
+                        getString(R.string.launcher_overlay_action_clear)},
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                showLauncherOverlayPreview();
+                            } else if (which == 1) {
+                                pickLauncherOverlay();
+                            } else {
+                                confirmClearLauncherOverlay();
+                            }
+                        })
+                .show();
+    }
+
+    /** 预览对话框：在棋盘格衬底上展示抠好的透明底图，透明区域一眼可见。 */
+    private void showLauncherOverlayPreview() {
+        ImageView image = new ImageView(this);
+        image.setLayoutParams(new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (int) (280 * getResources().getDisplayMetrics().density)));
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setPadding((int) (16 * getResources().getDisplayMetrics().density),
+                (int) (16 * getResources().getDisplayMetrics().density),
+                (int) (16 * getResources().getDisplayMetrics().density),
+                (int) (16 * getResources().getDisplayMetrics().density));
+        image.setBackground(checkerboard());
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(image);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.launcher_overlay_title)
+                .setView(scroll)
+                .setNegativeButton(R.string.close, null)
+                .show();
+        new Thread(() -> {
+            final Bitmap saved = LauncherPreviewOverlay.loadSaved(this);
+            runOnUiThread(() -> {
+                if (saved == null) {
+                    dialog.dismiss();
+                    Toast.makeText(this, R.string.launcher_overlay_load_failed, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                image.setImageBitmap(saved);
+            });
+        }, "overlay-preview").start();
+    }
+
+    /** 灰白棋盘格衬底（2×2 平铺单元），用来显出底图的透明区域。 */
+    private Drawable checkerboard() {
+        float cell = 12 * getResources().getDisplayMetrics().density;
+        int size = (int) (cell * 2);
+        Bitmap tile = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(tile);
+        canvas.drawColor(0xFFF2F2F2);
+        Paint gray = new Paint();
+        gray.setColor(0xFFD9D9D9);
+        canvas.drawRect(0, 0, cell, cell, gray);
+        canvas.drawRect(cell, cell, size, size, gray);
+        BitmapDrawable drawable = new BitmapDrawable(getResources(), tile);
+        drawable.setTileModeXY(Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
+        return drawable;
+    }
+
     /** 抽屉里那行的状态文案：已设置 / 未设置。 */
     private void refreshLauncherOverlayRow() {
         TextView state = findViewById(R.id.tv_launcher_overlay);
@@ -1748,7 +1938,8 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 库列表适配器（首页）：缩略图（该库当前壁纸）+ 库名（点按就地改名）+ N 张壁纸
-     * + 启用开关 + 齿轮；长按行浮出红垃圾桶（点垃圾桶二次确认后删库）。
+     * + 启用开关 + 齿轮；长按行 = 拖拽排序（ItemTouchHelper 驱动，落位写回磁盘）；
+     * 删除态（顶栏垃圾桶进入）下开关/齿轮换成行尾复选框，点行即勾选。
      */
     private class LibAdapter extends RecyclerView.Adapter<LibHolder> {
 
@@ -1767,8 +1958,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private final List<Row> rows = new ArrayList<>();
-        // 长按浮出红垃圾桶的行下标（同一时间只允许一行；-1 = 没有）
-        private int revealed = -1;
+        // 删除态（顶栏垃圾桶进入）：行尾显示复选框、点行勾选，勾图标确认批量删除
+        private boolean deleteMode;
+        private final Set<String> selectedIds = new HashSet<>();
 
         // 缩略图内存缓存（上限 8MB）：每次刷新都重新解码会掉帧。
         // v3.15 缩略图边长跟着屏幕（单张 0.5~1MB），上限跟着调大才够铺满可见行
@@ -1807,26 +1999,60 @@ public class MainActivity extends AppCompatActivity {
                 }
                 rows.add(new Row(lib, wallpapers.size(), thumbId));
             }
-            // 数据已换，之前浮出的行不复存在（视图会被回收），标记一并清掉；
+            // 数据已换，之前的勾选不复存在（视图会被回收），标记一并清掉；
             // 改名中的 EditText 也会被重绑回 TextView，所以改名编辑态同步清掉
             // （否则返回键会多拦一次「取消改名」，用户要按两次才退出）
-            revealed = -1;
+            selectedIds.clear();
             renamingLibId = null;
             notifyDataSetChanged();
+            updateLibDeleteToolbar();
         }
 
         void clearThumbs() {
             thumbs.evictAll();
         }
 
-        /** 收起长按浮出的红垃圾桶；返回是否有东西被收起（供返回键链路用）。 */
-        boolean hideRevealed() {
-            if (revealed < 0) {
+        boolean isDeleteMode() {
+            return deleteMode;
+        }
+
+        int selectedCount() {
+            return selectedIds.size();
+        }
+
+        /** 进入/退出删除态（退出时清空勾选）。 */
+        void setDeleteMode(boolean on) {
+            deleteMode = on;
+            selectedIds.clear();
+            notifyDataSetChanged();
+        }
+
+        List<LibraryStore.Library> selectedLibs() {
+            List<LibraryStore.Library> result = new ArrayList<>();
+            for (Row row : rows) {
+                if (selectedIds.contains(row.lib.id)) {
+                    result.add(row.lib);
+                }
+            }
+            return result;
+        }
+
+        /** 当前行顺序对应的库 id 列表（拖拽落位后写回磁盘用）。 */
+        List<String> currentIds() {
+            List<String> ids = new ArrayList<>();
+            for (Row row : rows) {
+                ids.add(row.lib.id);
+            }
+            return ids;
+        }
+
+        /** 拖拽换位：只动内存与动画，落盘由 ItemTouchHelper 的 clearView 统一做。 */
+        boolean move(int from, int to) {
+            if (from < 0 || to < 0 || from >= rows.size() || to >= rows.size()) {
                 return false;
             }
-            int old = revealed;
-            revealed = -1;
-            notifyItemChanged(old);
+            rows.add(to, rows.remove(from));
+            notifyItemMoved(from, to);
             return true;
         }
 
@@ -1861,19 +2087,34 @@ public class MainActivity extends AppCompatActivity {
             holder.tvName.setVisibility(View.VISIBLE);
             holder.etName.setVisibility(View.GONE);
             holder.tvCount.setText(getString(R.string.lib_count, row.count));
-            // 长按浮出状态：开关与齿轮收起，行尾露出红垃圾桶
-            boolean isRevealed = position == revealed;
-            holder.swEnabled.setVisibility(isRevealed ? View.GONE : View.VISIBLE);
-            holder.btnSettings.setVisibility(isRevealed ? View.GONE : View.VISIBLE);
-            holder.btnDelete.setVisibility(isRevealed ? View.VISIBLE : View.GONE);
+            // 删除态：开关与齿轮收起，行尾露出复选框（点行任意处即可勾选）
+            holder.swEnabled.setVisibility(deleteMode ? View.GONE : View.VISIBLE);
+            holder.btnSettings.setVisibility(deleteMode ? View.GONE : View.VISIBLE);
+            holder.cbDelete.setVisibility(deleteMode ? View.VISIBLE : View.GONE);
+            holder.cbDelete.setOnCheckedChangeListener(null);
+            holder.cbDelete.setChecked(selectedIds.contains(lib.id));
+            if (deleteMode) {
+                holder.cbDelete.setOnCheckedChangeListener((v, checked) -> {
+                    if (checked) {
+                        selectedIds.add(lib.id);
+                    } else {
+                        selectedIds.remove(lib.id);
+                    }
+                    updateLibDeleteToolbar();
+                });
+            }
             // 启用/停用：沿用 LibraryStore 的同范围互斥规则；失败（未设范围）回退并提示。
             // 启用前若与同范围的启用库冲突 → 先弹确认，不静默把对方关掉
             holder.swEnabled.setOnCheckedChangeListener(null);
             holder.swEnabled.setChecked(lib.enabled);
             holder.swEnabled.setOnCheckedChangeListener((buttonView, isChecked) ->
                     onLibEnableToggled(holder, lib, isChecked));
-            // 点库名 → 就地改名；点行内其他位置 → 进该库壁纸页
-            holder.tvName.setOnClickListener(v -> enterRename(holder, lib));
+            // 点库名 → 就地改名（删除态不响应）；点行内其他位置 → 进该库壁纸页 / 勾选
+            holder.tvName.setOnClickListener(v -> {
+                if (!deleteMode) {
+                    enterRename(holder, lib);
+                }
+            });
             holder.etName.setOnEditorActionListener((v, actionId, event) -> {
                 commitRename(holder, lib);
                 return true;
@@ -1884,25 +2125,20 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
             holder.card.setOnClickListener(v -> {
-                if (hideRevealed()) {
+                if (!deleteMode) {
+                    showWallpaperPage(lib.id);
                     return;
                 }
-                showWallpaperPage(lib.id);
-            });
-            holder.card.setOnLongClickListener(v -> {
-                int old = revealed;
-                revealed = position;
-                if (old >= 0) {
-                    notifyItemChanged(old);
+                if (selectedIds.contains(lib.id)) {
+                    selectedIds.remove(lib.id);
+                } else {
+                    selectedIds.add(lib.id);
                 }
-                notifyItemChanged(position);
-                return true;
+                notifyItemChanged(holder.getBindingAdapterPosition());
+                updateLibDeleteToolbar();
             });
             holder.btnSettings.setOnClickListener(v -> showLibSettingsDialog(lib));
-            holder.btnDelete.setOnClickListener(v -> {
-                hideRevealed();
-                confirmDeleteLib(lib);
-            });
+            // 长按不设监听：让位给 ItemTouchHelper 的长按拖拽排序
         }
 
         @Override
@@ -2036,7 +2272,7 @@ public class MainActivity extends AppCompatActivity {
         final TextView tvCount;
         final CompoundButton swEnabled;
         final View btnSettings;
-        final View btnDelete;
+        final CheckBox cbDelete;
 
         LibHolder(@NonNull View itemView) {
             super(itemView);
@@ -2047,7 +2283,7 @@ public class MainActivity extends AppCompatActivity {
             tvCount = itemView.findViewById(R.id.tv_lib_count);
             swEnabled = itemView.findViewById(R.id.sw_lib_enabled);
             btnSettings = itemView.findViewById(R.id.btn_lib_settings);
-            btnDelete = itemView.findViewById(R.id.btn_lib_delete);
+            cbDelete = itemView.findViewById(R.id.cb_lib_delete);
         }
     }
 

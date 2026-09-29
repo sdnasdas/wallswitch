@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 壁纸库行（v3.14）：缩略图（该库当前壁纸）+ 库名（点击就地改名）+ N 张壁纸，
      右侧 = 启用/停用开关 + 齿轮（其余三项：范围/模式/间隔，另有「立即切换」）。
-     长按行：开关与齿轮收起，行尾浮出红垃圾桶，点击弹二次确认。 -->
+     长按行 = 拖拽排序（落位写回 libraries.json）。
+     删库走顶栏垃圾桶 → 删除态：开关位换成复选框，勾选后点顶栏勾图标二次确认。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/item_lib_card"
@@ -94,16 +95,12 @@
             android:src="@drawable/ic_settings"
             android:tint="@color/text_secondary" />
 
-        <!-- 长按浮出的红垃圾桶（无文字），点击弹二次确认 -->
-        <ImageButton
-            android:id="@+id/btn_lib_delete"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/circle_danger"
-            android:contentDescription="@string/lib_delete"
-            android:padding="12dp"
-            android:src="@drawable/ic_delete"
-            android:tint="@android:color/white"
+        <!-- 删除态复选框：顶栏垃圾桶进入删除态时替换开关显示（长按行 = 拖拽排序，不再浮出删除按钮） -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cb_lib_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="@string/lib_delete_check_desc"
             android:visibility="gone" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

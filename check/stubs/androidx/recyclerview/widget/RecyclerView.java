@@ -76,6 +76,15 @@ public class RecyclerView extends android.view.ViewGroup {
 
         public final void notifyItemChanged(int position) {
         }
+
+        public final void notifyItemMoved(int fromPosition, int toPosition) {
+        }
+
+        public final void notifyItemInserted(int position) {
+        }
+
+        public final void notifyItemRemoved(int position) {
+        }
     }
 
     public abstract static class ViewHolder {
@@ -84,6 +93,14 @@ public class RecyclerView extends android.view.ViewGroup {
 
         public ViewHolder(android.view.View itemView) {
             this.itemView = itemView;
+        }
+
+        public final int getBindingAdapterPosition() {
+            return -1;
+        }
+
+        public final int getAbsoluteAdapterPosition() {
+            return -1;
         }
     }
 }

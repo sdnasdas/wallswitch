@@ -24,6 +24,10 @@ public class Toolbar extends android.view.View {
     public void setOnMenuItemClickListener(OnMenuItemClickListener listener) {
     }
 
+    public android.view.Menu getMenu() {
+        return null;
+    }
+
     /** 桩：真实接口为 androidx.appcompat.widget.Toolbar.OnMenuItemClickListener。 */
     public interface OnMenuItemClickListener {
         boolean onMenuItemSelected(MenuItem item);
