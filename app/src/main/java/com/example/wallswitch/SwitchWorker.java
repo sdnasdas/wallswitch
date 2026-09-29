@@ -21,8 +21,9 @@ public class SwitchWorker extends Worker {
 
     @Override
     public Result doWork() {
-        // 旧版按库排定的任务可能还在系统排队：输入里没有范围键就什么都不做（迁移时会取消它）
-        if (!getInputData().hasKey(EXTRA_FOR_HOME)) {
+        // 旧版按库排定的任务可能还在系统排队：输入里没有范围键就什么都不做（迁移时会取消它）。
+        // 注意：WorkManager 2.9.1 的 Data 没有公开的 hasKey()，只能查 getKeyValueMap()
+        if (!getInputData().getKeyValueMap().containsKey(EXTRA_FOR_HOME)) {
             return Result.success();
         }
         boolean forHome = getInputData().getBoolean(EXTRA_FOR_HOME, true);
