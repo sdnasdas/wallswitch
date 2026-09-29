@@ -62,12 +62,15 @@ public class SwitchNotifier {
 
     /**
      * 自动切换完成后调用：发一条结果通知，**每条独立保留**（后一次不覆盖前一次）。
+     * v3.59 起通知按「范围槽位」发（桌面/锁屏各自到点、互不相关）。
      *
-     * @param lib       被切换的壁纸库（用于显示库名）
+     * @param forHome   本次切换的范围（true=桌面，false=锁屏）
+     * @param lib       该范围槽位指向的壁纸库（用于显示库名）
      * @param ok        是否切换成功
      * @param errorCode 失败原因码（成功时可为 null）
      */
-    public static void notifyResult(Context ctx, LibraryStore.Library lib, boolean ok, String errorCode) {
+    public static void notifyResult(Context ctx, boolean forHome, LibraryStore.Library lib,
+                                    boolean ok, String errorCode) {
         if (!isEnabled(ctx) || lib == null) {
             return;
         }
@@ -77,7 +80,7 @@ public class SwitchNotifier {
         }
         ensureChannels(ctx, nm);
         String title = ctx.getString(ok ? R.string.notify_ok_title : R.string.notify_fail_title);
-        CharSequence text = ok ? successText(ctx, lib) : Switcher.errorText(ctx, errorCode);
+        CharSequence text = ok ? successText(ctx, forHome, lib) : Switcher.errorText(ctx, errorCode);
         Intent intent = new Intent(ctx, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending = PendingIntent.getActivity(ctx, 0, intent,
@@ -99,17 +102,15 @@ public class SwitchNotifier {
         }
     }
 
-    /** 成功提示正文：库「库名」｜桌面：标题｜锁屏：标题（未覆盖的范围不显示，失败的范围标「未切换」）。 */
-    private static CharSequence successText(Context ctx, LibraryStore.Library lib) {
-        StringBuilder sb = new StringBuilder(ctx.getString(R.string.notify_ok_text, lib.name == null ? "" : lib.name));
-        if (lib.home) {
-            sb.append(scopePart(ctx, R.string.notify_ok_home, R.string.notify_ok_home_skipped,
-                    Switcher.lastAppliedTitle(true)));
-        }
-        if (lib.lock) {
-            sb.append(scopePart(ctx, R.string.notify_ok_lock, R.string.notify_ok_lock_skipped,
-                    Switcher.lastAppliedTitle(false)));
-        }
+    /** 成功提示正文：库「库名」｜桌面（或锁屏）：标题；本轮没上屏标题时标「未切换」。 */
+    private static CharSequence successText(Context ctx, boolean forHome, LibraryStore.Library lib) {
+        StringBuilder sb = new StringBuilder(
+                ctx.getString(R.string.notify_ok_text, lib.name == null ? "" : lib.name));
+        sb.append(forHome
+                ? scopePart(ctx, R.string.notify_ok_home, R.string.notify_ok_home_skipped,
+                        Switcher.lastAppliedTitle(true))
+                : scopePart(ctx, R.string.notify_ok_lock, R.string.notify_ok_lock_skipped,
+                        Switcher.lastAppliedTitle(false)));
         return sb.toString();
     }
 

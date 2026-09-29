@@ -99,7 +99,7 @@ public class StatusNotifier {
             return;
         }
         ensureChannel(ctx, nm);
-        LibraryStore.Library lib = LibraryStore.enabledLibForScope(ctx, true);
+        LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
         if (lib == null) {
             cancel(ctx);
             return;
@@ -159,7 +159,7 @@ public class StatusNotifier {
         }
         // 下次切换时间：走秒模式用 Chronometer 倒计时，静态模式填「预计下次切换时间：15:42」。
         // 样式开关两处（通知/小组件）共用 TimerScheduler.tickingCountdown，保证显示与设置一致。
-        long trigger = TimerScheduler.libTrigger(ctx, lib.id);
+        long trigger = TimerScheduler.scopeTrigger(ctx, true);
         long now = System.currentTimeMillis();
         if (trigger > now) {
             views.setViewVisibility(R.id.notif_timer, View.VISIBLE);

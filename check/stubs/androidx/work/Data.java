@@ -7,9 +7,21 @@ public class Data {
         return null;
     }
 
+    public boolean getBoolean(String key, boolean defaultValue) {
+        return defaultValue;
+    }
+
+    public boolean hasKey(String key) {
+        return false;
+    }
+
     public static class Builder {
 
         public Builder putString(String key, String value) {
+            return this;
+        }
+
+        public Builder putBoolean(String key, boolean value) {
             return this;
         }
 

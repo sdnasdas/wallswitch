@@ -12,8 +12,8 @@ import androidx.work.WorkerParameters;
  */
 public class SwitchWorker extends Worker {
 
-    // 输入数据：要切换的壁纸库 id
-    public static final String EXTRA_LIB_ID = "lib_id";
+    // 输入数据：要切换的范围（true=桌面，false=锁屏）；v3.59 起调度单位从库改成范围槽位
+    public static final String EXTRA_FOR_HOME = "for_home";
 
     public SwitchWorker(Context context, WorkerParameters params) {
         super(context, params);
@@ -21,16 +21,17 @@ public class SwitchWorker extends Worker {
 
     @Override
     public Result doWork() {
-        String libId = getInputData().getString(EXTRA_LIB_ID);
-        if (libId == null) {
+        // 旧版按库排定的任务可能还在系统排队：输入里没有范围键就什么都不做（迁移时会取消它）
+        if (!getInputData().hasKey(EXTRA_FOR_HOME)) {
             return Result.success();
         }
+        boolean forHome = getInputData().getBoolean(EXTRA_FOR_HOME, true);
         // 只在“确实到点且本轮未执行”时切换：避免与“补切”（小组件刷新/开机/打开应用）重复切一次
-        if (!TimerScheduler.isDue(getApplicationContext(), libId)) {
+        if (!TimerScheduler.isDue(getApplicationContext(), forHome)) {
             return Result.success();
         }
-        // 执行该库覆盖范围的切换并记账（前移下次触发时间、记录结果、刷新小组件倒计时）
-        TimerScheduler.runNow(getApplicationContext(), libId);
+        // 执行该范围槽位库的切换并记账（前移下次触发时间、记录结果、刷新小组件倒计时）
+        TimerScheduler.runNow(getApplicationContext(), forHome);
         return Result.success();
     }
 }

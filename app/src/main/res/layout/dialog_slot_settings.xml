@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 库行齿轮弹出的库设置：作用范围（桌面/锁屏单选）、切换模式（顺序/随机）、
-     切换间隔（整行可点，弹分钟输入框）、立即切换一张（手动切换入口）。 -->
+<!-- 范围卡片齿轮弹出的聚合设置：本范围的壁纸库（下拉直接换）、切换模式（顺序/随机）、
+     切换间隔（整行可点，弹时/分滚轮）。改动即保存。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -13,32 +13,17 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/lib_scope_label"
+        android:text="@string/slot_lib_label"
         android:textColor="@color/brand"
         android:textSize="13sp"
         android:textStyle="bold" />
 
-    <RadioGroup
-        android:id="@+id/rg_scope"
+    <Spinner
+        android:id="@+id/spinner_slot_lib"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <RadioButton
-            android:id="@+id/rb_scope_home"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/scope_home"
-            android:textSize="14sp" />
-
-        <RadioButton
-            android:id="@+id/rb_scope_lock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="@string/scope_lock"
-            android:textSize="14sp" />
-    </RadioGroup>
+        android:layout_marginTop="4dp"
+        android:minHeight="44dp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -94,29 +79,8 @@
             android:id="@+id/tv_interval"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/lib_interval"
             android:textColor="@color/brand"
             android:textSize="14sp"
             android:textStyle="bold" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/row_switch_now"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/selectableItemBackground"
-        android:clickable="true"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:minHeight="48dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/switch_now"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
     </LinearLayout>
 </LinearLayout>

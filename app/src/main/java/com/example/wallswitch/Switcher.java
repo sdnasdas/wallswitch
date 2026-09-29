@@ -75,10 +75,11 @@ public class Switcher {
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
-        if (lib == null || !lib.enabled) {
+        if (lib == null) {
             return false;
         }
-        if (forHome ? !lib.home : !lib.lock) {
+        // v3.59 起：库不再有启用/范围属性，改由「范围槽位」指向该库才切
+        if (!LibraryStore.ownsScope(ctx, libId, forHome)) {
             return false;
         }
         // 候选集 = 该库内的全部壁纸
@@ -91,7 +92,7 @@ public class Switcher {
         // 「上一张」链路要记切换前的当前图，先留住
         String oldCurrent = getCurrent(ctx, libId, forHome);
         String nextId;
-        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+        if (LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome))) {
             nextId = pickRandom(prefs, base, candidates);
         } else {
             nextId = pickOrder(prefs, base, candidates);
@@ -123,10 +124,7 @@ public class Switcher {
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
-        if (lib == null || !lib.enabled) {
-            return false;
-        }
-        if (forHome ? !lib.home : !lib.lock) {
+        if (lib == null || !LibraryStore.ownsScope(ctx, libId, forHome)) {
             return false;
         }
         List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
@@ -156,7 +154,7 @@ public class Switcher {
         if (idx >= 0) {
             prefs.edit().putInt(base + "_seq", idx).apply();
         }
-        if (LibraryStore.MODE_RANDOM.equals(lib.mode)) {
+        if (LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome))) {
             // 被换下的当前图不再在屏上，塞回本轮池头部：接下来的随机还能抽到它
             String current = getCurrent(ctx, libId, forHome);
             if (current != null) {
@@ -227,7 +225,7 @@ public class Switcher {
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
-        if (lib == null || !lib.enabled || (forHome ? !lib.home : !lib.lock)) {
+        if (lib == null || !LibraryStore.ownsScope(ctx, libId, forHome)) {
             return false;
         }
         List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
@@ -317,9 +315,8 @@ public class Switcher {
             }
             File full = WallpaperStore.getFullFile(ctx, wallpaperId);
             boolean deleted = full == null || !full.exists();
-            LibraryStore.Library lib = LibraryStore.get(ctx, libId);
-            boolean onScreen = TakeoverManager.isEnabled(ctx) && lib != null && lib.enabled
-                    && (forHome ? lib.home : lib.lock);
+            boolean onScreen = TakeoverManager.isEnabled(ctx)
+                    && LibraryStore.ownsScope(ctx, libId, forHome);
             if (deleted) {
                 // 指针不能指向已删的图；还在屏上则推进到下一张（候选集已不含它）
                 prefs.edit().remove(progressBase(libId, forHome) + "_current").apply();

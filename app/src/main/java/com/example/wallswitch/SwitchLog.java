@@ -52,8 +52,8 @@ public final class SwitchLog {
      * @param detail 这次切了哪个范围、轮到哪张的可读描述（见 TimerScheduler.switchDetail）；
      *               传 null 则只记时间
      */
-    public static void recordAuto(Context ctx, LibraryStore.Library lib, String detail) {
-        if (ctx == null || lib == null) {
+    public static void recordAuto(Context ctx, boolean forHome, String detail) {
+        if (ctx == null) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -83,11 +83,11 @@ public final class SwitchLog {
         sb.append('\n');
         if (!newBlock && lastTime > 0L) {
             long minutes = Math.max(1L, Math.round((now - lastTime) / 60000.0));
-            String mode = ctx.getString(LibraryStore.MODE_RANDOM.equals(lib.mode)
+            String mode = ctx.getString(LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome))
                     ? R.string.mode_random : R.string.mode_order);
             // 缩进两格：一眼看出这行属于上面那次切换
             sb.append("  ").append(ctx.getString(R.string.log_interval_line,
-                    minutes, Math.max(1, lib.intervalSeconds / 60), mode)).append('\n');
+                    minutes, Math.max(1, LibraryStore.scopeIntervalSeconds(ctx, forHome) / 60), mode)).append('\n');
         }
 
         append(ctx, sb.toString());

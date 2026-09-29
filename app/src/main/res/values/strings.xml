@@ -17,23 +17,22 @@
     <string name="lib_delete_batch_msg">库和库里的壁纸会一并删除，无法恢复</string>
     <string name="lib_delete_check_desc">勾选要删除的库</string>
     <string name="lib_name_hint">库名称（留空自动命名）</string>
-    <string name="lib_enabled">启用本库</string>
     <string name="lib_interval">切换间隔</string>
-    <string name="interval_hint">间隔分钟数（最小 15）</string>
-    <string name="interval_min_toast">最小间隔 15 分钟（省电方案的系统下限）</string>
+    <!-- v3.59 间隔滚轮：时/分两列，分钟按 15 步进（WorkManager 系统下限 15 分钟） -->
+    <string name="interval_hour">时</string>
+    <string name="interval_minute">分</string>
     <string name="widget_waiting">待切换</string>
 
     <!-- 定时状态行（定位“到点没切”的原因） -->
     <string name="timer_status_off">定时切换已关闭（手动切换与小组件仍可用）</string>
     <!-- v3.14：自动切换卡片只留「到点通知」开关 + 上次/下次两个时间（全局定时总开关已移除） -->
-    <string name="timer_status_none">没有启用中的壁纸库（库启用后按各自的间隔到点自动切）</string>
+    <string name="timer_status_none">两个范围都未设置壁纸库（范围卡片选好库后按各自间隔到点自动切）</string>
     <string name="timer_status_on">上次 %1$s（%2$s）｜ 下次预计 %3$s</string>
     <string name="timer_status_overdue">⚠ 已过预计时间 %1$s 仍未见系统执行，等待调度中：点亮屏幕 / 刷新小组件 / 打开本应用会自动补切</string>
     <string name="status_ok">成功</string>
     <string name="status_never">尚未执行</string>
     <string name="battery_allowed">后台限制：已允许忽略电池优化 ✔</string>
     <string name="battery_denied">后台限制：未允许，定时可能被系统推迟（点按设置）</string>
-    <string name="lib_scope_none">请先勾选桌面或锁屏范围</string>
     <string name="mode_order">顺序切换</string>
     <string name="mode_random">随机切换</string>
     <string name="scope_home">桌面</string>
@@ -48,7 +47,7 @@
     <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->
     <string name="set_as_home">设为首页</string>
     <string name="set_as_home_done">已设为首页壁纸</string>
-    <string name="set_as_home_unavailable">这个库没负责桌面范围：先在库行齿轮里启用并选「桌面」</string>
+    <string name="set_as_home_unavailable">桌面范围还没设置这个库：先在「桌面壁纸库」卡片里选上它</string>
     <string name="delete_confirm_msg">确定要删除这张壁纸吗？</string>
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>
@@ -134,8 +133,6 @@
     <string name="section_list">库内壁纸</string>
 
     <!-- v2.1 排版重设计：库设置卡行标签 -->
-    <string name="lib_scope_label">范围</string>
-    <string name="lib_mode_label">顺序</string>
     <string name="lib_interval_label">切换间隔</string>
 
     <!-- v3.0 底部双 Tab：壁纸列表独立成页，设置收进第二页 -->
@@ -174,7 +171,6 @@
 
     <!-- v3.2：设置改为左侧滑出抽屉；两个手动切换按钮合并为一个 -->
     <string name="switch_pick">切换壁纸</string>
-    <string name="switch_pick_scope">选择切换范围</string>
     <!-- v3.14：左滑删除改为长按浮出图标（原「长按壁纸可编辑或删除」提示串已无引用，随左滑删除一并移除） -->
     <!-- v3.10：全局「接管」开关（App 级，非引擎级）+ 接管情况（系统真值） -->
     <string name="takeover_title">开启接管</string>
@@ -190,8 +186,8 @@
     <string name="takeover_state_off">未启用</string>
     <string name="banner_activate">启用</string>
     <string name="banner_not_activated">本应用未启用：桌面壁纸未由本应用接管</string>
-    <string name="banner_no_library">没有启用中的桌面库，桌面壁纸显示纯色</string>
-    <string name="takeover_need_activate">有启用中的桌面库，请点顶部「启用」把本应用设为动态壁纸</string>
+    <string name="banner_no_library">「桌面壁纸库」卡片还没设置库，桌面壁纸显示纯色</string>
+    <string name="takeover_need_activate">桌面壁纸库已设置，请点顶部「启用」把本应用设为动态壁纸</string>
 
     <!-- 抽屉：保存当前壁纸（接管中存库里正在显示的那张，未接管存系统壁纸） -->
     <string name="save_wallpaper_title">保存当前壁纸</string>
@@ -202,12 +198,17 @@
             <!-- 范围改为单选下拉后，改范围需二次确认 -->
     <string name="scope_confirm_title">确认修改范围</string>
     <string name="scope_confirm_msg">把「%1$s」的范围改成「%2$s」？保存后这个库只负责该范围的切换。</string>
-    <string name="scope_saved">范围已保存：%1$s</string>
-    <!-- 启用库时与同范围库冲突：先问一句，别静默把对方关掉 -->
-    <string name="lib_enable_conflict_title">范围冲突</string>
-    <string name="lib_enable_conflict_msg">%1$s 正在负责%2$s。同一个范围同时只能有一个库负责，继续启用「%3$s」会停用 %1$s。</string>
-    <string name="lib_enable_conflict_ok">继续启用</string>
-    <string name="scope_home_lock">桌面+锁屏</string>
+    <!-- v3.59 范围槽位卡片：桌面/锁屏各自绑定一个库，库不再有启用/范围属性 -->
+    <string name="slot_home_title">桌面壁纸库</string>
+    <string name="slot_lock_title">锁屏壁纸库</string>
+    <string name="slot_unset">未设置 · 点按选择</string>
+    <string name="slot_switch_now">马上切换一张</string>
+    <string name="slot_settings_desc">设置本范围的库/模式/间隔</string>
+    <string name="slot_none_toast">先点齿轮给这个范围选一个壁纸库</string>
+    <string name="slot_lib_label">壁纸库</string>
+    <string name="slot_lib_none">不切换（清空本范围）</string>
+    <string name="slot_every_prefix">每 </string>
+    <string name="slot_replace_msg">「%1$s」正在负责%2$s。同一个范围同时只能有一个库负责，继续会把 %1$s 换下来。</string>
     <!-- 定时自动切换日志（files/switch_log.txt）：一条两行 —— 时间 + 范围与壁纸标题，第二行是实际/配置间隔 -->
     <string name="log_interval_line">实际间隔 %1$d 分钟 · 设置 %2$d 分钟 · %3$s</string>
     <string name="log_detail_scope">%1$s「%2$s」</string>
@@ -227,7 +228,6 @@
     <!-- v3.14：层级导航 UI（首页=库列表，进库=两列网格；库级设置进齿轮弹窗） -->
     <string name="app_title">WallPaper</string>
     <string name="lib_count">%1$d 张壁纸</string>
-    <string name="lib_settings">库设置</string>
     <string name="lib_mode_title">切换模式</string>
     <string name="switch_now">立即切换一张</string>
     <string name="empty_libs">还没有壁纸库</string>

@@ -34,7 +34,7 @@ public class NotifActionReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 // 点击时实时解析桌面启用库：库可能已被换人/停用，通知上显示的是旧状态也没关系
-                LibraryStore.Library lib = LibraryStore.enabledLibForScope(app, true);
+                LibraryStore.Library lib = LibraryStore.slotLib(app, true);
                 boolean attempted = false;
                 boolean ok = false;
                 if (lib != null) {

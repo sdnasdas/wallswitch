@@ -76,12 +76,12 @@ public class WidgetProvider extends AppWidgetProvider {
     private static void switchNow(final Context app) {
         boolean attempted = false;
         boolean ok = false;
-        LibraryStore.Library home = LibraryStore.enabledLibForScope(app, true);
+        LibraryStore.Library home = LibraryStore.slotLib(app, true);
         if (home != null) {
             attempted = true;
             ok |= Switcher.next(app, home.id, true);
         }
-        LibraryStore.Library lock = LibraryStore.enabledLibForScope(app, false);
+        LibraryStore.Library lock = LibraryStore.slotLib(app, false);
         if (lock != null) {
             attempted = true;
             ok |= Switcher.next(app, lock.id, false);
@@ -133,7 +133,7 @@ public class WidgetProvider extends AppWidgetProvider {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
             views.setViewVisibility(R.id.widget_waiting, View.VISIBLE);
         }
-        LibraryStore.Library home = LibraryStore.enabledLibForScope(ctx, true);
+        LibraryStore.Library home = LibraryStore.slotLib(ctx, true);
         if (home == null) {
             // 没有启用中的桌面库：点按打开应用去配置
             Intent openApp = new Intent(ctx, MainActivity.class);

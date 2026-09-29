@@ -31,14 +31,17 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.NumberPicker;
 import android.widget.ProgressBar;
 import android.widget.RadioGroup;
+import android.widget.Spinner;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -120,6 +123,9 @@ public class MainActivity extends AppCompatActivity {
     private String renamingLibId;
     // 顶栏删除按钮（库页专用）：普通态 = 垃圾桶进删除态，删除态 = 勾图标确认批量删除
     private MenuItem libDeleteItem;
+    // v3.59 范围槽位卡片（只在库列表页显示）：桌面/锁屏各一张，点卡片开聚合设置、闪电马上切一张
+    private View slotCards;
+    private TextView tvSlotHomeName, tvSlotHomeDesc, tvSlotLockName, tvSlotLockDesc;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -153,6 +159,7 @@ public class MainActivity extends AppCompatActivity {
         wallpaperAdapter = new WallpaperAdapter();
         setupLibDeleteMenu();
         setupLibDrag();
+        setupSlotCards();
         setupBackPressed();
         setupDrawer();
         setupButtons();
@@ -236,6 +243,7 @@ public class MainActivity extends AppCompatActivity {
         recycler.setAdapter(libAdapter);
         ((Button) findViewById(R.id.btn_add)).setText(R.string.lib_new);
         refreshLibs();
+        refreshSlotCards();
         updateLibDeleteToolbar();
     }
 
@@ -259,6 +267,7 @@ public class MainActivity extends AppCompatActivity {
         recycler.setAdapter(wallpaperAdapter);
         ((Button) findViewById(R.id.btn_add)).setText(R.string.add_wallpaper);
         refreshList();
+        refreshSlotCards();
         // 删除按钮是库页专属，进壁纸页要收起来
         updateLibDeleteToolbar();
     }
@@ -268,6 +277,57 @@ public class MainActivity extends AppCompatActivity {
         List<LibraryStore.Library> libs = LibraryStore.load(this);
         libAdapter.setItems(libs);
         updateEmptyState(libs.isEmpty(), R.string.empty_libs, R.string.empty_libs_hint);
+    }
+
+    /** 范围卡片接线（一次性）：卡片/齿轮 = 聚合设置弹窗；闪电 = 该范围马上切一张。 */
+    private void setupSlotCards() {
+        slotCards = findViewById(R.id.slot_cards);
+        tvSlotHomeName = findViewById(R.id.tv_slot_home_name);
+        tvSlotHomeDesc = findViewById(R.id.tv_slot_home_desc);
+        tvSlotLockName = findViewById(R.id.tv_slot_lock_name);
+        tvSlotLockDesc = findViewById(R.id.tv_slot_lock_desc);
+        findViewById(R.id.card_slot_home).setOnClickListener(v -> showSlotSettingsDialog(true));
+        findViewById(R.id.card_slot_lock).setOnClickListener(v -> showSlotSettingsDialog(false));
+        findViewById(R.id.btn_slot_home_settings).setOnClickListener(v -> showSlotSettingsDialog(true));
+        findViewById(R.id.btn_slot_lock_settings).setOnClickListener(v -> showSlotSettingsDialog(false));
+        findViewById(R.id.btn_slot_home_switch).setOnClickListener(v -> slotSwitchNow(true));
+        findViewById(R.id.btn_slot_lock_switch).setOnClickListener(v -> slotSwitchNow(false));
+    }
+
+    /** 卡片上的「马上切换一张」：槽位没库先提示去卡片设置。 */
+    private void slotSwitchNow(boolean forHome) {
+        LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
+        if (lib == null) {
+            Toast.makeText(this, R.string.slot_none_toast, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        switchAndToast(lib, forHome);
+    }
+
+    /** 刷新两张范围卡片：未设置（灰图标）/ 已设置（库名 + 模式·间隔，品牌色图标）。 */
+    private void refreshSlotCards() {
+        if (slotCards == null) {
+            return;
+        }
+        slotCards.setVisibility(showingWallpapers ? View.GONE : View.VISIBLE);
+        if (showingWallpapers) {
+            return;
+        }
+        bindSlotCard(true, tvSlotHomeName, tvSlotHomeDesc, R.id.iv_slot_home_icon);
+        bindSlotCard(false, tvSlotLockName, tvSlotLockDesc, R.id.iv_slot_lock_icon);
+    }
+
+    private void bindSlotCard(boolean forHome, TextView name, TextView desc, int iconId) {
+        LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
+        ImageView icon = findViewById(iconId);
+        int tint = getColor(lib == null ? R.color.text_secondary : R.color.brand);
+        if (icon != null) {
+            icon.setColorFilter(tint);
+        }
+        name.setText(lib == null
+                ? getString(forHome ? R.string.slot_home_title : R.string.slot_lock_title)
+                : lib.name);
+        desc.setText(lib == null ? getString(R.string.slot_unset) : slotIntervalDisplay(forHome));
     }
 
     /** 刷新壁纸网格（当前库内的壁纸）与空状态。 */
@@ -369,6 +429,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onDrawerOpened(View drawerView) {
                 refreshTimerStatus();
+                refreshSlotCards();
                 refreshBatteryRow();
                 refreshLauncherOverlayRow();
                 refreshExportRows();
@@ -874,159 +935,167 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * 库行齿轮：该库的设置弹窗 —— 作用范围（桌面/锁屏单选）、切换模式（顺序/随机）、
-     * 切换间隔（整行可点弹输入框）、立即切换一张（手动切换入口）。
-     * 改动即保存；同范围互斥等规则都在 LibraryStore 里。
+     * 范围卡片齿轮：本范围的聚合设置弹窗 —— 壁纸库（下拉直接换/清空）、切换模式（顺序/随机）、
+     * 切换间隔（整行可点，弹时/分滚轮）。改动即保存；槽位写入都在 LibraryStore 里。
      */
-    private void showLibSettingsDialog(final LibraryStore.Library lib) {
-        View content = LayoutInflater.from(this).inflate(R.layout.dialog_lib_settings, null, false);
-        RadioGroup rgScope = content.findViewById(R.id.rg_scope);
+    private void showSlotSettingsDialog(final boolean forHome) {
+        View content = LayoutInflater.from(this).inflate(R.layout.dialog_slot_settings, null, false);
+        Spinner spinner = content.findViewById(R.id.spinner_slot_lib);
         RadioGroup rgMode = content.findViewById(R.id.rg_mode);
         final TextView tvInterval = content.findViewById(R.id.tv_interval);
+        tvInterval.setText(slotIntervalDisplay(forHome));
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(lib.name)
+                .setTitle(forHome ? R.string.slot_home_title : R.string.slot_lock_title)
                 .setView(content)
                 .setNegativeButton(R.string.close, null)
+                .setOnDismissListener(d -> {
+                    // 弹窗期间可能换过库：库行角标、定时状态行、范围卡片一起校准
+                    refreshLibs();
+                    refreshTimerStatus();
+                    refreshSlotCards();
+                })
                 .show();
-        // 回填（先填值再挂监听，程序化 check 不触发写回）
-        if (lib.home && !lib.lock) {
-            rgScope.check(R.id.rb_scope_home);
-        } else if (lib.lock && !lib.home) {
-            rgScope.check(R.id.rb_scope_lock);
+        // 库列表第 0 项固定为「不切换」（清空槽位）
+        final List<LibraryStore.Library> libs = LibraryStore.load(this);
+        List<String> names = new ArrayList<>();
+        names.add(getString(R.string.slot_lib_none));
+        for (LibraryStore.Library l : libs) {
+            names.add(l.name);
         }
-        rgMode.check(LibraryStore.MODE_RANDOM.equals(lib.mode) ? R.id.rb_random : R.id.rb_order);
-        tvInterval.setText(formatInterval(lib.intervalSeconds));
-        // 范围：单选；改动即保存（范围互斥、启用库重排定时都在 setScope 内部）
-        rgScope.setOnCheckedChangeListener((group, checkedId) -> {
-            boolean home = checkedId == R.id.rb_scope_home;
-            LibraryStore.Library latest = LibraryStore.get(MainActivity.this, lib.id);
-            if (latest == null) {
-                return;
+        String currentId = LibraryStore.slotLibId(this, forHome);
+        int sel = 0;
+        for (int i = 0; i < libs.size(); i++) {
+            if (libs.get(i).id.equals(currentId)) {
+                sel = i + 1;
+                break;
             }
-            boolean curHome = latest.home && !latest.lock;
-            boolean curLock = latest.lock && !latest.home;
-            if (home ? curHome : curLock) {
-                return;
+        }
+        final int selection = sel;
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, names);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(selection);
+        // 先设选中再挂监听：程序化 setSelection 不触发回调
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                        int position, long id) {
+                String newId = position == 0 ? null : libs.get(position - 1).id;
+                // 用实时槽位状态比较：弹窗里连换两次库时，打开时的快照已经过期
+                String liveId = LibraryStore.slotLibId(MainActivity.this, forHome);
+                if (newId == null ? liveId == null : newId.equals(liveId)) {
+                    return;
+                }
+                // 槽位已有别的库：换人前问一句（同一范围只能有一个库负责）
+                if (liveId != null && newId != null) {
+                    LibraryStore.Library old = LibraryStore.get(MainActivity.this, liveId);
+                    if (old != null) {
+                        confirmReplaceSlot(forHome, old.name, newId, spinner, selection);
+                        return;
+                    }
+                }
+                applySlotLib(forHome, newId);
             }
-            LibraryStore.setScope(MainActivity.this, lib.id, home, !home);
-            Toast.makeText(MainActivity.this,
-                    getString(R.string.scope_saved, getString(home ? R.string.scope_home : R.string.scope_lock)),
-                    Toast.LENGTH_SHORT).show();
-            refreshLibs();
-            refreshTimerStatus();
-            syncTakeoverAsync();
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+            }
         });
-        // 切换模式（顺序/随机，按库保存）
+        // 回填模式（先 check 再挂监听，程序化 check 不触发写回）
+        rgMode.check(LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(this, forHome))
+                ? R.id.rb_random : R.id.rb_order);
         rgMode.setOnCheckedChangeListener((group, checkedId) ->
-                LibraryStore.setMode(MainActivity.this, lib.id,
-                        checkedId == R.id.rb_random ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
-        // 切换间隔（分钟级，最小 15）：整行可点
-        content.findViewById(R.id.row_interval).setOnClickListener(v -> showIntervalDialog(lib, tvInterval));
-        // 立即切换一张（手动切换入口）
-        content.findViewById(R.id.row_switch_now).setOnClickListener(v -> {
-            dialog.dismiss();
-            switchLibNow(lib);
-        });
+                LibraryStore.setScopeMode(MainActivity.this, forHome,
+                        checkedId == R.id.rb_random
+                                ? LibraryStore.MODE_RANDOM : LibraryStore.MODE_ORDER));
+        // 切换间隔：整行可点，弹时/分滚轮
+        content.findViewById(R.id.row_interval).setOnClickListener(
+                v -> showIntervalPicker(forHome, tvInterval));
+    }
+
+    /** 范围内库变更：槽位写入 + 界面与接管状态整体刷新。 */
+    private void applySlotLib(boolean forHome, String libId) {
+        LibraryStore.setSlotLib(this, forHome, libId);
+        refreshLibs();
+        refreshTimerStatus();
+        refreshSlotCards();
+        syncTakeoverAsync();
+    }
+
+    /** 换库确认：说明会被顶下的现任职库；确认后写槽位，取消则把下拉选中回退到原库。 */
+    private void confirmReplaceSlot(final boolean forHome, String oldName, final String newLibId,
+                                    final Spinner spinner, final int originalSelection) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.lib_enable_conflict_title)
+                .setMessage(getString(R.string.slot_replace_msg, oldName,
+                        getString(forHome ? R.string.slot_home_title : R.string.slot_lock_title)))
+                .setPositiveButton(R.string.lib_enable_conflict_ok, (dialog, which) ->
+                        applySlotLib(forHome, newLibId))
+                .setNegativeButton(R.string.cancel, (dialog, which) ->
+                        spinner.setSelection(originalSelection))
+                .show();
+    }
+
+    /** 该范围的设置摘要行：模式 · 每 X（卡片与弹窗共用）。 */
+    private String slotIntervalDisplay(boolean forHome) {
+        boolean random = LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(this, forHome));
+        return getString(random ? R.string.mode_random : R.string.mode_order)
+                + " · " + getString(R.string.slot_every_prefix)
+                + formatInterval(LibraryStore.scopeIntervalSeconds(this, forHome));
     }
 
     /**
-     * 库行「启用」开关的处理：要**启用**时先查有没有同范围的重叠库 —— 有就先问一句
-     * （规则是同一范围只能有一个库负责，继续启用会停用对方），用户取消则把开关扳回去。
+     * 间隔滚轮选择器（时/分上下滑）：分钟按 15 步进（00/15/30/45），下限 15 分钟、上限 23:45。
      */
-    private void onLibEnableToggled(LibHolder holder, LibraryStore.Library lib, boolean isChecked) {
-        if (isChecked) {
-            List<LibraryStore.Library> conflicts = LibraryStore.enabledConflicts(this, lib.id);
-            if (!conflicts.isEmpty()) {
-                confirmEnableLib(holder, lib, conflicts);
-                return;
-            }
-        }
-        applyLibEnable(lib, isChecked);
-    }
-
-    /** 真正写回启用状态（含失败提示与整体刷新）。 */
-    private void applyLibEnable(LibraryStore.Library lib, boolean isChecked) {
-        boolean ok = LibraryStore.setEnabled(this, lib.id, isChecked);
-        if (!ok) {
-            Toast.makeText(this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
-        }
-        // 同范围互斥会改动其他行的开关状态，整体重绑
-        refreshLibs();
-        refreshTimerStatus();
-        syncTakeoverAsync();
-        // 桌面启用库换人/停用：常驻通知要跟着换内容或消失
-        StatusNotifier.update(this);
-    }
-
-    /** 启用会顶掉同范围的启用库：列出名字确认；取消则把开关扳回库的真实状态（什么都不写）。 */
-    private void confirmEnableLib(final LibHolder holder, final LibraryStore.Library lib,
-            final List<LibraryStore.Library> conflicts) {
-        StringBuilder names = new StringBuilder();
-        for (LibraryStore.Library other : conflicts) {
-            if (names.length() > 0) {
-                names.append("、");
-            }
-            names.append("「").append(other.name).append("」");
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.lib_enable_conflict_title)
-                .setMessage(getString(R.string.lib_enable_conflict_msg,
-                        names.toString(), scopeLabel(lib), lib.name))
-                .setPositiveButton(R.string.lib_enable_conflict_ok,
-                        (dialog, which) -> applyLibEnable(lib, true))
-                .setNegativeButton(R.string.cancel, (dialog, which) -> {
-                    holder.swEnabled.setOnCheckedChangeListener(null);
-                    holder.swEnabled.setChecked(lib.enabled);
-                    holder.swEnabled.setOnCheckedChangeListener((buttonView, isChecked) ->
-                            onLibEnableToggled(holder, lib, isChecked));
-                })
-                .show();
-    }
-
-    /** 库的作用范围文案（新 UI 是桌面/锁屏单选，老数据可能双范围、也可能没勾）。 */
-    private String scopeLabel(LibraryStore.Library lib) {
-        if (lib.home && lib.lock) {
-            return getString(R.string.scope_home_lock);
-        }
-        if (lib.home) {
-            return getString(R.string.scope_home);
-        }
-        if (lib.lock) {
-            return getString(R.string.scope_lock);
-        }
-        return getString(R.string.lib_scope_none);
-    }
-
-    /** 弹窗输入切换间隔（分钟，最小 15），确认后写回并重排启用中的定时。 */
-    private void showIntervalDialog(final LibraryStore.Library lib, final TextView tvInterval) {
-        EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        // 历史值可能是秒级（旧版本遗留），这里换算成分钟并保证 ≥15
-        input.setText(String.valueOf(Math.max(LibraryStore.MIN_INTERVAL_SECONDS / 60,
-                lib.intervalSeconds / 60)));
+    private void showIntervalPicker(final boolean forHome, final TextView tvInterval) {
+        int minutesTotal = Math.max(15, LibraryStore.scopeIntervalSeconds(this, forHome) / 60);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(pad, pad / 2, pad, 0);
+        final NumberPicker hourPicker = new NumberPicker(this);
+        hourPicker.setMinValue(0);
+        hourPicker.setMaxValue(23);
+        hourPicker.setWrapSelectorWheel(true);
+        hourPicker.setFormatter(value -> String.format(Locale.getDefault(), "%02d", value));
+        hourPicker.setValue(minutesTotal / 60);
+        final NumberPicker minutePicker = new NumberPicker(this);
+        minutePicker.setMinValue(0);
+        minutePicker.setMaxValue(3);
+        minutePicker.setWrapSelectorWheel(true);
+        minutePicker.setDisplayedValues(new String[]{"00", "15", "30", "45"});
+        minutePicker.setValue((minutesTotal % 60) / 15);
+        row.addView(wheelColumn(hourPicker, getString(R.string.interval_hour)));
+        row.addView(wheelColumn(minutePicker, getString(R.string.interval_minute)));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.lib_interval)
-                .setView(wrapInput(input, R.string.interval_hint))
+                .setView(row)
                 .setPositiveButton(R.string.confirm, (dialog, which) -> {
-                    int minutes = 0;
-                    try {
-                        minutes = Integer.parseInt(input.getText().toString().trim());
-                    } catch (NumberFormatException ignored) {
-                    }
-                    if (minutes > 0) {
-                        if (minutes < LibraryStore.MIN_INTERVAL_SECONDS / 60) {
-                            // WorkManager 省电方案的系统下限：不足 15 分钟会被抬到 15 分钟
-                            Toast.makeText(MainActivity.this, R.string.interval_min_toast,
-                                    Toast.LENGTH_SHORT).show();
-                            minutes = LibraryStore.MIN_INTERVAL_SECONDS / 60;
-                        }
-                        LibraryStore.setInterval(MainActivity.this, lib.id, minutes * 60);
-                        tvInterval.setText(formatInterval(minutes * 60));
-                        refreshTimerStatus();
-                    }
+                    int seconds = (hourPicker.getValue() * 60 + minutePicker.getValue() * 15) * 60;
+                    LibraryStore.setScopeInterval(MainActivity.this, forHome, seconds);
+                    tvInterval.setText(slotIntervalDisplay(forHome));
+                    refreshTimerStatus();
+                    refreshSlotCards();
                 })
                 .setNegativeButton(R.string.cancel, null)
                 .show();
+    }
+
+    /** 滚轮选择器的一列：上下滚轮 + 底部「时/分」标签。 */
+    private LinearLayout wheelColumn(NumberPicker picker, String label) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER);
+        column.addView(picker);
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(getColor(R.color.text_secondary));
+        tv.setTextSize(12);
+        tv.setGravity(Gravity.CENTER);
+        column.addView(tv);
+        return column;
     }
 
     /** 间隔展示：60 的整数倍显示分钟，其余显示「X分Y秒」或「X秒」（兼容历史秒级值）。 */
@@ -1038,40 +1107,6 @@ public class MainActivity extends AppCompatActivity {
             return (seconds / 60) + "分" + (seconds % 60) + "秒";
         }
         return seconds + "秒";
-    }
-
-
-    /**
-     * 手动切换该库一张（库设置弹窗「立即切换一张」入口）：
-     * 库只设了一个范围就直接切那个范围；双范围（老数据）先问切哪边；没设范围提示先设。
-     * 接管总开关关着时不写系统（拦截仍在 Switcher.next 开头），这里直接说清并把抽屉推开。
-     */
-    private void switchLibNow(final LibraryStore.Library lib) {
-        if (!TakeoverManager.isEnabled(this)) {
-            Toast.makeText(this, R.string.status_takeover_off, Toast.LENGTH_LONG).show();
-            openDrawer();
-            return;
-        }
-        boolean home = lib.home;
-        boolean lock = lib.lock;
-        if (home && !lock) {
-            switchAndToast(lib, true);
-            return;
-        }
-        if (lock && !home) {
-            switchAndToast(lib, false);
-            return;
-        }
-        if (!home && !lock) {
-            Toast.makeText(this, R.string.lib_scope_none, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.switch_pick_scope)
-                .setItems(new CharSequence[]{getString(R.string.scope_home), getString(R.string.scope_lock)},
-                        (dialog, which) -> switchAndToast(lib, which == 0))
-                .setNegativeButton(R.string.cancel, null)
-                .show();
     }
 
     /**
@@ -1098,22 +1133,42 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * 定时状态行：上次执行结果 + 下次预计时间；若已过预计时间仍未见系统执行，
+     * 定时状态行：桌面/锁屏各一行「上次执行结果 + 下次预计时间」；若已过预计时间仍未见系统执行，
      * 说明被 Doze/ROM 冻结拦住了（等待调度，点亮屏幕/刷新小组件/打开本应用会自动补切）。
-     * v3.14 起没有全局定时开关：库启用 + 设了间隔即到点自动切。
+     * v3.59 起按范围槽位展示：没设库的范围不显示，两个都空显示引导文案。
      */
     private void refreshTimerStatus() {
         TextView tv = findViewById(R.id.tv_timer_status);
         if (tv == null) {
             return;
         }
-        String libId = enabledLibId();
-        Long next = TimerScheduler.nextTrigger(this);
-        if (libId == null || next == null) {
+        StringBuilder sb = new StringBuilder();
+        for (boolean forHome : new boolean[]{true, false}) {
+            if (LibraryStore.slotLibId(this, forHome) == null) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(getString(forHome ? R.string.scope_home : R.string.scope_lock))
+                    .append("：").append(scopeTimerLine(forHome));
+        }
+        if (sb.length() == 0) {
             tv.setText(R.string.timer_status_none);
             return;
         }
-        String result = TimerScheduler.lastResult(this, libId);
+        tv.setText(sb.toString());
+    }
+
+    /** 单个范围的定时状态文案：上次 时间（结果）｜下次预计 时间；过点未执行给补切提示。 */
+    private String scopeTimerLine(boolean forHome) {
+        long next = TimerScheduler.scopeTrigger(this, forHome);
+        long now = System.currentTimeMillis();
+        if (next >= 0 && next <= now) {
+            return getString(R.string.timer_status_overdue,
+                    formatInterval((int) Math.max(60, (now - next) / 1000)));
+        }
+        String result = TimerScheduler.lastResult(this, forHome);
         String resultText;
         if (TimerScheduler.RESULT_OK.equals(result)) {
             resultText = getString(R.string.status_ok);
@@ -1123,24 +1178,10 @@ public class MainActivity extends AppCompatActivity {
             // 失败原因统一走可读文案映射（解码失败/系统未应用/被动态壁纸占用等）
             resultText = Switcher.errorText(this, result);
         }
-        long now = System.currentTimeMillis();
-        if (next <= now) {
-            tv.setText(getString(R.string.timer_status_overdue,
-                    formatInterval((int) Math.max(60, (now - next) / 1000))));
-        } else {
-            long last = TimerScheduler.lastRun(this, libId);
-            String lastText = last > 0 ? formatClock(last) : getString(R.string.status_never);
-            tv.setText(getString(R.string.timer_status_on, lastText, resultText, formatClock(next)));
-        }
-    }
-
-    /** 某个启用库的 id（状态展示用）：桌面优先，其次锁屏；无启用库返回 null。 */
-    private String enabledLibId() {
-        LibraryStore.Library lib = LibraryStore.enabledLibForScope(this, true);
-        if (lib == null) {
-            lib = LibraryStore.enabledLibForScope(this, false);
-        }
-        return lib == null ? null : lib.id;
+        long last = TimerScheduler.lastRun(this, forHome);
+        String lastText = last > 0 ? formatClock(last) : getString(R.string.status_never);
+        String nextText = next >= 0 ? formatClock(next) : getString(R.string.status_never);
+        return getString(R.string.timer_status_on, lastText, resultText, nextText);
     }
 
     /** 时间戳 → HH:mm。 */
@@ -1290,7 +1331,7 @@ public class MainActivity extends AppCompatActivity {
         TextView bannerText = findViewById(R.id.tv_banner_text);
         View activate = findViewById(R.id.btn_activate);
         if (banner != null && bannerText != null) {
-            LibraryStore.Library homeLib = LibraryStore.enabledLibForScope(this, true);
+            LibraryStore.Library homeLib = LibraryStore.slotLib(this, true);
             if (!active) {
                 banner.setVisibility(View.VISIBLE);
                 bannerText.setText(R.string.banner_not_activated);
@@ -1833,7 +1874,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         LibraryStore.Library lib = LibraryStore.get(this, item.libId);
-        if (lib == null || !lib.enabled || !lib.home) {
+        if (lib == null || !LibraryStore.ownsScope(this, lib.id, true)) {
             Toast.makeText(this, R.string.set_as_home_unavailable, Toast.LENGTH_LONG).show();
             return;
         }
@@ -2087,10 +2128,17 @@ public class MainActivity extends AppCompatActivity {
             holder.tvName.setVisibility(View.VISIBLE);
             holder.etName.setVisibility(View.GONE);
             holder.tvCount.setText(getString(R.string.lib_count, row.count));
-            // 删除态：开关与齿轮收起，行尾露出复选框（点行任意处即可勾选）
-            holder.swEnabled.setVisibility(deleteMode ? View.GONE : View.VISIBLE);
-            holder.btnSettings.setVisibility(deleteMode ? View.GONE : View.VISIBLE);
+            // v3.59：库不再有启用/范围属性——被哪个范围槽位引用就显示哪个小标签
+            holder.badgeHome.setVisibility(
+                    LibraryStore.ownsScope(MainActivity.this, lib.id, true) ? View.VISIBLE : View.GONE);
+            holder.badgeLock.setVisibility(
+                    LibraryStore.ownsScope(MainActivity.this, lib.id, false) ? View.VISIBLE : View.GONE);
+            // 删除态：标签收起，行尾露出复选框（点行任意处即可勾选）
             holder.cbDelete.setVisibility(deleteMode ? View.VISIBLE : View.GONE);
+            if (deleteMode) {
+                holder.badgeHome.setVisibility(View.GONE);
+                holder.badgeLock.setVisibility(View.GONE);
+            }
             holder.cbDelete.setOnCheckedChangeListener(null);
             holder.cbDelete.setChecked(selectedIds.contains(lib.id));
             if (deleteMode) {
@@ -2103,12 +2151,6 @@ public class MainActivity extends AppCompatActivity {
                     updateLibDeleteToolbar();
                 });
             }
-            // 启用/停用：沿用 LibraryStore 的同范围互斥规则；失败（未设范围）回退并提示。
-            // 启用前若与同范围的启用库冲突 → 先弹确认，不静默把对方关掉
-            holder.swEnabled.setOnCheckedChangeListener(null);
-            holder.swEnabled.setChecked(lib.enabled);
-            holder.swEnabled.setOnCheckedChangeListener((buttonView, isChecked) ->
-                    onLibEnableToggled(holder, lib, isChecked));
             // 点库名 → 就地改名（删除态不响应）；点行内其他位置 → 进该库壁纸页 / 勾选
             holder.tvName.setOnClickListener(v -> {
                 if (!deleteMode) {
@@ -2137,7 +2179,6 @@ public class MainActivity extends AppCompatActivity {
                 notifyItemChanged(holder.getBindingAdapterPosition());
                 updateLibDeleteToolbar();
             });
-            holder.btnSettings.setOnClickListener(v -> showLibSettingsDialog(lib));
             // 长按不设监听：让位给 ItemTouchHelper 的长按拖拽排序
         }
 
@@ -2270,8 +2311,8 @@ public class MainActivity extends AppCompatActivity {
         final TextView tvName;
         final EditText etName;
         final TextView tvCount;
-        final CompoundButton swEnabled;
-        final View btnSettings;
+        final View badgeHome;
+        final View badgeLock;
         final CheckBox cbDelete;
 
         LibHolder(@NonNull View itemView) {
@@ -2281,8 +2322,8 @@ public class MainActivity extends AppCompatActivity {
             tvName = itemView.findViewById(R.id.tv_lib_name);
             etName = itemView.findViewById(R.id.et_lib_name);
             tvCount = itemView.findViewById(R.id.tv_lib_count);
-            swEnabled = itemView.findViewById(R.id.sw_lib_enabled);
-            btnSettings = itemView.findViewById(R.id.btn_lib_settings);
+            badgeHome = itemView.findViewById(R.id.badge_lib_home);
+            badgeLock = itemView.findViewById(R.id.badge_lib_lock);
             cbDelete = itemView.findViewById(R.id.cb_lib_delete);
         }
     }

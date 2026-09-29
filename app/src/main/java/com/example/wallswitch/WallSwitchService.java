@@ -266,7 +266,7 @@ public class WallSwitchService extends GLWallpaperService {
             }
 
             Context ctx = WallSwitchService.this;
-            LibraryStore.Library lib = LibraryStore.enabledLibForScope(ctx, true);
+            LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
             String key = null;
             Bitmap fresh = null;
             if (lib != null) {

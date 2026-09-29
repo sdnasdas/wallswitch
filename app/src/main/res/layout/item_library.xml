@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 壁纸库行（v3.14）：缩略图（该库当前壁纸）+ 库名（点击就地改名）+ N 张壁纸，
-     右侧 = 启用/停用开关 + 齿轮（其余三项：范围/模式/间隔，另有「立即切换」）。
+<!-- 壁纸库行 v3.59：缩略图（该库当前壁纸）+ 库名（点击就地改名）+ N 张壁纸，
+     名称下小标签显示该库被哪个范围槽位引用（桌面/锁屏）。
+     启用开关与齿轮已移除：设置收进首页顶部两张范围卡片。
      长按行 = 拖拽排序（落位写回 libraries.json）。
-     删库走顶栏垃圾桶 → 删除态：开关位换成复选框，勾选后点顶栏勾图标二次确认。 -->
+     删库走顶栏垃圾桶 → 删除态：行尾露出复选框，勾选后点顶栏勾图标二次确认。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/item_lib_card"
@@ -71,31 +72,50 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/tv_lib_count"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tv_lib_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <!-- 范围槽位标签：该库被桌面/锁屏卡片引用时才显示 -->
+                <TextView
+                    android:id="@+id/badge_lib_home"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/badge_bg"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="1dp"
+                    android:text="@string/scope_home"
+                    android:textColor="@color/brand"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/badge_lib_lock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/badge_bg"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="1dp"
+                    android:text="@string/scope_lock"
+                    android:textColor="@color/brand"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/sw_lib_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-        <ImageButton
-            android:id="@+id/btn_lib_settings"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/lib_settings"
-            android:padding="12dp"
-            android:src="@drawable/ic_settings"
-            android:tint="@color/text_secondary" />
-
-        <!-- 删除态复选框：顶栏垃圾桶进入删除态时替换开关显示（长按行 = 拖拽排序，不再浮出删除按钮） -->
+        <!-- 删除态复选框：顶栏垃圾桶进入删除态时显示（点行勾选；长按行 = 拖拽排序） -->
         <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/cb_lib_delete"
             android:layout_width="wrap_content"

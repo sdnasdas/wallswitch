@@ -13,11 +13,12 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 壁纸库管理：每个库包含多张壁纸、影响范围（桌面/锁屏，可单选或双选）、
- * 启用开关、切换间隔（分钟级，系统下限 15 分钟）与切换模式（顺序/随机）。
- * 启用约束（同一范围最多一个启用库）：
- * - 未选择任何范围的库不能启用；
- * - 启用某库时自动停用与之范围重叠的其他启用库（任一方为双范围即视为重叠）。
+ * 壁纸库管理：每个库包含多张壁纸与名称。
+ * v3.59 起「谁负责哪个范围」从库属性改为两个**范围槽位**（桌面/锁屏各一）：
+ * 槽位记录占位库 id、切换模式与切换间隔，存在 prefs（键见 slotKey），
+ * 槽位为空 = 该范围不切换。同一库可同时占两个槽（两范围各自推进进度）。
+ * 库对象上的 home/lock/enabled/mode/intervalSeconds 为遗留字段：仅做 JSON 往返
+ * 与一次性迁移取值，界面不再提供入口、逻辑不再读取（保证可回滚降级）。
  * 存储：filesDir/libraries.json，元素字段 {"id","name","home","lock","enabled","interval_seconds","mode"}
  * 切换进度按库隔离，键名约定见 Switcher.progressBase。
  */
@@ -29,6 +30,8 @@ public class LibraryStore {
     private static final String PREFS_NAME = "settings";
     // 旧版数据迁移标记
     private static final String KEY_MIGRATED = "lib_migrated_v2";
+    // 范围槽位化迁移标记（老 enabled+范围 → 槽位，一次性）
+    private static final String KEY_SCOPE_MIGRATED = "scope_slots_v359";
     // 当前选中库 id 的 key
     public static final String KEY_CURRENT_LIB = "current_lib";
     // 切换模式取值
@@ -43,6 +46,7 @@ public class LibraryStore {
     public static class Library {
         public String id;
         public String name;
+        // ===== 以下为遗留字段（见类注释），只为 JSON 往返保留 =====
         public boolean home;
         public boolean lock;
         public boolean enabled;
@@ -72,6 +76,7 @@ public class LibraryStore {
                 }
             } catch (Exception ignored) {
             }
+            migrateSlotsIfNeeded(ctx, libs);
             return libs;
         }
         // 首次运行：创建默认库并迁移旧版数据
@@ -91,6 +96,7 @@ public class LibraryStore {
             WallpaperStore.migrateLegacyToLib(ctx, def.id);
             prefs.edit().putBoolean(KEY_MIGRATED, true).apply();
         }
+        migrateSlotsIfNeeded(ctx, libs);
         return libs;
     }
 
@@ -118,6 +124,41 @@ public class LibraryStore {
             editor.putString(lockBase + "_current", prefs.getString("lock_current", null));
         }
         editor.apply();
+    }
+
+    /**
+     * 范围槽位化一次性迁移（v3.59）：槽位为空时按老「启用库 + 覆盖范围」填上，
+     * 并把该库的模式/间隔抄进范围配置（体验无缝衔接）；
+     * 顺带取消遗留的按库命名周期任务、按范围重新排定。
+     */
+    private static void migrateSlotsIfNeeded(Context ctx, List<Library> libs) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_SCOPE_MIGRATED, false)) {
+            return;
+        }
+        SharedPreferences.Editor editor = prefs.edit();
+        for (boolean forHome : new boolean[]{true, false}) {
+            String key = slotKey(forHome);
+            if (prefs.getString(key + "_lib", null) != null) {
+                continue;
+            }
+            for (Library lib : libs) {
+                if (lib.enabled && (forHome ? lib.home : lib.lock)) {
+                    editor.putString(key + "_lib", lib.id);
+                    editor.putString(key + "_mode",
+                            MODE_RANDOM.equals(lib.mode) ? MODE_RANDOM : MODE_ORDER);
+                    editor.putInt(key + "_interval", clampInterval(
+                            lib.intervalSeconds > 0 ? lib.intervalSeconds : DEFAULT_INTERVAL_SECONDS));
+                    break;
+                }
+            }
+        }
+        editor.putBoolean(KEY_SCOPE_MIGRATED, true).apply();
+        for (Library lib : libs) {
+            TimerScheduler.cancelLegacyLibWork(ctx, lib.id);
+        }
+        TimerScheduler.scheduleScope(ctx, true);
+        TimerScheduler.scheduleScope(ctx, false);
     }
 
     /** 把库列表写回 libraries.json。 */
@@ -172,7 +213,7 @@ public class LibraryStore {
         return null;
     }
 
-    /** 新建库：默认单选桌面范围、停用、顺序模式；名称留空时自动命名。 */
+    /** 新建库：名称留空时自动命名；不再带范围/启用属性。 */
     public static Library create(Context ctx, String name) {
         List<Library> libs = load(ctx);
         Library lib = new Library();
@@ -188,152 +229,111 @@ public class LibraryStore {
         return lib;
     }
 
-    /** 删除库：连同库内壁纸、切换进度一并清除，并取消其定时任务。 */
+    /** 删除库：连同库内壁纸、切换进度一并清除；占了槽位的腾出槽位（内部会重排该范围定时）。 */
     public static void delete(Context ctx, String libId) {
         List<Library> libs = load(ctx);
         List<Library> remain = new ArrayList<>();
         for (Library lib : libs) {
-            if (lib.id.equals(libId)) {
-                if (lib.enabled) {
-                    TimerScheduler.cancel(ctx, libId);
-                }
-            } else {
+            if (!lib.id.equals(libId)) {
                 remain.add(lib);
             }
         }
         saveList(ctx, remain);
         WallpaperStore.deleteByLib(ctx, libId);
         Switcher.clearProgress(ctx, libId);
+        for (boolean forHome : new boolean[]{true, false}) {
+            if (ownsScope(ctx, libId, forHome)) {
+                setSlotLib(ctx, forHome, null);
+            }
+        }
+        TimerScheduler.cancelLegacyLibWork(ctx, libId);
+    }
+
+    // ==================== 范围槽位（v3.59） ====================
+
+    /** 槽位 prefs 键前缀：_lib 占位库、_mode 切换模式、_interval 切换间隔（秒）。 */
+    private static String slotKey(boolean forHome) {
+        return forHome ? "slot_home" : "slot_lock";
+    }
+
+    private static int clampInterval(int seconds) {
+        return Math.max(MIN_INTERVAL_SECONDS, seconds);
+    }
+
+    /** 该范围槽位占位库 id；未设置返回 null（该范围不切换）。 */
+    public static String slotLibId(Context ctx, boolean forHome) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(slotKey(forHome) + "_lib", null);
+    }
+
+    /** 该范围槽位的占位库（按 id 现查）；未设置或库已删返回 null。 */
+    public static Library slotLib(Context ctx, boolean forHome) {
+        String id = slotLibId(ctx, forHome);
+        return id == null ? null : get(ctx, id);
+    }
+
+    /** 该库是否占着指定范围（所有切换链路的准入判断）。 */
+    public static boolean ownsScope(Context ctx, String libId, boolean forHome) {
+        String id = slotLibId(ctx, forHome);
+        return id != null && id.equals(libId);
+    }
+
+    /** 该范围占位库的切换模式（未设置返回顺序）。 */
+    public static String scopeMode(Context ctx, boolean forHome) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(slotKey(forHome) + "_mode", MODE_ORDER);
+    }
+
+    /** 改该范围的切换模式（顺序/随机）。 */
+    public static void setScopeMode(Context ctx, boolean forHome, String mode) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString(slotKey(forHome) + "_mode",
+                        MODE_RANDOM.equals(mode) ? MODE_RANDOM : MODE_ORDER)
+                .apply();
+    }
+
+    /** 该范围占位库的切换间隔（秒，下限 15 分钟）。 */
+    public static int scopeIntervalSeconds(Context ctx, boolean forHome) {
+        return clampInterval(ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(slotKey(forHome) + "_interval", DEFAULT_INTERVAL_SECONDS));
+    }
+
+    /** 改该范围的切换间隔（秒，下限 15 分钟），立即重排该范围定时。 */
+    public static void setScopeInterval(Context ctx, boolean forHome, int seconds) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(slotKey(forHome) + "_interval", clampInterval(seconds))
+                .apply();
+        TimerScheduler.scheduleScope(ctx, forHome);
     }
 
     /**
-     * 启用/停用库（应用范围互斥约束），返回是否成功。
-     * 启用时：未选范围返回 false；自动停用范围重叠的其他启用库（任一方双范围即视为重叠）。
+     * 让某库占上该范围（libId 传 null/空 = 清空，该范围停止切换）。
+     * 空槽首次占位时沿用该库的库级模式/间隔（老数据体验衔接）；换占时保留该范围已有配置。
+     * 变更后重排该范围定时并刷新小组件/常驻通知。
      */
-    public static boolean setEnabled(Context ctx, String libId, boolean enable) {
-        List<Library> libs = load(ctx);
-        Library target = null;
-        for (Library lib : libs) {
-            if (lib.id.equals(libId)) {
-                target = lib;
-            }
-        }
-        if (target == null) {
-            return false;
-        }
-        if (enable) {
-            if (!target.home && !target.lock) {
-                return false;
-            }
-            for (Library other : libs) {
-                if (other.id.equals(libId) || !other.enabled) {
-                    continue;
-                }
-                boolean overlap = (target.home && target.lock) || (other.home && other.lock)
-                        || (target.home && other.home) || (target.lock && other.lock);
-                if (overlap) {
-                    other.enabled = false;
-                    TimerScheduler.cancel(ctx, other.id);
-                }
-            }
-        }
-        target.enabled = enable;
-        saveList(ctx, libs);
-        if (enable) {
-            TimerScheduler.schedule(ctx, libId);
+    public static void setSlotLib(Context ctx, boolean forHome, String libId) {
+        String trimmed = libId == null ? "" : libId.trim();
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        if (trimmed.isEmpty()) {
+            editor.remove(slotKey(forHome) + "_lib");
         } else {
-            TimerScheduler.cancel(ctx, libId);
-        }
-        return true;
-    }
-
-    /**
-     * 查与目标库**作用范围重叠**、当前处于启用状态的其他库（不含自己、不含停用的）。
-     * 供界面在「启用前」先问一句：同一范围只能有一个库负责，直接静默停用对方会让人莫名其妙。
-     */
-    public static List<Library> enabledConflicts(Context ctx, String libId) {
-        List<Library> result = new ArrayList<>();
-        Library target = get(ctx, libId);
-        if (target == null) {
-            return result;
-        }
-        for (Library other : load(ctx)) {
-            if (other.id.equals(libId) || !other.enabled) {
-                continue;
-            }
-            boolean overlap = (target.home && target.lock) || (other.home && other.lock)
-                    || (target.home && other.home) || (target.lock && other.lock);
-            if (overlap) {
-                result.add(other);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * 修改库的影响范围。启用中的库：范围清空则自动停用；
-     * 新增范围与其他启用库冲突时自动停用对方（规则与 setEnabled 一致）。
-     */
-    public static void setScope(Context ctx, String libId, boolean home, boolean lock) {
-        List<Library> libs = load(ctx);
-        Library target = null;
-        for (Library lib : libs) {
-            if (lib.id.equals(libId)) {
-                target = lib;
-            }
-        }
-        if (target == null) {
-            return;
-        }
-        target.home = home;
-        target.lock = lock;
-        if (target.enabled) {
-            if (!home && !lock) {
-                target.enabled = false;
-                TimerScheduler.cancel(ctx, libId);
-            } else {
-                for (Library other : libs) {
-                    if (other.id.equals(libId) || !other.enabled) {
-                        continue;
-                    }
-                    boolean overlap = (home && lock) || (other.home && other.lock)
-                            || (home && other.home) || (lock && other.lock);
-                    if (overlap) {
-                        other.enabled = false;
-                        TimerScheduler.cancel(ctx, other.id);
-                    }
+            boolean wasEmpty = prefs.getString(slotKey(forHome) + "_lib", null) == null;
+            editor.putString(slotKey(forHome) + "_lib", trimmed);
+            if (wasEmpty) {
+                Library lib = get(ctx, trimmed);
+                if (lib != null) {
+                    editor.putString(slotKey(forHome) + "_mode",
+                            MODE_RANDOM.equals(lib.mode) ? MODE_RANDOM : MODE_ORDER);
+                    editor.putInt(slotKey(forHome) + "_interval", clampInterval(
+                            lib.intervalSeconds > 0 ? lib.intervalSeconds : DEFAULT_INTERVAL_SECONDS));
                 }
-                TimerScheduler.schedule(ctx, libId);
             }
         }
-        saveList(ctx, libs);
-    }
-
-    /** 修改切换间隔（秒，下限 MIN_INTERVAL_SECONDS = 15 分钟），启用中的库立即重排定时。 */
-    public static void setInterval(Context ctx, String libId, int seconds) {
-        List<Library> libs = load(ctx);
-        boolean enabled = false;
-        for (Library lib : libs) {
-            if (lib.id.equals(libId)) {
-                lib.intervalSeconds = Math.max(MIN_INTERVAL_SECONDS, seconds);
-                enabled = lib.enabled;
-            }
-        }
-        saveList(ctx, libs);
-        if (enabled) {
-            TimerScheduler.schedule(ctx, libId);
-        }
-    }
-
-    /** 修改切换模式（顺序/随机）。 */
-    public static void setMode(Context ctx, String libId, String mode) {
-        List<Library> libs = load(ctx);
-        for (Library lib : libs) {
-            if (lib.id.equals(libId)) {
-                lib.mode = mode;
-            }
-        }
-        saveList(ctx, libs);
+        editor.apply();
+        TimerScheduler.scheduleScope(ctx, forHome);
+        WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
     }
 
     /** 重命名库（库行点库名就地改名的写回入口；留空则保留原名）。 */
@@ -348,15 +348,5 @@ public class LibraryStore {
             }
         }
         saveList(ctx, libs);
-    }
-
-    /** 返回当前启用的、覆盖对应范围的库（每个范围至多一个），没有则返回 null。 */
-    public static Library enabledLibForScope(Context ctx, boolean forHome) {
-        for (Library lib : load(ctx)) {
-            if (lib.enabled && (forHome ? lib.home : lib.lock)) {
-                return lib;
-            }
-        }
-        return null;
     }
 }

@@ -123,8 +123,8 @@ public final class TakeoverManager {
      *         {@link #RESULT_OK} 已调整；{@link #RESULT_NONE} 无需改动
      */
     public static int apply(Context ctx) {
-        LibraryStore.Library homeLib = LibraryStore.enabledLibForScope(ctx, true);
-        LibraryStore.Library lockLib = LibraryStore.enabledLibForScope(ctx, false);
+        LibraryStore.Library homeLib = LibraryStore.slotLib(ctx, true);
+        LibraryStore.Library lockLib = LibraryStore.slotLib(ctx, false);
 
         // ---- 桌面：有启用库但引擎未激活 → 请用户去系统选择器确认 ----
         if (homeLib != null && !isHomeTakenOver(ctx)) {
@@ -200,7 +200,7 @@ public final class TakeoverManager {
 
     /** 接管中保存：把库中当前指针指向的图（=引擎正在显示的）复制进相册。 */
     private static String exportCurrentLibraryImage(Context ctx, String stamp, StringBuilder log) {
-        LibraryStore.Library lib = LibraryStore.enabledLibForScope(ctx, true);
+        LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
         if (lib == null) {
             return "没有启用中的桌面库";
         }
