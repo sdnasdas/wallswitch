@@ -12,7 +12,7 @@ import androidx.work.WorkerParameters;
  */
 public class SwitchWorker extends Worker {
 
-    // 输入数据：要切换的范围（true=桌面，false=锁屏）；v3.59 起调度单位从库改成范围槽位
+    // 输入数据：要切换的范围（true=桌面，false=锁屏）；v3.60 起调度单位从库改成范围槽位
     public static final String EXTRA_FOR_HOME = "for_home";
 
     public SwitchWorker(Context context, WorkerParameters params) {

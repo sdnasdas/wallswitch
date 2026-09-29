@@ -78,7 +78,7 @@ public class Switcher {
         if (lib == null) {
             return false;
         }
-        // v3.59 起：库不再有启用/范围属性，改由「范围槽位」指向该库才切
+        // v3.60 起：库不再有启用/范围属性，改由「范围槽位」指向该库才切
         if (!LibraryStore.ownsScope(ctx, libId, forHome)) {
             return false;
         }

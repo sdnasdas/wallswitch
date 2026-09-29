@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库选择列表的一行（对齐 Qoder 移动端那种「图标 + 主标题 + 副标题 + 选中勾」的下拉样式）：
+     缩略图 = 该范围当前在屏的壁纸（空库取库内第一张），未选中时勾隐藏。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:minHeight="60dp"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="8dp">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/img_pick_thumb"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:background="@color/divider"
+        android:contentDescription="@string/thumb_desc"
+        android:padding="10dp"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_tab_wallpaper"
+        android:tint="@color/text_secondary"
+        app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_pick_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/tv_pick_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/iv_pick_check"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/confirm"
+        android:src="@drawable/ic_check"
+        android:tint="@color/brand"
+        android:visibility="invisible" />
+</LinearLayout>

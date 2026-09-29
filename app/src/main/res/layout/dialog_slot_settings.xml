@@ -2,6 +2,7 @@
 <!-- 范围卡片齿轮弹出的聚合设置：本范围的壁纸库（下拉直接换）、切换模式（顺序/随机）、
      切换间隔（整行可点，弹时/分滚轮）。改动即保存。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -18,12 +19,54 @@
         android:textSize="13sp"
         android:textStyle="bold" />
 
-    <Spinner
-        android:id="@+id/spinner_slot_lib"
+    <!-- 当前占位库：缩略图 + 库名 + 下拉箭头，点按弹出带图的库选择列表 -->
+    <LinearLayout
+        android:id="@+id/row_slot_lib"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:minHeight="44dp" />
+        android:background="@drawable/picker_row_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="52dp"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="6dp">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/img_slot_lib_thumb"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@color/divider"
+            android:contentDescription="@string/thumb_desc"
+            android:padding="9dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_tab_wallpaper"
+            android:tint="@color/text_secondary"
+            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+        <TextView
+            android:id="@+id/tv_slot_lib"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="@string/slot_lib_label"
+            android:src="@drawable/ic_arrow_drop_down"
+            android:tint="@color/text_secondary" />
+    </LinearLayout>
 
     <TextView
         android:layout_width="wrap_content"

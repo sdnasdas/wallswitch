@@ -42,6 +42,11 @@ public class AlertDialog {
             return this;
         }
 
+        public Builder setAdapter(android.widget.ListAdapter adapter,
+                DialogInterface.OnClickListener listener) {
+            return this;
+        }
+
         public Builder setSingleChoiceItems(CharSequence[] items, int checkedItem,
                 DialogInterface.OnClickListener listener) {
             return this;

@@ -11,6 +11,11 @@ public class ItemTouchHelper {
 
     public static final int END = 8;
 
+    // 真实常量：拖动中 / 空闲（onSelectedChanged 的 actionState）
+    public static final int ACTION_STATE_IDLE = 0;
+
+    public static final int ACTION_STATE_DRAG = 3;
+
     public ItemTouchHelper(Callback callback) {
     }
 

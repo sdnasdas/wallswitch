@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  * 定时切换调度（WorkManager 周期任务，参照 Muzei 等成熟应用的做法）：
  * 系统强制最小间隔 15 分钟；任务批量合并执行、Doze 中自动推迟、重启/覆盖安装后自动恢复，省电且可靠。
  *
- * v3.59 起调度单位从「库」改成「范围槽位」：桌面、锁屏各一条周期任务（任务名 switch_h / switch_l），
+ * v3.60 起调度单位从「库」改成「范围槽位」：桌面、锁屏各一条周期任务（任务名 switch_h / switch_l），
  * 间隔取该槽位自己的设置（LibraryStore.scopeIntervalSeconds），槽位没库就取消该任务。
  *
  * 倒计时数据来源：WorkManager 公开 API {@link WorkInfo#getNextScheduleTimeMillis()}——注意它只表示

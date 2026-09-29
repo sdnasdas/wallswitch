@@ -64,7 +64,7 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- 范围槽位卡片 v3.59：桌面/锁屏各自指向一个库（点卡片/齿轮=聚合设置，闪电=马上切一张）。
+        <!-- 范围槽位卡片 v3.60：桌面/锁屏各自指向一个库（点卡片/齿轮=聚合设置，闪电=马上切一张）。
              只在库列表页显示，壁纸网格页收起。 -->
         <LinearLayout
             android:id="@+id/slot_cards"
@@ -98,13 +98,33 @@
                     android:paddingEnd="6dp"
                     android:paddingBottom="8dp">
 
-                    <ImageView
-                        android:id="@+id/iv_slot_home_icon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:contentDescription="@string/slot_home_title"
-                        android:src="@drawable/ic_home"
-                        android:tint="@color/text_secondary" />
+                    <!-- 该范围当前壁纸的缩略图；左下角小徽标标明桌面/锁屏（两卡片同构，靠徽标区分） -->
+                    <FrameLayout
+                        android:layout_width="44dp"
+                        android:layout_height="44dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/img_slot_home_thumb"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@color/divider"
+                            android:contentDescription="@string/thumb_desc"
+                            android:padding="10dp"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/ic_home"
+                            android:tint="@color/text_secondary"
+                            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="bottom|start"
+                            android:background="@drawable/circle_surface"
+                            android:contentDescription="@string/slot_home_title"
+                            android:padding="3dp"
+                            android:src="@drawable/ic_home"
+                            android:tint="@color/brand" />
+                    </FrameLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -142,7 +162,7 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/slot_switch_now"
                         android:padding="10dp"
-                        android:src="@drawable/ic_quick_switch"
+                        android:src="@drawable/ic_skip_next"
                         android:tint="@color/brand" />
 
                     <ImageButton
@@ -181,13 +201,32 @@
                     android:paddingEnd="6dp"
                     android:paddingBottom="8dp">
 
-                    <ImageView
-                        android:id="@+id/iv_slot_lock_icon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:contentDescription="@string/slot_lock_title"
-                        android:src="@drawable/ic_lock"
-                        android:tint="@color/text_secondary" />
+                    <FrameLayout
+                        android:layout_width="44dp"
+                        android:layout_height="44dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/img_slot_lock_thumb"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@color/divider"
+                            android:contentDescription="@string/thumb_desc"
+                            android:padding="10dp"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/ic_lock"
+                            android:tint="@color/text_secondary"
+                            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="bottom|start"
+                            android:background="@drawable/circle_surface"
+                            android:contentDescription="@string/slot_lock_title"
+                            android:padding="3dp"
+                            android:src="@drawable/ic_lock"
+                            android:tint="@color/brand" />
+                    </FrameLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -225,7 +264,7 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/slot_switch_now"
                         android:padding="10dp"
-                        android:src="@drawable/ic_quick_switch"
+                        android:src="@drawable/ic_skip_next"
                         android:tint="@color/brand" />
 
                     <ImageButton

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹窗里可点条目的浅灰圆角底（对白底弹窗做层级区分） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/page_bg" />
+    <corners android:radius="12dp" />
+</shape>

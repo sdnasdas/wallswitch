@@ -18,7 +18,7 @@
     <string name="lib_delete_check_desc">勾选要删除的库</string>
     <string name="lib_name_hint">库名称（留空自动命名）</string>
     <string name="lib_interval">切换间隔</string>
-    <!-- v3.59 间隔滚轮：时/分两列，分钟按 15 步进（WorkManager 系统下限 15 分钟） -->
+    <!-- v3.60 间隔滚轮：时/分两列，分钟按 15 步进（WorkManager 系统下限 15 分钟） -->
     <string name="interval_hour">时</string>
     <string name="interval_minute">分</string>
     <string name="widget_waiting">待切换</string>
@@ -198,19 +198,23 @@
             <!-- 范围改为单选下拉后，改范围需二次确认 -->
     <string name="scope_confirm_title">确认修改范围</string>
     <string name="scope_confirm_msg">把「%1$s」的范围改成「%2$s」？保存后这个库只负责该范围的切换。</string>
-    <!-- v3.59 范围槽位卡片：桌面/锁屏各自绑定一个库，库不再有启用/范围属性 -->
+    <!-- v3.60 范围槽位卡片：桌面/锁屏各自绑定一个库，库不再有启用/范围属性 -->
     <string name="slot_home_title">桌面壁纸库</string>
     <string name="slot_lock_title">锁屏壁纸库</string>
-    <string name="slot_unset">未设置 · 点按选择</string>
+    <string name="slot_unset">未设置 · 点按选择，也可把库拖上来</string>
     <string name="slot_switch_now">马上切换一张</string>
     <string name="slot_settings_desc">设置本范围的库/模式/间隔</string>
     <string name="slot_none_toast">先点齿轮给这个范围选一个壁纸库</string>
+    <string name="slot_already_set">这个范围已经是该库了</string>
     <string name="slot_lib_label">壁纸库</string>
     <string name="slot_lib_none">不切换（清空本范围）</string>
+    <string name="slot_pick_lib_title">选择壁纸库</string>
+    <string name="slot_none_sub">该范围不再自动切换壁纸</string>
     <string name="slot_every_prefix">每 </string>
-    <string name="slot_replace_title">范围冲突</string>
-    <string name="slot_replace_ok">继续换</string>
-    <string name="slot_replace_msg">「%1$s」正在负责%2$s。同一个范围同时只能有一个库负责，继续会把 %1$s 换下来。</string>
+    <!-- 选完库的二次确认：中性提示（不再做「冲突」告警式弹窗） -->
+    <string name="slot_confirm_title">确认设置</string>
+    <string name="slot_confirm_msg">把「%1$s」改为「%2$s」？</string>
+    <string name="slot_confirm_clear">把「%1$s」改为不切换？该范围将停止自动切换。</string>
     <!-- 定时自动切换日志（files/switch_log.txt）：一条两行 —— 时间 + 范围与壁纸标题，第二行是实际/配置间隔 -->
     <string name="log_interval_line">实际间隔 %1$d 分钟 · 设置 %2$d 分钟 · %3$s</string>
     <string name="log_detail_scope">%1$s「%2$s」</string>
