@@ -60,6 +60,7 @@ stages:
         displayName: 发布 APK 到 latest
         releaseName: latest
         tagName: latest
+        description: CHANGELOG.md
         upstreamArtifact:
           - WALLSWITCH_APK
         assertFiles:
