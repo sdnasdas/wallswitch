@@ -54,7 +54,8 @@ stages:
     displayName: '发版'
     steps:
       # 固定地址发版：tag 恒为 latest 且允许覆盖，下载地址固定为
-      # https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk
+      # https://gitee.com/lxrzyt/wallsw/releases/download/latest/artifact_WALLSWITCH_APK.tar.gz
+      # （产物是 tar.gz 包，解压得 app-debug.apk）
       - step: release@gitee
         name: release_apk
         displayName: 发布 APK 到 latest
@@ -64,7 +65,7 @@ stages:
         upstreamArtifact:
           - WALLSWITCH_APK
         assertFiles:
-          - app/build/outputs/apk/debug/app-debug.apk
+          - artifact_WALLSWITCH_APK.tar.gz
         prerelease: false
         allowUpdate: true
         notify: []
