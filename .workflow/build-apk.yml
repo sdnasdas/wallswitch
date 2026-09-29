@@ -50,6 +50,9 @@ stages:
               - ./app/build/outputs/apk/debug/*.apk
         caches: []
         notify: []
+  - name: release
+    displayName: '发版'
+    steps:
       # 固定地址发版：tag 恒为 latest 且允许覆盖，下载地址固定为
       # https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk
       - step: release@gitee
