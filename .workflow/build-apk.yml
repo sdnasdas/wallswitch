@@ -37,16 +37,16 @@ stages:
           - 'if [ -z "$WALLSWITCH_KEYSTORE_BASE64" ]; then echo "未配置 WALLSWITCH_KEYSTORE_BASE64，无法固定签名" >&2; exit 1; fi; echo "$WALLSWITCH_KEYSTORE_BASE64" | base64 -d > "$HOME/wallswitch.keystore"'
           # 2) 构建镜像若未预装 Android SDK 则装一套（AGP 8.5.2 需要 platform 35 + build-tools 35）
           - 'export ANDROID_HOME="$HOME/android-sdk"; if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then mkdir -p "$ANDROID_HOME/cmdline-tools"; curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools" && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" && yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null; fi'
-          # 3) 构建 debug APK（GRADLE_HOME 可能没有 bin/gradle，探测失败则从镜像自装 Gradle 8.7）
+          # 3) 构建 debug APK（先删掉 Gitee 预置 init.gradle——它把仓库换成无 androidx 的 aliyun jcenter 镜像，必致依赖解析失败）
           - >-
-            echo "GRADLE_HOME=[$GRADLE_HOME]"; ls "$GRADLE_HOME" 2>/dev/null | head -3;
+            rm -f "$HOME/.gradle/init.gradle";
             if [ -x "$GRADLE_HOME/bin/gradle" ]; then export PATH="$GRADLE_HOME/bin:$PATH"; fi;
-            if ! command -v gradle >/dev/null 2>&1; then echo "下载 Gradle 8.7";
+            if ! command -v gradle >/dev/null 2>&1; then
               mkdir -p "$HOME/gradle" && curl -sSL -o /tmp/gradle.zip https://mirrors.cloud.tencent.com/gradle/gradle-8.7-bin.zip &&
               unzip -q -o /tmp/gradle.zip -d "$HOME/gradle";
               export PATH="$HOME/gradle/gradle-8.7/bin:$PATH"; fi;
             export WALLSWITCH_KEYSTORE_PATH="$HOME/wallswitch.keystore" && export ANDROID_HOME="$HOME/android-sdk" &&
-            gradle --version && gradle assembleDebug --no-daemon
+            gradle assembleDebug --no-daemon
         artifacts:
           - name: WALLSWITCH_APK
             path:
