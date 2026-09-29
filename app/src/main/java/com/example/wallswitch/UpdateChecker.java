@@ -2,6 +2,7 @@ package com.example.wallswitch;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
@@ -18,34 +19,51 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 检查更新：对接 GitHub 滚动 Release（tag 固定 latest，CI 每次 push 覆盖同一个 asset）。
+ * 检查更新：对接 Gitee / GitHub 双源的滚动 Release（tag 固定 latest，CI 每次 push 覆盖同一个 asset）。
  *
- * 版本来源：Release 标题形如「latest（v3.27 · build 45）」——build.yml 在每次构建时
- * 把 app/build.gradle 的 versionName 写进标题，而版本号约定每个提交都递增，
- * 所以标题里的 v 版本就是可靠的比对依据（比资产文件名/日期可靠，那些是固定不变的）。
+ * 来源选择存 SharedPreferences（{@link #source}/{@link #setSource}），两个源的 Release 标题
+ * 都是「latest（v3.27 · build 45）」格式——CI 构建时把 app/build.gradle 的 versionName 写进
+ * 标题，而版本号约定每个提交都递增，所以标题里的 v 版本就是可靠的比对依据。
  *
  * 比对方式：版本号按「.」分段逐段数值比较（3.10 > 3.9，不能按字符串比）。
  *
  * 下载：交给系统 DownloadManager 后台下载到公共 Download/WallSwitch/，
  * 通知栏可看进度，完成后点通知即进安装页；DownloadManager 不可用时回退浏览器直链。
  *
- * 网络用的是系统 HttpURLConnection：全项目刻意只此一个 GET 请求，为此引入
+ * 网络用的是系统 HttpURLConnection：全项目刻意只此几个 GET 请求，为此引入
  * OkHttp 类网络库不值当（agents.md 的零依赖约定优先）。
  */
 public final class UpdateChecker {
 
+    /** 更新源：gitee（国内直连，正式渠道）/ github（需代理，调试渠道）。 */
+    public static final String SRC_GITEE = "gitee";
+    public static final String SRC_GITHUB = "github";
+    /** 默认走 Gitee（迁移 CI 的初衷就是国内免代理）。 */
+    public static final String DEFAULT_SOURCE = SRC_GITEE;
+    private static final String PREFS_NAME = "wallswitch";
+    private static final String KEY_SOURCE = "update_source";
+
+    // ---- Gitee（lxrzyt/wallsw，公开仓库，接口免令牌）----
+    private static final String GITEE_API =
+            "https://gitee.com/api/v5/repos/lxrzyt/wallsw/releases/tags/latest";
+    private static final String GITEE_PAGE =
+            "https://gitee.com/lxrzyt/wallsw/releases/latest";
+    private static final String GITEE_APK =
+            "https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk";
+
+    // ---- GitHub（sdnasdas/wallswitch，需代理）----
     /** 滚动 Release 的 GitHub API 地址（公开接口；国内网络下 api.github.com 经常不通，作首选）。 */
-    private static final String RELEASES_API =
+    private static final String GITHUB_API =
             "https://api.github.com/repos/sdnasdas/wallswitch/releases/tags/latest";
     /**
      * 兜底通道：release 页面（github.com 主域，国内可达性明显好于 api 子域，用户实测能直链下载）。
      * 页面 HTML 含 Release 标题「latest（v3.29 · build 60）」，用全角括号定位版本号。
      */
-    private static final String RELEASES_PAGE =
+    private static final String GITHUB_PAGE =
             "https://github.com/sdnasdas/wallswitch/releases/latest";
-    /** APK 直链（CI 固定 asset 名，永远指向最新构建）。 */
-    private static final String APK_URL =
+    private static final String GITHUB_APK =
             "https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk";
+
     /** 从标题/页面里抠版本号（v3.27 / v3.10 都能匹配）。 */
     private static final Pattern VERSION_PATTERN = Pattern.compile("v(\\d+(?:\\.\\d+)*)");
     /** 页面兜底专用：Release 标题的版本号都紧跟全角括号，避免误匹配页面里其它版本串。 */
@@ -72,14 +90,33 @@ public final class UpdateChecker {
     private UpdateChecker() {
     }
 
-    /** 后台发起检查，结果回主线程。 */
+    /** 当前更新源（未设置过时取默认）。 */
+    public static String source(Context ctx) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String s = sp.getString(KEY_SOURCE, DEFAULT_SOURCE);
+        return SRC_GITHUB.equals(s) ? SRC_GITHUB : SRC_GITEE;
+    }
+
+    /** 保存更新源。 */
+    public static void setSource(Context ctx, String source) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString(KEY_SOURCE, SRC_GITHUB.equals(source) ? SRC_GITHUB : SRC_GITEE)
+                .apply();
+    }
+
+    /** 后台发起检查（source 取当前设置），结果回主线程。 */
     public static void checkAsync(Context context, Callback callback) {
+        checkAsync(context, source(context), callback);
+    }
+
+    /** 后台发起检查（指定源），结果回主线程。 */
+    public static void checkAsync(Context context, String source, Callback callback) {
         final Context app = context.getApplicationContext();
         new Thread(() -> {
             Info info = null;
             Exception error = null;
             try {
-                info = fetchLatest();
+                info = fetchLatest(source);
             } catch (Exception e) {
                 error = e;
             }
@@ -116,14 +153,20 @@ public final class UpdateChecker {
 
     /** 用系统 DownloadManager 下载最新 APK（公共 Download/WallSwitch/，点完成通知即装）。 */
     public static void downloadApk(Context ctx) {
+        downloadApk(ctx, source(ctx));
+    }
+
+    /** 用系统 DownloadManager 从指定源下载最新 APK。 */
+    public static void downloadApk(Context ctx, String source) {
         try {
             DownloadManager dm =
                     (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
             if (dm == null) {
-                openInBrowser(ctx);
+                openInBrowser(ctx, source);
                 return;
             }
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(APK_URL));
+            DownloadManager.Request req = new DownloadManager.Request(
+                    Uri.parse(apkUrl(source)));
             req.setTitle(ctx.getString(R.string.app_name) + " " + localVersion(ctx) + " 安装包");
             req.setDescription(ctx.getString(R.string.update_download_desc));
             req.setMimeType("application/vnd.android.package-archive");
@@ -133,28 +176,35 @@ public final class UpdateChecker {
                     Environment.DIRECTORY_DOWNLOADS, "WallSwitch/app-debug.apk");
             dm.enqueue(req);
         } catch (Exception e) {
-            openInBrowser(ctx);
+            openInBrowser(ctx, source);
         }
     }
 
     /** DownloadManager 走不通时的兜底：浏览器打开直链。 */
-    private static void openInBrowser(Context ctx) {
+    private static void openInBrowser(Context ctx, String source) {
         try {
             android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW, Uri.parse(APK_URL));
+                    android.content.Intent.ACTION_VIEW, Uri.parse(apkUrl(source)));
             intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(intent);
         } catch (Exception ignored) {
         }
     }
 
-    /** 首选 API；api.github.com 不通（国内常态）时兜底抓 github.com 的 release 页面。 */
-    private static Info fetchLatest() throws Exception {
+    private static String apkUrl(String source) {
+        return SRC_GITHUB.equals(source) ? GITHUB_APK : GITEE_APK;
+    }
+
+    /** 首选 API；API 子域不通时兜底抓 release 页面（GitHub 国内常态，Gitee 同构）。 */
+    private static Info fetchLatest(String source) throws Exception {
+        boolean github = SRC_GITHUB.equals(source);
+        String apiUrl = github ? GITHUB_API : GITEE_API;
+        String pageUrl = github ? GITHUB_PAGE : GITEE_PAGE;
         try {
-            return fetchViaApi();
+            return fetchViaApi(apiUrl);
         } catch (Exception apiError) {
             try {
-                return fetchViaPage();
+                return fetchViaPage(pageUrl);
             } catch (Exception ignored) {
                 // 两条通道都失败时上报首选通道的异常（更贴近真实死因）
                 throw apiError;
@@ -162,12 +212,12 @@ public final class UpdateChecker {
         }
     }
 
-    private static Info fetchViaApi() throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(RELEASES_API).openConnection();
+    private static Info fetchViaApi(String apiUrl) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
         try {
             conn.setConnectTimeout(10_000);
             conn.setReadTimeout(10_000);
-            conn.setRequestProperty("Accept", "application/vnd.github+json");
+            conn.setRequestProperty("Accept", "application/json");
             // GitHub API 要求带 User-Agent
             conn.setRequestProperty("User-Agent", "WallSwitch-App");
             int code = conn.getResponseCode();
@@ -187,10 +237,10 @@ public final class UpdateChecker {
     }
 
     /** 兜底：抓 release 页面 HTML，按全角括号定位标题里的版本号。 */
-    private static Info fetchViaPage() throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(RELEASES_PAGE).openConnection();
+    private static Info fetchViaPage(String pageUrl) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(pageUrl).openConnection();
         try {
-            // releases/latest 会 302 到 /tag/latest，同协议跳转 HttpURLConnection 自动跟随
+            // releases/latest 会 302 到具体 tag 页，同协议跳转 HttpURLConnection 自动跟随
             conn.setConnectTimeout(10_000);
             conn.setReadTimeout(10_000);
             conn.setRequestProperty("User-Agent", "WallSwitch-App");

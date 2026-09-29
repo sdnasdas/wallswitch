@@ -249,8 +249,12 @@
     <string name="transition_blur">模糊过渡</string>
     <string name="transition_off">无动画</string>
 
-    <!-- 检查更新：对接 GitHub 滚动 Release -->
+    <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选 -->
     <string name="update_check_title">检查更新</string>
+    <string name="update_source_title">更新源</string>
+    <string name="update_source_desc">下载最新 APK 用的仓库；Gitee 国内直连，GitHub 需代理</string>
+    <string name="update_source_gitee">Gitee</string>
+    <string name="update_source_github">GitHub</string>
     <string name="update_checking">检查中…</string>
     <string name="update_check_failed">检查失败，稍后再试</string>
     <string name="update_latest">已是最新版本</string>

@@ -49,14 +49,17 @@ stages:
             gradle assembleDebug --no-daemon
           # 4) 固定地址发版：删旧 latest Release → 重建 → 上传原始 APK。
           #    下载地址恒定：https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk
+          #    标题带版本号「latest（v3.x · build N）」，App 的检查更新靠它解析比对（与 GitHub 版格式一致）。
           #    令牌未配置时跳过发版（构建仍然成功）。
           - >-
             if [ -z "$BUILD_API_TOKEN" ]; then echo "跳过发版：未配置 BUILD_API_TOKEN"; else
             API="https://gitee.com/api/v5/repos/lxrzyt/wallsw/releases";
+            VER=$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle);
+            TITLE="latest（v$VER · build ${GITEE_PIPELINE_BUILD_NUMBER:-0}）";
             OLD=$(curl -s "$API/tags/latest?access_token=$BUILD_API_TOKEN");
             ID=$(printf '%s' "$OLD" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
             if [ -n "$ID" ]; then curl -s -X DELETE "$API/$ID?access_token=$BUILD_API_TOKEN" > /dev/null && echo "已删旧 Release #$ID"; fi;
-            NEW=$(curl -s -X POST "$API?access_token=$BUILD_API_TOKEN" -d "tag_name=latest" -d "name=latest" -d "target_commitish=$(git rev-parse HEAD)" --data-urlencode "body=CI 自动构建，变更见仓库提交记录");
+            NEW=$(curl -s -X POST "$API?access_token=$BUILD_API_TOKEN" -d "tag_name=latest" -d "name=$TITLE" -d "target_commitish=$(git rev-parse HEAD)" --data-urlencode "body=自动覆盖的调试包（固定签名，可直接覆盖安装）· 当前 v$VER · 直链 https://gitee.com/lxrzyt/wallsw/releases/download/latest/app-debug.apk");
             echo "创建响应: $(printf '%s' "$NEW" | head -c 400)";
             NID=$(printf '%s' "$NEW" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
             echo "新 Release id=$NID";

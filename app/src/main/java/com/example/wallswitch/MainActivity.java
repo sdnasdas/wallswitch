@@ -146,6 +146,7 @@ public class MainActivity extends AppCompatActivity {
         setupStatusNotifySwitch();
         setupTransitionEffect();
         setupTickingSwitch();
+        setupUpdateSource();
         setupUpdateCheck();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
@@ -559,14 +560,44 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * 更新源选择：设置页点「更新源」弹单选（Gitee 国内直连 / GitHub 需代理），存 prefs。
+     * 检查更新与下载都按所选源走对应仓库的滚动 Release。
+     */
+    private void setupUpdateSource() {
+        TextView tvSource = findViewById(R.id.tv_update_source);
+        Runnable refresh = () -> tvSource.setText(
+                UpdateChecker.SRC_GITHUB.equals(UpdateChecker.source(this))
+                        ? R.string.update_source_github : R.string.update_source_gitee);
+        refresh.run();
+        findViewById(R.id.row_update_source).setOnClickListener(v -> {
+            String cur = UpdateChecker.source(this);
+            String[] values = {UpdateChecker.SRC_GITEE, UpdateChecker.SRC_GITHUB};
+            String[] labels = {getString(R.string.update_source_gitee),
+                    getString(R.string.update_source_github)};
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.update_source_title)
+                    .setSingleChoiceItems(labels,
+                            UpdateChecker.SRC_GITHUB.equals(cur) ? 1 : 0,
+                            (d, which) -> {
+                                UpdateChecker.setSource(this, values[which]);
+                                refresh.run();
+                                d.dismiss();
+                            })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+    }
+
+    /**
      * 检查更新：设置页手动入口 + 启动时静默检查（有新版才弹窗，失败不打扰）。
      * 有新版时弹窗展示远端标题（含 build 号），确认后交给系统 DownloadManager 下载。
      */
     private void setupUpdateCheck() {
         TextView tvState = findViewById(R.id.tv_update_state);
         findViewById(R.id.row_update).setOnClickListener(v -> {
+            String source = UpdateChecker.source(this);
             tvState.setText(R.string.update_checking);
-            UpdateChecker.checkAsync(this, (info, error) -> {
+            UpdateChecker.checkAsync(this, source, (info, error) -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
@@ -582,26 +613,26 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 tvState.setText(getString(R.string.update_new_title) + " v" + info.version);
-                showUpdateDialog(info);
+                showUpdateDialog(info, source);
             });
         });
-        // 启动静默检查：只在发现新版时打扰，失败静默
+        // 启动静默检查：只在发现新版时打扰，失败静默（走当前所选源）
         UpdateChecker.checkAsync(this, (info, error) -> {
             if (error == null && info != null && !isFinishing() && !isDestroyed()
                     && UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
-                showUpdateDialog(info);
+                showUpdateDialog(info, UpdateChecker.source(this));
             }
         });
     }
 
     /** 新版弹窗：确认后交给 DownloadManager 后台下载（完成后点通知安装）。 */
-    private void showUpdateDialog(UpdateChecker.Info info) {
+    private void showUpdateDialog(UpdateChecker.Info info, String source) {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.update_new_title)
                 .setMessage(getString(R.string.update_new_msg,
                         info.version, UpdateChecker.localVersion(this)))
                 .setPositiveButton(R.string.update_download,
-                        (d, which) -> UpdateChecker.downloadApk(this))
+                        (d, which) -> UpdateChecker.downloadApk(this, source))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
