@@ -54,6 +54,8 @@ public final class TakeoverManager {
 
     private static final String PREFS_NAME = "settings";
     private static final String KEY_LOCK_ID = "takeover_lock_id";
+    /** 最近一次设进锁屏的那张壁纸的库内 id（KEY_LOCK_ID 只说明「锁屏是我们的」，说明不了是哪张）。 */
+    private static final String KEY_LOCK_ITEM = "takeover_lock_item";
 
     private static final String SAVED_DIR = Environment.DIRECTORY_PICTURES + "/WallSwitch";
     /** 保存结果日志文件（公共 Download/WallSwitch 目录，供不用 adb 时查看）。 */
@@ -239,11 +241,12 @@ public final class TakeoverManager {
     }
 
     /**
-     * 把某张图设为锁屏壁纸，并记下系统返回的壁纸 id（用于判定「锁屏是否由本 App 接管」）。
+     * 把某张图设为锁屏壁纸，并记下系统返回的壁纸 id 与这张图的库内 id
+     * （前者判定「锁屏是否由本 App 接管」，后者判定「屏上是不是这一张」）。
      *
      * @return 系统返回的新壁纸 id；0 表示失败
      */
-    public static int setLockFromFile(Context ctx, File file) {
+    public static int setLockFromFile(Context ctx, File file, String wallpaperId) {
         if (file == null || !file.exists()) {
             return 0;
         }
@@ -256,7 +259,10 @@ public final class TakeoverManager {
             // 必须显式传 FLAG_LOCK：简化版 setBitmap(bitmap) 会连锁屏一起改
             int newId = wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
             if (newId != 0) {
-                prefs(ctx).edit().putInt(KEY_LOCK_ID, newId).apply();
+                prefs(ctx).edit()
+                        .putInt(KEY_LOCK_ID, newId)
+                        .putString(KEY_LOCK_ITEM, wallpaperId)
+                        .apply();
             }
             return newId;
         } catch (Exception e) {
@@ -281,11 +287,17 @@ public final class TakeoverManager {
                 return false;
             }
         }
-        // 已经是我们的图就不必重设（幂等，避免每次打开 App 都重设一次锁屏）
-        if (isLockTakenOver(ctx)) {
+        // 幂等：只有「屏上就是我们设的、而且正是这一张」才跳过。
+        // 光看 isLockTakenOver 不够——换锁屏库时屏上仍是我们的旧图，但那已经不是新库该显示的那张了。
+        if (isLockTakenOver(ctx) && currentId != null && currentId.equals(lastLockItem(ctx))) {
             return false;
         }
-        return setLockFromFile(ctx, file) != 0;
+        return setLockFromFile(ctx, file, currentId) != 0;
+    }
+
+    /** 最近一次设进锁屏的壁纸 id（从未成功设置过返回 null）。 */
+    private static String lastLockItem(Context ctx) {
+        return prefs(ctx).getString(KEY_LOCK_ITEM, null);
     }
 
     /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目（WallSwitchService 的公共日志也复用）。 */

@@ -272,7 +272,7 @@ public class Switcher {
         } else {
             // 锁屏：引擎管不到，只能走这一条静态调用（由 TakeoverManager 统一设置并记下 id）
             applied = TakeoverManager.setLockFromFile(ctx,
-                    WallpaperStore.getFullFile(ctx, wallpaperId)) != 0;
+                    WallpaperStore.getFullFile(ctx, wallpaperId), wallpaperId) != 0;
             lastError = applied ? null : "not_applied";
         }
         // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
@@ -332,7 +332,7 @@ public class Switcher {
                     }
                 } else {
                     // 系统里存的是 setBitmap(FLAG_LOCK) 时的位图副本，必须重设一次
-                    TakeoverManager.setLockFromFile(ctx, full);
+                    TakeoverManager.setLockFromFile(ctx, full, wallpaperId);
                 }
             }
         }
