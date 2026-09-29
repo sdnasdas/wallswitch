@@ -65,9 +65,10 @@
         </LinearLayout>
 
 
-        <!-- 范围槽位卡片 v3.61：桌面/锁屏各自指向一个库。刻意做成和库行不同的样子——
-             浅品牌色底 + 描边 + 左端出血大图，免得被误认成列表的前两项。
-             点卡片=聚合设置弹窗，▶| =马上切一张；也支持长按库行头像拖到卡片上设库。
+        <!-- 范围槽位滑块 v3.65：桌面/锁屏各一页，左右滑切换、可无限循环（原来两张竖排卡占 208dp，
+             约 2.9 行库，压得列表看不几条，现在只留一页 96dp）。
+             单击卡片=聚合设置，双击=马上切一张，右上角感叹号=操作指南；
+             也支持长按库行头像拖到卡片上设库（只命中当前这一页）。
              只在库列表页显示，壁纸网格页收起。 -->
         <LinearLayout
             android:id="@+id/slot_cards"
@@ -78,210 +79,18 @@
             android:paddingEnd="12dp"
             android:visibility="gone">
 
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/card_slot_home"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/slot_pager"
                 android:layout_width="match_parent"
                 android:layout_height="96dp"
                 android:layout_marginTop="4dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardBackgroundColor="@color/slot_bg"
-                app:cardCornerRadius="20dp"
-                app:cardElevation="0dp"
-                app:strokeColor="@color/slot_stroke"
-                app:strokeWidth="1.5dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="horizontal">
-
-                    <!-- 出血缩略图：铺满卡片左端、不留内边距，圆角由卡片自己裁出来 -->
-                    <ImageView
-                        android:id="@+id/img_slot_home_thumb"
-                        android:layout_width="96dp"
-                        android:layout_height="match_parent"
-                        android:background="@color/divider"
-                        android:contentDescription="@string/thumb_desc"
-                        android:padding="30dp"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/ic_home"
-                        android:tint="@color/text_secondary" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:gravity="center_vertical"
-                        android:orientation="vertical"
-                        android:paddingStart="12dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/slot_home_title"
-                            android:textColor="@color/brand"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tv_slot_home_name"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="1dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="@color/text_primary"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tv_slot_home_desc"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="1dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center_vertical"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:paddingEnd="2dp">
-
-                        <ImageButton
-                            android:id="@+id/btn_slot_home_switch"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="@string/slot_switch_now"
-                            android:padding="9dp"
-                            android:src="@drawable/ic_skip_next"
-                            android:tint="@color/brand" />
-
-                        <ImageButton
-                            android:id="@+id/btn_slot_home_settings"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="@string/slot_settings_desc"
-                            android:padding="9dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/text_secondary" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/card_slot_lock"
-                android:layout_width="match_parent"
-                android:layout_height="96dp"
-                android:layout_marginTop="10dp"
                 android:layout_marginBottom="4dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardBackgroundColor="@color/slot_bg"
-                app:cardCornerRadius="20dp"
-                app:cardElevation="0dp"
-                app:strokeColor="@color/slot_stroke"
-                app:strokeWidth="1.5dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="horizontal">
-
-                    <!-- 出血缩略图：铺满卡片左端、不留内边距，圆角由卡片自己裁出来 -->
-                    <ImageView
-                        android:id="@+id/img_slot_lock_thumb"
-                        android:layout_width="96dp"
-                        android:layout_height="match_parent"
-                        android:background="@color/divider"
-                        android:contentDescription="@string/thumb_desc"
-                        android:padding="30dp"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/ic_lock"
-                        android:tint="@color/text_secondary" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:gravity="center_vertical"
-                        android:orientation="vertical"
-                        android:paddingStart="12dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/slot_lock_title"
-                            android:textColor="@color/brand"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tv_slot_lock_name"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="1dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="@color/text_primary"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tv_slot_lock_desc"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="1dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center_vertical"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:paddingEnd="2dp">
-
-                        <ImageButton
-                            android:id="@+id/btn_slot_lock_switch"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="@string/slot_switch_now"
-                            android:padding="9dp"
-                            android:src="@drawable/ic_skip_next"
-                            android:tint="@color/brand" />
-
-                        <ImageButton
-                            android:id="@+id/btn_slot_lock_settings"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="@string/slot_settings_desc"
-                            android:padding="9dp"
-                            android:src="@drawable/ic_settings"
-                            android:tint="@color/text_secondary" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                android:overScrollMode="never" />
 
         </LinearLayout>
 
         <FrameLayout
+            android:id="@+id/list_container"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">

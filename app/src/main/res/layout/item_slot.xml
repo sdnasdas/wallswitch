@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 范围槽位滑块的一页（桌面 / 锁屏各一页，同一份布局按页绑不同数据）：
+     左端出血缩略图（圆角由卡片自己裁）+ 三行文字（范围小标题 / 库名 / 模式·间隔）+ 右上角指南感叹号。
+     刻意与库行不同样子——浅品牌色底 + 描边，免得被误认成列表的前两项。 -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/slot_card"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardBackgroundColor="@color/slot_bg"
+    app:cardCornerRadius="20dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/slot_stroke"
+    app:strokeWidth="1.5dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:layout_width="96dp"
+            android:layout_height="match_parent">
+
+            <!-- 该范围当前那张图；没设库时按 padding 居中显示范围图标 -->
+            <ImageView
+                android:id="@+id/img_slot_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/divider"
+                android:contentDescription="@string/thumb_desc"
+                android:padding="30dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_home"
+                android:tint="@color/text_secondary" />
+
+            <!-- 左下角徽标：滑块一次只显示一面，靠它一眼确认是哪一面（图标由代码按范围换） -->
+            <ImageView
+                android:id="@+id/img_slot_badge"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="5dp"
+                android:background="@drawable/circle_surface"
+                android:contentDescription="@null"
+                android:padding="4dp"
+                android:src="@drawable/ic_home"
+                android:tint="@color/brand" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp">
+
+            <TextView
+                android:id="@+id/tv_slot_scope"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/slot_home_title"
+                android:textColor="@color/brand"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_slot_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_slot_desc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- 右上角小感叹号：单击/双击都留给操作，这里只管弹「怎么用」 -->
+        <ImageView
+            android:id="@+id/btn_slot_help"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/slot_help_desc"
+            android:padding="7dp"
+            android:src="@drawable/ic_info"
+            android:tint="@color/text_secondary" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

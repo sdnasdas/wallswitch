@@ -60,6 +60,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.PagerSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -125,11 +126,15 @@ public class MainActivity extends AppCompatActivity {
     private String renamingLibId;
     // 顶栏删除按钮（库页专用）：普通态 = 垃圾桶进删除态，删除态 = 勾图标确认批量删除
     private MenuItem libDeleteItem;
-    // v3.60 范围槽位卡片（只在库列表页显示）：桌面/锁屏各一张，点卡片开聚合设置、闪电马上切一张
+    // v3.60 范围槽位（只在库列表页显示）：v3.65 起两张竖排卡片改成左右滑块，一次只显示一面
     private View slotCards;
-    private TextView tvSlotHomeName, tvSlotHomeDesc, tvSlotLockName, tvSlotLockDesc;
-    private ImageView imgSlotHomeThumb, imgSlotLockThumb;
-    private View cardSlotHome, cardSlotLock;
+    private RecyclerView slotPager;
+    private SlotPagerAdapter slotAdapter;
+    /** 滑块的虚拟页数（每面各 SLOT_LOOP 份）：够大到没人滑得到头，左右都能一直翻。 */
+    private static final int SLOT_LOOP = 1000;
+    // 滑块停在哪个范围（拖头像设库时归属就是它），以及被高亮的卡片
+    private boolean slotPageForHome = true;
+    private View slotPageCard;
     private View highlightedSlotCard;
     // 库行排序拖拽（长按行的空白处手动 startDrag 起来的那套）
     private ItemTouchHelper libDragHelper;
@@ -139,8 +144,10 @@ public class MainActivity extends AppCompatActivity {
     private String avatarDragLibId;
     private float avatarGrabX, avatarGrabY, avatarLastRawX, avatarLastRawY;
     private int[] avatarContentLoc;
-    // 拖起时缓存的 [桌面, 锁屏] 窗口矩形（left, top, right, bottom），避免每帧查位置
-    private int[][] slotRects;
+    // 拖起时缓存的当前卡片窗口矩形（left, top, right, bottom），避免每帧查位置
+    private int[] slotRect;
+    // 淡出途中还没落地的换页动作（连点时先补跑它，再走新的）
+    private Runnable pendingPageSwap;
     // 检查更新那一行：状态文字 + App 内下载进度条（进度只在下载中轮询刷新，不下即时停）
     private TextView tvUpdateState;
     private ProgressBar pbUpdate;
@@ -194,8 +201,8 @@ public class MainActivity extends AppCompatActivity {
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
         refreshVersion();
-        // 首页 = 库列表
-        showLibPage();
+        // 首页 = 库列表（首屏直接落地，不播页面过渡动画）
+        applyLibPage();
         setupSwipeToOpenDrawer();
         // 老版本缩略图（长边 256 的等比图）在两列方格上会被放大 2 倍多发虚：
         // 后台一次性重做成「中心正方形 + 按屏幕取边长」，做完清缓存重绑一次，这次启动就能看到清晰图
@@ -253,8 +260,13 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 库列表页（首页）：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库 + 顶栏删除按钮（长按行拖拽排序）。 */
+    /** 库列表页（首页）入口：带过渡动画（首屏在 onCreate 里直接走 applyLibPage，不放动画）。 */
     private void showLibPage() {
+        transitionPages(this::applyLibPage);
+    }
+
+    /** 真正落地库列表页：☰ 开抽屉 + 固定标题 WallPaper + ＋ 新建库 + 顶栏删除按钮（长按行拖拽排序）。 */
+    private void applyLibPage() {
         showingWallpapers = false;
         exitLibDeleteMode();
         Toolbar toolbar = findViewById(R.id.toolbar);
@@ -269,8 +281,16 @@ public class MainActivity extends AppCompatActivity {
         updateLibDeleteToolbar();
     }
 
-    /** 壁纸网格页：← 返回库列表 + 库名 + ＋ 添加壁纸，两列正方形网格。 */
+    /** 壁纸网格页入口：库已经不在了就不切页。 */
     private void showWallpaperPage(String libId) {
+        if (LibraryStore.get(this, libId) == null) {
+            return;
+        }
+        transitionPages(() -> applyWallpaperPage(libId));
+    }
+
+    /** 真正落地壁纸网格页：← 返回库列表 + 库名 + ＋ 添加壁纸，两列正方形网格。 */
+    private void applyWallpaperPage(String libId) {
         LibraryStore.Library lib = LibraryStore.get(this, libId);
         if (lib == null) {
             return;
@@ -294,6 +314,53 @@ public class MainActivity extends AppCompatActivity {
         updateLibDeleteToolbar();
     }
 
+    /**
+     * 页面切换的过渡：槽位卡片带 + 列表带整体淡出 90ms，中途换内容，再淡入 130ms。
+     * 连点时先把上一次没落地的换页补跑完（withEndAction 被 cancel 就不执行了，
+     * 不管它的话界面会停在半透明或旧页面上）。
+     */
+    private void transitionPages(Runnable swap) {
+        if (pendingPageSwap != null) {
+            Runnable prev = pendingPageSwap;
+            pendingPageSwap = null;
+            resetPageFade();
+            prev.run();
+        }
+        pendingPageSwap = swap;
+        animatePages(0f, 90, () -> {
+            Runnable todo = pendingPageSwap;
+            pendingPageSwap = null;
+            if (todo != null) {
+                todo.run();
+            }
+            animatePages(1f, 130, null);
+        });
+    }
+
+    /** 两块内容一起淡入淡出；结束回调只挂在列表带上，免得两处各跑一次换页。 */
+    private void animatePages(float to, long duration, Runnable end) {
+        if (slotCards != null) {
+            slotCards.animate().alpha(to).setDuration(duration).start();
+        }
+        View list = findViewById(R.id.list_container);
+        if (end == null) {
+            list.animate().alpha(to).setDuration(duration).start();
+        } else {
+            list.animate().alpha(to).setDuration(duration).withEndAction(end).start();
+        }
+    }
+
+    /** 取消进行中的淡入淡出并把两块拉回不透明（连点时用）。 */
+    private void resetPageFade() {
+        if (slotCards != null) {
+            slotCards.animate().cancel();
+            slotCards.setAlpha(1f);
+        }
+        View list = findViewById(R.id.list_container);
+        list.animate().cancel();
+        list.setAlpha(1f);
+    }
+
     /** 刷新库列表与空状态。 */
     private void refreshLibs() {
         List<LibraryStore.Library> libs = LibraryStore.load(this);
@@ -301,46 +368,70 @@ public class MainActivity extends AppCompatActivity {
         updateEmptyState(libs.isEmpty(), R.string.empty_libs, R.string.empty_libs_hint);
     }
 
-    /** 范围卡片接线（一次性）：卡片/齿轮 = 聚合设置弹窗；闪电 = 该范围马上切一张。 */
+    /** 范围槽位滑块接线（一次性）：整页吸附，初始停在桌面那页；翻页后记下当前是哪一面。 */
     private void setupSlotCards() {
         slotCards = findViewById(R.id.slot_cards);
-        tvSlotHomeName = findViewById(R.id.tv_slot_home_name);
-        tvSlotHomeDesc = findViewById(R.id.tv_slot_home_desc);
-        tvSlotLockName = findViewById(R.id.tv_slot_lock_name);
-        tvSlotLockDesc = findViewById(R.id.tv_slot_lock_desc);
-        imgSlotHomeThumb = findViewById(R.id.img_slot_home_thumb);
-        imgSlotLockThumb = findViewById(R.id.img_slot_lock_thumb);
-        cardSlotHome = findViewById(R.id.card_slot_home);
-        cardSlotLock = findViewById(R.id.card_slot_lock);
-        attachCardGestures(cardSlotHome, true);
-        attachCardGestures(cardSlotLock, false);
-        findViewById(R.id.btn_slot_home_settings).setOnClickListener(v -> showSlotSettingsDialog(true));
-        findViewById(R.id.btn_slot_lock_settings).setOnClickListener(v -> showSlotSettingsDialog(false));
-        findViewById(R.id.btn_slot_home_switch).setOnClickListener(v -> slotSwitchNow(true));
-        findViewById(R.id.btn_slot_lock_switch).setOnClickListener(v -> slotSwitchNow(false));
+        slotPager = findViewById(R.id.slot_pager);
+        LinearLayoutManager lm = new LinearLayoutManager(this,
+                LinearLayoutManager.HORIZONTAL, false);
+        slotPager.setLayoutManager(lm);
+        slotAdapter = new SlotPagerAdapter();
+        slotPager.setAdapter(slotAdapter);
+        new PagerSnapHelper().attachToRecyclerView(slotPager);
+        // 虚拟页数从 0 起排，偶数位 = 桌面；起点选中间的偶数位，左右就都能一直滑
+        slotPager.scrollToPosition(SLOT_LOOP);
+        slotPager.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    syncSlotPage();
+                }
+            }
+        });
+        syncSlotPage();
+    }
+
+    /** 记下滑块当前停在哪一面、当前卡片视图是谁：拖拽命中与单击/双击都按这一面走。 */
+    private void syncSlotPage() {
+        if (slotPager == null) {
+            return;
+        }
+        RecyclerView.LayoutManager manager = slotPager.getLayoutManager();
+        if (!(manager instanceof LinearLayoutManager)) {
+            return;
+        }
+        int pos = ((LinearLayoutManager) manager).findFirstVisibleItemPosition();
+        if (pos < 0) {
+            // 还没布局（首次进页/刚重建），保持上次的记录
+            return;
+        }
+        slotPageForHome = pos % 2 == 0;
+        RecyclerView.ViewHolder holder = slotPager.findViewHolderForAdapterPosition(pos);
+        slotPageCard = holder == null ? null : holder.itemView;
     }
 
     /**
-     * 范围卡片的手势：单击 = 开聚合设置弹窗，双击 = 该范围马上切一张。
+     * 一页卡片的手势：单击 = 开聚合设置弹窗，双击 = 该范围马上切一张。
      * 两种手势得在这里自己分发：若让卡片照常响应点击，双击的第一下也会把弹窗顶出来。
      * 代价是单击开弹窗要等约 300ms（等系统确认这不是双击），区分单击/双击绕不开。
+     * 范围归属读 holder.forHome（回收复用时同一张视图可能改绑另一面）。
      */
-    private void attachCardGestures(View card, boolean forHome) {
+    private void attachCardGestures(final SlotPagerAdapter.SlotHolder holder) {
         GestureDetector detector = new GestureDetector(this,
                 new GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public boolean onSingleTapConfirmed(MotionEvent e) {
-                        showSlotSettingsDialog(forHome);
+                        showSlotSettingsDialog(holder.forHome);
                         return true;
                     }
 
                     @Override
                     public boolean onDoubleTap(MotionEvent e) {
-                        slotSwitchNow(forHome);
+                        slotSwitchNow(holder.forHome);
                         return true;
                     }
                 });
-        card.setOnTouchListener((v, event) -> {
+        holder.itemView.setOnTouchListener((v, event) -> {
             // 事件被这里消费后 View 不再自动维护按压态，手动置位否则点下去没有水波纹
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
@@ -352,17 +443,16 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 卡片上的「马上切换一张」：槽位没库先提示去卡片设置。 */
-    private void slotSwitchNow(boolean forHome) {
-        LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
-        if (lib == null) {
-            Toast.makeText(this, R.string.slot_none_toast, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        switchAndToast(lib, forHome);
+    /** 卡片右上角感叹号：滑块、单击、双击、拖拽设库这四件事一次说清。 */
+    private void showSlotGuide() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.slot_guide_title)
+                .setMessage(R.string.slot_guide_msg)
+                .setPositiveButton(R.string.close, null)
+                .show();
     }
 
-    /** 刷新两张范围卡片：范围名是固定小标题，下面两行跟着槽位走（未设置 / 库名 + 模式·间隔）。 */
+    /** 刷新滑块：壁纸网格页收起，库列表页按当前槽位重绑可见那一面。 */
     private void refreshSlotCards() {
         if (slotCards == null) {
             return;
@@ -371,22 +461,77 @@ public class MainActivity extends AppCompatActivity {
         if (showingWallpapers) {
             return;
         }
-        bindSlotCard(true, tvSlotHomeName, tvSlotHomeDesc, imgSlotHomeThumb);
-        bindSlotCard(false, tvSlotLockName, tvSlotLockDesc, imgSlotLockThumb);
+        syncSlotPage();
+        slotAdapter.notifyDataSetChanged();
     }
 
-    private void bindSlotCard(boolean forHome, TextView name, TextView desc, ImageView thumb) {
+    /** 滑块适配器：真实两页（偶数 = 桌面、奇数 = 锁屏），虚拟页数取模 → 左右无限循环。 */
+    private class SlotPagerAdapter extends RecyclerView.Adapter<SlotPagerAdapter.SlotHolder> {
+
+        class SlotHolder extends RecyclerView.ViewHolder {
+
+            final TextView tvScope, tvName, tvDesc;
+            final ImageView imgThumb, imgBadge;
+            /** 这一页现在代表哪个范围（绑定时写入，手势回调读它）。 */
+            boolean forHome = true;
+
+            SlotHolder(View item) {
+                super(item);
+                tvScope = item.findViewById(R.id.tv_slot_scope);
+                tvName = item.findViewById(R.id.tv_slot_name);
+                tvDesc = item.findViewById(R.id.tv_slot_desc);
+                imgThumb = item.findViewById(R.id.img_slot_thumb);
+                imgBadge = item.findViewById(R.id.img_slot_badge);
+                item.findViewById(R.id.btn_slot_help).setOnClickListener(v -> showSlotGuide());
+                attachCardGestures(this);
+            }
+        }
+
+        @Override
+        public SlotHolder onCreateViewHolder(@NonNull android.view.ViewGroup parent, int viewType) {
+            return new SlotHolder(LayoutInflater.from(MainActivity.this)
+                    .inflate(R.layout.item_slot, parent, false));
+        }
+
+        @Override
+        public void onBindViewHolder(SlotHolder holder, int position) {
+            holder.forHome = position % 2 == 0;
+            bindSlotPage(holder, holder.forHome);
+        }
+
+        @Override
+        public int getItemCount() {
+            return SLOT_LOOP * 2;
+        }
+    }
+
+    /** 绑一页：范围小标题与徽标固定，两行文字与缩略图跟着槽位走。 */
+    private void bindSlotPage(SlotPagerAdapter.SlotHolder holder, boolean forHome) {
         int placeholder = forHome ? R.drawable.ic_home : R.drawable.ic_lock;
+        holder.tvScope.setText(forHome ? R.string.slot_home_title : R.string.slot_lock_title);
+        holder.imgBadge.setImageResource(placeholder);
+        // 拖拽高亮改过 alpha，重绑时复位，免得回收来的视图带着半透明上线
+        holder.itemView.setAlpha(1f);
         LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
         if (lib == null) {
-            name.setText(R.string.slot_none_name);
-            desc.setText(R.string.slot_unset);
-            bindThumb(thumb, null, placeholder, 30);
+            holder.tvName.setText(R.string.slot_none_name);
+            holder.tvDesc.setText(R.string.slot_unset);
+            bindThumb(holder.imgThumb, null, placeholder, 30);
             return;
         }
-        name.setText(lib.name);
-        desc.setText(slotIntervalDisplay(forHome));
-        bindThumb(thumb, slotThumbId(lib.id, forHome), placeholder, 30);
+        holder.tvName.setText(lib.name);
+        holder.tvDesc.setText(slotIntervalDisplay(forHome));
+        bindThumb(holder.imgThumb, slotThumbId(lib.id, forHome), placeholder, 30);
+    }
+
+    /** 卡片上的「马上切换一张」：槽位没库先提示去卡片设置。 */
+    private void slotSwitchNow(boolean forHome) {
+        LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
+        if (lib == null) {
+            Toast.makeText(this, R.string.slot_none_toast, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        switchAndToast(lib, forHome);
     }
 
     /**
@@ -1108,7 +1253,7 @@ public class MainActivity extends AppCompatActivity {
         if (card == null || libId == null) {
             return;
         }
-        boolean forHome = card == cardSlotHome;
+        boolean forHome = slotPageForHome;
         if (LibraryStore.ownsScope(this, libId, forHome)) {
             Toast.makeText(this, R.string.slot_already_set, Toast.LENGTH_SHORT).show();
             return;
@@ -1116,9 +1261,10 @@ public class MainActivity extends AppCompatActivity {
         confirmSlotLib(forHome, libId, null);
     }
 
-    /** 拖起来时缓存两张卡片的窗口矩形，之后每帧只比数值，不再逐事件查位置。 */
+    /** 拖起来时缓存当前那一页卡片的窗口矩形，之后每帧只比数值，不再逐事件查位置。 */
     private void cacheSlotCardRects() {
-        slotRects = new int[][]{cardWindowRect(cardSlotHome), cardWindowRect(cardSlotLock)};
+        syncSlotPage();
+        slotRect = cardWindowRect(slotPageCard);
     }
 
     private int[] cardWindowRect(View card) {
@@ -1130,18 +1276,13 @@ public class MainActivity extends AppCompatActivity {
         return new int[]{loc[0], loc[1], loc[0] + card.getWidth(), loc[1] + card.getHeight()};
     }
 
-    /** 手指落点命中哪张范围卡片（浮动头像松手时用）。 */
+    /** 手指落点在不在当前那一页卡片上（浮动头像松手时用；另一面在屏外，不参与命中）。 */
     private View slotCardAt(float rawX, float rawY) {
-        if (slotRects == null) {
+        int[] r = slotRect;
+        if (r == null || rawX < r[0] || rawX > r[2] || rawY < r[1] || rawY > r[3]) {
             return null;
         }
-        for (int i = 0; i < slotRects.length; i++) {
-            int[] r = slotRects[i];
-            if (r != null && rawX >= r[0] && rawX <= r[2] && rawY >= r[1] && rawY <= r[3]) {
-                return i == 0 ? cardSlotHome : cardSlotLock;
-            }
-        }
-        return null;
+        return slotPageCard;
     }
 
     /** 拖到卡片上时给该卡片半透明高亮（只在目标变化时改属性，别每个 MOVE 事件都刷一遍）。 */

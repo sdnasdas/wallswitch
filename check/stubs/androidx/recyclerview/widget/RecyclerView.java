@@ -23,7 +23,20 @@ public class RecyclerView extends android.view.ViewGroup {
     public void addOnItemTouchListener(OnItemTouchListener listener) {
     }
 
+    public static final int SCROLL_STATE_IDLE = 0;
     public static final int SCROLL_STATE_DRAGGING = 1;
+    public static final int SCROLL_STATE_SETTLING = 2;
+
+    public LayoutManager getLayoutManager() {
+        return null;
+    }
+
+    public void scrollToPosition(int position) {
+    }
+
+    public ViewHolder findViewHolderForAdapterPosition(int position) {
+        return null;
+    }
 
     /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.OnItemTouchListener。 */
     public interface OnItemTouchListener {
