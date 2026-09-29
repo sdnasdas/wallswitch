@@ -56,10 +56,11 @@ stages:
             OLD=$(curl -s "$API/tags/latest?access_token=$BUILD_API_TOKEN");
             ID=$(printf '%s' "$OLD" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
             if [ -n "$ID" ]; then curl -s -X DELETE "$API/$ID?access_token=$BUILD_API_TOKEN" > /dev/null && echo "已删旧 Release #$ID"; fi;
-            NEW=$(curl -s -X POST "$API" -d "access_token=$BUILD_API_TOKEN" -d "tag_name=latest" -d "name=latest" --data-urlencode "body=CI 自动构建，变更见仓库提交记录");
+            NEW=$(curl -s -X POST "$API?access_token=$BUILD_API_TOKEN" -d "tag_name=latest" -d "name=latest" --data-urlencode "body=CI 自动构建，变更见仓库提交记录");
+            echo "创建响应: $(printf '%s' "$NEW" | head -c 400)";
             NID=$(printf '%s' "$NEW" | grep -o '"id": *[0-9]*' | head -1 | grep -o '[0-9]*');
             echo "新 Release id=$NID";
-            curl -s -X POST "$API/$NID/attach_files" -F "access_token=$BUILD_API_TOKEN" -F "file=@app/build/outputs/apk/debug/app-debug.apk" | grep -o '"browser_download_url": *"[^"]*"'; fi
+            if [ -n "$NID" ]; then curl -s -X POST "$API/$NID/attach_files?access_token=$BUILD_API_TOKEN" -F "file=@app/build/outputs/apk/debug/app-debug.apk" | grep -o '"browser_download_url": *"[^"]*"'; fi; fi
         artifacts:
           - name: WALLSWITCH_APK
             path:
