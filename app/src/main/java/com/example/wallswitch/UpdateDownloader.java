@@ -50,6 +50,8 @@ public final class UpdateDownloader {
     /** 进程内实时状态与百分比：下载线程写、界面线程读。 */
     private static volatile int liveState = IDLE;
     private static volatile int livePercent;
+    /** 取消标记：界面线程置位，下载线程在读取循环里逐块自查（自己收尾、自己清临时文件）。 */
+    private static volatile boolean cancelRequested;
 
     private UpdateDownloader() {
     }
@@ -114,10 +116,22 @@ public final class UpdateDownloader {
             return;
         }
         final Context app = ctx.getApplicationContext();
+        cancelRequested = false;
         liveState = DOWNLOADING;
         livePercent = 0;
         new Thread(() -> download(app, UpdateChecker.apkUrl(source), version),
                 "apk-download").start();
+    }
+
+    /**
+     * 取消进行中的下载：置标记后立刻返回，下载线程在下一块读隙里自己作废——
+     * 关连接、删 .tmp、状态归零都由那根线程办完，界面上进度那一行随后刷回「检查更新」。
+     * 没在下就什么都不做（重复点、或刚好下完时都不留副作用）。
+     */
+    public static void cancel() {
+        if (liveState == DOWNLOADING) {
+            cancelRequested = true;
+        }
     }
 
     /**
@@ -162,8 +176,9 @@ public final class UpdateDownloader {
     private static void download(Context ctx, String url, String version) {
         apkDir(ctx).mkdirs();
         File tmp = new File(apkDir(ctx), APK_NAME + ".tmp");
+        HttpURLConnection conn = null;
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(15_000);
             conn.setReadTimeout(15_000);
             conn.setInstanceFollowRedirects(true);
@@ -179,14 +194,21 @@ public final class UpdateDownloader {
                 long done = 0;
                 int n;
                 while ((n = in.read(buf)) > 0) {
+                    if (cancelRequested) {
+                        // 取消在这根线程里自首：作废连接、抹掉半截文件、状态归零，不走失败分支
+                        conn.disconnect();
+                        tmp.delete();
+                        livePercent = 0;
+                        liveState = IDLE;
+                        Log.i(LOG_TAG, "下载已取消，临时包已删");
+                        return;
+                    }
                     out.write(buf, 0, n);
                     done += n;
                     if (total > 0) {
                         livePercent = (int) (done * 100 / total);
                     }
                 }
-            } finally {
-                conn.disconnect();
             }
             if (tmp.length() <= 0) {
                 throw new IOException("下载内容为空");
@@ -202,6 +224,10 @@ public final class UpdateDownloader {
             tmp.delete();
             Log.w(LOG_TAG, "更新包下载失败", e);
             liveState = FAILED;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
     }
 

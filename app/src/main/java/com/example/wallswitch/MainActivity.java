@@ -163,6 +163,8 @@ public class MainActivity extends AppCompatActivity {
     // 检查更新那一行：状态文字 + App 内下载进度条（进度只在下载中轮询刷新，不下即时停）
     private TextView tvUpdateState;
     private ProgressBar pbUpdate;
+    // 下载中显形的取消键：按下作废当前下载并删掉半截临时包
+    private TextView btnCancelDownload;
     private final Handler updateTick = new Handler(Looper.getMainLooper());
     // 本次更新的目标（弹窗确认下载时记下）：下载失败后点这一行直接按原目标重下
     private String lastUpdateSource;
@@ -983,6 +985,11 @@ public class MainActivity extends AppCompatActivity {
                         ? R.string.update_source_github : R.string.update_source_gitee);
         refresh.run();
         findViewById(R.id.row_update_source).setOnClickListener(v -> {
+            // 下载进行中锁源：不然下一半切了源，剩下的半截包属于另一座仓库，只能作废重下
+            if (UpdateDownloader.state(this) == UpdateDownloader.DOWNLOADING) {
+                Toast.makeText(this, R.string.update_source_busy, Toast.LENGTH_SHORT).show();
+                return;
+            }
             String cur = UpdateChecker.source(this);
             String[] values = {UpdateChecker.SRC_GITEE, UpdateChecker.SRC_GITHUB};
             String[] labels = {getString(R.string.update_source_gitee),
@@ -1009,13 +1016,21 @@ public class MainActivity extends AppCompatActivity {
     private void setupUpdateCheck() {
         tvUpdateState = findViewById(R.id.tv_update_state);
         pbUpdate = findViewById(R.id.pb_update);
+        btnCancelDownload = findViewById(R.id.btn_update_cancel);
         findViewById(R.id.row_update).setOnClickListener(v -> onUpdateRowTapped());
+        btnCancelDownload.setOnClickListener(v -> {
+            UpdateDownloader.cancel();
+            // 目标一并忘掉：取消后再点这一行是重新检查，而不是照原目标续下
+            lastUpdateSource = lastUpdateVersion = null;
+            bindUpdateState();
+        });
         // 上回下的包已经装上了就清账，别让这一行一直挂着「点按安装」
         UpdateDownloader.pruneInstalled(this);
         bindUpdateState();
-        // 启动静默检查：只在发现新版时打扰，失败静默（走当前所选源）
+        // 启动静默检查：只在发现新版时打扰，失败静默（走当前所选源；正下着不打断）
         UpdateChecker.checkAsync(this, (info, error) -> {
             if (error == null && info != null && !isFinishing() && !isDestroyed()
+                    && UpdateDownloader.state(this) != UpdateDownloader.DOWNLOADING
                     && UpdateChecker.isNewer(info.version, UpdateChecker.localVersion(this))) {
                 showUpdateDialog(info, UpdateChecker.source(this));
             }
@@ -1029,15 +1044,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         if (state == UpdateDownloader.READY) {
-            if (!UpdateDownloader.hasInstallPermission(this)) {
-                UpdateDownloader.openInstallPermissionSettings(this);
-                Toast.makeText(this, R.string.update_need_install_perm, Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (!UpdateDownloader.install(this)) {
-                Toast.makeText(this, R.string.update_pkg_gone, Toast.LENGTH_SHORT).show();
-                bindUpdateState();
-            }
+            installReadyPackage();
             return;
         }
         if (state == UpdateDownloader.FAILED && lastUpdateVersion != null) {
@@ -1046,6 +1053,37 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         checkUpdateNow();
+    }
+
+    /** 拿本机那个已下好的包装一遍：没授权先跳授权页并说明，包被系统清理了就刷回「检查更新」。 */
+    private void installReadyPackage() {
+        if (!UpdateDownloader.hasInstallPermission(this)) {
+            UpdateDownloader.openInstallPermissionSettings(this);
+            Toast.makeText(this, R.string.update_need_install_perm, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!UpdateDownloader.install(this)) {
+            Toast.makeText(this, R.string.update_pkg_gone, Toast.LENGTH_SHORT).show();
+            bindUpdateState();
+        }
+    }
+
+    /**
+     * 下载完成后的提示窗：点「立即安装」走与那一行完全相同的安装链路，
+     * 点「稍后安装」或按返回都只是关掉——包还在本机，之后回抽屉点那一行随时能装。
+     */
+    private void showInstallDialog() {
+        String version = UpdateDownloader.readyVersion(this);
+        if (version == null) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.update_done_title)
+                .setMessage(getString(R.string.update_done_msg, version))
+                .setPositiveButton(R.string.update_install_now,
+                        (d, which) -> installReadyPackage())
+                .setNegativeButton(R.string.update_install_later, null)
+                .show();
     }
 
     /** 手动检查：结果只改这一行的文字，发现新版才弹窗。 */
@@ -1072,14 +1110,28 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 新版弹窗：确认后 App 内开始下载，下完再点这一行拉安装页。 */
+    /**
+     * 新版弹窗。本机已经有这个包了（上回下完没装，重进 App 又查到新版）时主按钮直接给
+     * 「立即安装」，并把文案对上本机那个包的版本；否则确认后开始下载。
+     */
     private void showUpdateDialog(UpdateChecker.Info info, String source) {
+        String ready = UpdateDownloader.readyVersion(this);
+        // 本机包不比远端那一版旧才走安装，免得文案写 v3.75、装进去的是旧的 v3.74
+        boolean installFirst = ready != null && !UpdateChecker.isNewer(info.version, ready);
         new AlertDialog.Builder(this)
                 .setTitle(R.string.update_new_title)
-                .setMessage(getString(R.string.update_new_msg,
-                        info.version, UpdateChecker.localVersion(this)))
-                .setPositiveButton(R.string.update_download,
-                        (d, which) -> startUpdateDownload(source, info.version))
+                .setMessage(getString(installFirst
+                                ? R.string.update_new_ready_msg : R.string.update_new_msg,
+                        installFirst ? ready : info.version, UpdateChecker.localVersion(this)))
+                .setPositiveButton(installFirst ? R.string.update_install_now
+                                : R.string.update_download,
+                        (d, which) -> {
+                            if (installFirst) {
+                                installReadyPackage();
+                            } else {
+                                startUpdateDownload(source, info.version);
+                            }
+                        })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
@@ -1098,6 +1150,7 @@ public class MainActivity extends AppCompatActivity {
         updateTick.removeCallbacks(updatePoller);
         if (state == UpdateDownloader.DOWNLOADING) {
             pbUpdate.setVisibility(View.VISIBLE);
+            btnCancelDownload.setVisibility(View.VISIBLE);
             pbUpdate.setProgress(UpdateDownloader.percent());
             tvUpdateState.setText(getString(R.string.update_downloading,
                     UpdateDownloader.percent()));
@@ -1105,6 +1158,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         pbUpdate.setVisibility(View.GONE);
+        btnCancelDownload.setVisibility(View.GONE);
         if (state == UpdateDownloader.READY) {
             tvUpdateState.setText(getString(R.string.update_ready,
                     UpdateDownloader.readyVersion(this)));
@@ -1116,7 +1170,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 下载进度轮询：状态一离开下载中就收尾刷行，并告诉用户下一步是点这一行装。 */
+    /** 下载进度轮询：状态一离开下载中就收尾刷行；下完弹小窗问要不要立刻装，失败只 Toast。 */
     private final Runnable updatePoller = new Runnable() {
         @Override
         public void run() {
@@ -1130,8 +1184,7 @@ public class MainActivity extends AppCompatActivity {
             }
             bindUpdateState();
             if (state == UpdateDownloader.READY) {
-                Toast.makeText(MainActivity.this, R.string.update_ready_toast,
-                        Toast.LENGTH_LONG).show();
+                showInstallDialog();
             } else if (state == UpdateDownloader.FAILED) {
                 Toast.makeText(MainActivity.this, R.string.update_failed,
                         Toast.LENGTH_SHORT).show();

@@ -148,6 +148,7 @@
     <string name="section_launcher_preview">桌面图标预览</string>
     <string name="launcher_overlay_title">桌面图标预览底图</string>
     <string name="section_export">导出与日志</string>
+    <string name="section_download">下载</string>
     <string name="export_dir_title">导出目录</string>
     <string name="export_now_title">立即导出全部壁纸</string>
     <string name="export_dir_unset">未设置 · 点按选一个文件夹（如 Documents/wallswitch）</string>
@@ -304,11 +305,17 @@
     <string name="update_latest">已是最新版本</string>
     <string name="update_new_title">发现新版本</string>
     <string name="update_new_msg">发现新版本 v%1$s（当前 v%2$s）</string>
+    <string name="update_new_ready_msg">新版本 v%1$s 已经下到本机了（当前 v%2$s），现在安装吗？</string>
     <string name="update_download">下载</string>
     <string name="update_local_version">当前 v%1$s</string>
     <string name="update_downloading">下载中 %1$d%%</string>
+    <string name="update_cancel">取消下载</string>
+    <string name="update_source_busy">正在下载，先取消下载才能切换源</string>
     <string name="update_ready">v%1$s 已下载，点按安装</string>
-    <string name="update_ready_toast">下载完成，点「检查更新」这一行即可安装</string>
+    <string name="update_done_title">下载完成</string>
+    <string name="update_done_msg">v%1$s 已下到本机，现在安装吗？\n（先关掉也行，回这一页点「检查更新」那一行随时能装）</string>
+    <string name="update_install_now">立即安装</string>
+    <string name="update_install_later">稍后安装</string>
     <string name="update_failed">下载失败，点按重试</string>
     <string name="update_pkg_gone">安装包已不在本机（可能被系统清理），请重新检查更新</string>
     <string name="update_need_install_perm">还没允许本应用安装未知应用，已跳到授权页，打开后回来再点一次</string>
