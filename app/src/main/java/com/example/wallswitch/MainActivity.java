@@ -141,8 +141,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int SLOT_LOOP = 1000;
     // 滑块停在哪个范围（拖头像设库时归属就是它），以及被高亮的卡片
     private boolean slotPageForHome = true;
-    // 当前停着的那一页在虚拟页数里的下标：全量刷新后按它复位，免得看着像"自己滑回了桌面"
-    private int slotCurrentPos = SLOT_LOOP;
     private View slotPageCard;
     private View highlightedSlotCard;
     // 库行排序拖拽（长按行的空白处手动 startDrag 起来的那套）
@@ -421,7 +419,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         slotPageForHome = pos % 2 == 0;
-        slotCurrentPos = pos;
         RecyclerView.ViewHolder holder = slotPager.findViewHolderForAdapterPosition(pos);
         slotPageCard = holder == null ? null : holder.itemView;
     }
@@ -467,7 +464,14 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 刷新滑块：壁纸网格页收起，库列表页按当前槽位重绑可见那一面。 */
+    /**
+     * 刷新滑块：壁纸网格页收起，按当前槽位重绑挂在屏上的那一两页。
+     *
+     * 刻意不走 notifyDataSetChanged：滑块有两千个虚拟页，全量刷新会让布局从头排一遍、落点回到第 0 页
+     * （偶数页 = 桌面），于是「在锁屏页双击切一张，界面自己滑回桌面」——真机上事后补一句
+     * scrollToPosition 也压不住。页与页之间从不增删、也不换数据源，重绑可见页就够了；
+     * 滑出去的页回收后再挂回来时照常走 onBindViewHolder。
+     */
     private void refreshSlotCards() {
         if (slotCards == null) {
             return;
@@ -477,10 +481,13 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         syncSlotPage();
-        slotAdapter.notifyDataSetChanged();
-        // 全量刷新会让两千页的滑块从头排一遍（第 0 页是桌面），不按原页复位就成了
-        // 「在锁屏页双击切一张，界面自己滑回桌面」——暂停键、改设置那几处走的是同一条路
-        slotPager.scrollToPosition(slotCurrentPos);
+        for (int i = 0; i < slotPager.getChildCount(); i++) {
+            RecyclerView.ViewHolder holder = slotPager.getChildViewHolder(slotPager.getChildAt(i));
+            if (holder instanceof SlotPagerAdapter.SlotHolder) {
+                SlotPagerAdapter.SlotHolder slot = (SlotPagerAdapter.SlotHolder) holder;
+                bindSlotPage(slot, slot.forHome);
+            }
+        }
     }
 
     /** 滑块适配器：真实两页（偶数 = 桌面、奇数 = 锁屏），虚拟页数取模 → 左右无限循环。 */

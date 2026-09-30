@@ -38,6 +38,11 @@ public class RecyclerView extends android.view.ViewGroup {
         return null;
     }
 
+    /** 桩：真实方法在 RecyclerView 上，取某个已挂载子 View 对应的持有者（只重绑可见页时用它）。 */
+    public ViewHolder getChildViewHolder(android.view.View child) {
+        return null;
+    }
+
     /** 桩：真实类为 androidx.recyclerview.widget.RecyclerView.OnItemTouchListener。 */
     public interface OnItemTouchListener {
         boolean onInterceptTouchEvent(RecyclerView recyclerView, android.view.MotionEvent e);
