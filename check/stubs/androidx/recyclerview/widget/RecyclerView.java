@@ -25,11 +25,6 @@ public class RecyclerView extends android.view.ViewGroup {
 
     public static final int SCROLL_STATE_IDLE = 0;
     public static final int SCROLL_STATE_DRAGGING = 1;
-
-    /** 桩：真实方法在 RecyclerView 上（0=idle 1=拖拽 2=惯性/对齐中）。 */
-    public int getScrollState() {
-        return 0;
-    }
     public static final int SCROLL_STATE_SETTLING = 2;
 
     public LayoutManager getLayoutManager() {

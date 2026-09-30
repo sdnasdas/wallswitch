@@ -137,8 +137,8 @@ public class MainActivity extends AppCompatActivity {
     private View slotCards;
     private RecyclerView slotPager;
     private SlotPagerAdapter slotAdapter;
-    /** TODO 临时诊断（定位「切完跳回桌面」），验完删：静态计数，Activity 被重建就会 +1。 */
-    private static int sSlotCreateCount;
+    // 上次停在哪个范围（true=桌面）：滑块初始位置按它取
+    private static final String KEY_SLOT_PAGE_HOME = "slot_page_home";
     /** 滑块的虚拟页数（每面各 SLOT_LOOP 份）：够大到没人滑得到头，左右都能一直翻。 */
     private static final int SLOT_LOOP = 1000;
     // 滑块停在哪个范围（拖头像设库时归属就是它），以及被高亮的卡片
@@ -171,7 +171,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        sSlotCreateCount++; // TODO 临时诊断（定位「切完跳回桌面」），验完删
         // 点击容差要在建 holder 之前就位（Holder 构造时把它交给 PressGuard）
         pressSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
         setContentView(R.layout.activity_main);
@@ -394,8 +393,11 @@ public class MainActivity extends AppCompatActivity {
         slotAdapter = new SlotPagerAdapter();
         slotPager.setAdapter(slotAdapter);
         new PagerSnapHelper().attachToRecyclerView(slotPager);
-        // 虚拟页数从 0 起排，偶数位 = 桌面；起点选中间的偶数位，左右就都能一直滑
-        slotPager.scrollToPosition(SLOT_LOOP);
+        // 虚拟页数从 0 起排，偶数位 = 桌面；起点选中间那组，左右都能一直翻。
+        // 停在哪一面按上次记的来：Activity 会被系统配置变化重建（真机：换锁屏壁纸后重建了两次），
+        // 这里硬写桌面就成了「切完锁屏，卡片自己跳回桌面」
+        slotPager.scrollToPosition(SLOT_LOOP
+                + (prefs.getBoolean(KEY_SLOT_PAGE_HOME, true) ? 0 : 1));
         slotPager.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrollStateChanged(RecyclerView rv, int newState) {
@@ -422,6 +424,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         slotPageForHome = pos % 2 == 0;
+        if (prefs.getBoolean(KEY_SLOT_PAGE_HOME, true) != slotPageForHome) {
+            // 只在换面时写一次（滑动落定才走到这里），不每帧写
+            prefs.edit().putBoolean(KEY_SLOT_PAGE_HOME, slotPageForHome).apply();
+        }
         RecyclerView.ViewHolder holder = slotPager.findViewHolderForAdapterPosition(pos);
         slotPageCard = holder == null ? null : holder.itemView;
     }
@@ -1715,10 +1721,6 @@ public class MainActivity extends AppCompatActivity {
                     refreshTimerStatus();
                     // 范围卡片的缩略图 = 该范围在屏那张，切完就该换
                     refreshSlotCards();
-                    // TODO 临时诊断（定位「切完跳回桌面」），验完删
-                    debugSlot("即时");
-                    new Handler(Looper.getMainLooper()).postDelayed(
-                            () -> debugSlot("700ms"), 700L);
                 } else {
                     // 带上具体失败原因（如桌面被动态壁纸占用），方便对症处理
                     Toast.makeText(this, Switcher.errorText(this, Switcher.lastError()),
@@ -1726,17 +1728,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }, "manual-switch").start();
-    }
-
-    /** TODO 临时诊断（定位「切完跳回桌面」），验完删：页码奇偶 = 当前哪一面，建 = Activity 创建次数。 */
-    private void debugSlot(String tag) {
-        LinearLayoutManager lm = (LinearLayoutManager) slotPager.getLayoutManager();
-        int pos = lm == null ? -1 : lm.findFirstVisibleItemPosition();
-        View first = slotPager.getChildCount() == 0 ? null : slotPager.getChildAt(0);
-        Toast.makeText(this, tag + " 页=" + pos + " 态=" + slotPager.getScrollState()
-                        + " 左=" + (first == null ? "?" : String.valueOf(first.getLeft()))
-                        + " 子=" + slotPager.getChildCount() + " 建=" + sSlotCreateCount,
-                Toast.LENGTH_LONG).show();
     }
 
 
