@@ -335,4 +335,27 @@
     <string name="meta_dump_running">正在复制元数据…</string>
     <string name="meta_dump_done">已导出 %1$d 份到 Android/data/com.example.wallswitch/files/%2$s（%3$d 份缺失或失败）</string>
     <string name="meta_dump_failed">外部目录不可用：%1$s</string>
+
+    <!-- 整库备份/还原（BackupStore）：一个 zip 装下 图 + 缩略图 + 两个 json + prefs 的那几个 xml。
+         还原方向走 ACTION_OPEN_DOCUMENT 现授临时读权限，所以卸载重装后照样点得到；
+         备份方向依赖导出目录的 SAF 授权，那个授权随卸载失效 —— 所以重装后要先重选一次目录才能再备份 -->
+    <string name="backup_title">备份整库到导出目录</string>
+    <string name="backup_desc">打成一个 zip（壁纸原图、缩略图、库与标题、槽位与定时、开关）放进导出目录；卸载重装后能原样接回来</string>
+    <string name="backup_last">上次备份 %1$s\n%2$s</string>
+    <string name="backup_running">正在打包…</string>
+    <string name="backup_done">已备份 %1$s：%2$d 条元数据 / %3$d 张原图 / %4$d 张缩略图</string>
+    <string name="backup_failed">备份失败：%1$s</string>
+    <string name="restore_title">从备份包还原</string>
+    <string name="restore_desc">选一个备份 zip，按包里那一刻恢复（同一张壁纸以包为准覆盖，本机独有的那些不动）</string>
+    <string name="restore_reading">正在读包…</string>
+    <string name="restore_bad_zip">这个文件读不出内容（可能不是本应用导出的 zip，或传输时被截断了）</string>
+    <string name="restore_confirm">备份时间 %1$s，来自 v%2$s。\n\n包里：元数据 %3$d 条、原图 %4$d 张、缩略图 %5$d 张，约 %6$d MB。\n本机现在有 %7$d 条。\n\n同一 id 的壁纸会被包里的覆盖；包里没有的条目保留。定时任务会按恢复后的槽位重新排一遍。</string>
+    <string name="restore_go">开始还原</string>
+    <string name="restore_running">正在还原…</string>
+    <string name="restore_done">已还原 %1$d 条元数据、写回 %2$d 个设置项、%3$d 张图（包里缺图而丢弃 %4$d 条）</string>
+    <string name="restore_failed">还原失败：%1$s</string>
+    <string name="restore_ask_title">要从备份包还原吗？</string>
+    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装）。如果你之前备份过，可以现在选那个 zip 接回来；不点也没关系，以后随时能从抽屉里那一行还原。</string>
+    <string name="restore_ask_go">选备份包</string>
+    <string name="restore_ask_no">先不用</string>
 </resources>

@@ -116,6 +116,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
     private ActivityResultLauncher<Uri> exportDirLauncher;
+    // 还原：用户直接指一个备份包（ACTION_OPEN_DOCUMENT，每次现授临时读权限，不依赖卸载前那个目录授权）
+    private ActivityResultLauncher<String[]> restoreZipLauncher;
     // 接管开关是否处于「等待用户在系统选择器里确认」的状态（用来判断用户是否点了取消）
     private RecyclerView recycler;
     // 两页共用一个 RecyclerView：库列表页 = LibAdapter + LinearLayoutManager，
@@ -199,6 +201,8 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
         exportDirLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocumentTree(), this::onExportDirPicked);
+        restoreZipLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(), this::onRestoreZipPicked);
         recycler = findViewById(R.id.recycler);
         libAdapter = new LibAdapter();
         wallpaperAdapter = new WallpaperAdapter();
@@ -220,6 +224,7 @@ public class MainActivity extends AppCompatActivity {
         // 首页 = 库列表（首屏直接落地，不播页面过渡动画）
         applyLibPage();
         maybeShowMetaNotice();
+        maybePromptRestore();
         setupSwipeToOpenDrawer();
         // 老版本缩略图（长边 256 的等比图）在两列方格上会被放大 2 倍多发虚：
         // 后台一次性重做成「中心正方形 + 按屏幕取边长」，做完清缓存重绑一次，这次启动就能看到清晰图
@@ -760,6 +765,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshBatteryRow();
                 refreshLauncherOverlayRow();
                 refreshExportRows();
+                refreshBackupRow();
                 refreshSwitchLogRow();
                 syncTakeoverAsync();
             }
@@ -791,6 +797,15 @@ public class MainActivity extends AppCompatActivity {
         View exportNowRow = findViewById(R.id.row_export_now);
         if (exportNowRow != null) {
             exportNowRow.setOnClickListener(v -> exportAllWallpapers());
+        }
+        // 备份整库（写一个 zip 到导出目录）；下一行从包还原
+        View backupRow = findViewById(R.id.row_backup);
+        if (backupRow != null) {
+            backupRow.setOnClickListener(v -> startBackup());
+        }
+        View restoreRow = findViewById(R.id.row_restore);
+        if (restoreRow != null) {
+            restoreRow.setOnClickListener(v -> restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}));
         }
         // 元数据快照：不需要设导出目录也能拿到（落 App 专属外部目录，文件管理器能翻到）
         View dumpMetaRow = findViewById(R.id.row_dump_meta);
@@ -897,6 +912,25 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.meta_notice_title)
                 .setMessage(msg)
                 .setPositiveButton(R.string.confirm, null)
+                .show();
+    }
+
+    /**
+     * 看起来像新装机（没写过库文件、库与壁纸都是空的）就问一句要不要从备份包还原。
+     * 只问一次（markPromptShown 落本机 key，且这个 key 不参与还原）；
+     * 抽屉里那一行「从备份包还原」永久留着，什么时候想还原都可以。
+     */
+    private void maybePromptRestore() {
+        if (BackupStore.promptShown(this) || !BackupStore.looksLikeFreshInstall(this)) {
+            return;
+        }
+        BackupStore.markPromptShown(this);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.restore_ask_title)
+                .setMessage(R.string.restore_ask_msg)
+                .setPositiveButton(R.string.restore_ask_go, (dialog, which) ->
+                        restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
+                .setNegativeButton(R.string.restore_ask_no, null)
                 .show();
     }
 
@@ -2394,6 +2428,105 @@ public class MainActivity extends AppCompatActivity {
                         r.written.size(), r.missing.size()) + tail, Toast.LENGTH_LONG).show();
             });
         }, "meta-dump").start();
+    }
+
+    /** 备份整库：一个 zip 装下图、缩略图、两个 json 和 prefs，写进导出目录。 */
+    private void startBackup() {
+        if (!WallpaperExporter.isConfigured(this)) {
+            Toast.makeText(this, R.string.export_need_dir, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, R.string.backup_running, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final BackupStore.BackupResult r = BackupStore.backup(getApplicationContext());
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (r.error != null) {
+                    Toast.makeText(this, getString(R.string.backup_failed, r.error),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                prefs.edit().putString("backup_last_name", r.name)
+                        .putLong("backup_last_at", System.currentTimeMillis()).apply();
+                refreshBackupRow();
+                Toast.makeText(this, getString(R.string.backup_done, r.name, r.entries,
+                        r.images, r.thumbs), Toast.LENGTH_LONG).show();
+            });
+        }, "lib-backup").start();
+    }
+
+    /** 选中备份包后先回显现场，确认了才动本机数据。 */
+    private void onRestoreZipPicked(Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        showProgress(R.string.restore_title, R.string.restore_reading);
+        new Thread(() -> {
+            final BackupStore.Manifest m = BackupStore.inspect(getApplicationContext(), uri);
+            runOnUiThread(() -> {
+                dismissTakeoverProgress();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (m == null) {
+                    Toast.makeText(this, R.string.restore_bad_zip, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                confirmRestore(uri, m);
+            });
+        }, "backup-inspect").start();
+    }
+
+    private void confirmRestore(Uri uri, BackupStore.Manifest m) {
+        int local = WallpaperStore.load(this).size();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.restore_title)
+                .setMessage(getString(R.string.restore_confirm,
+                        m.backupTime == null || m.backupTime.isEmpty() ? "未知" : m.backupTime,
+                        m.appVersion == null || m.appVersion.isEmpty() ? "未知" : m.appVersion,
+                        m.libraryItems, m.images, m.thumbs, m.bytes / (1024 * 1024), local))
+                .setPositiveButton(R.string.restore_go, (dialog, which) -> runRestore(uri))
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /**
+     * 执行还原。还原后不必自己重排定时：onResume 本来就会 scheduleAll + 补切各走一遍
+     * （自愈那条路），recreate 之后正好落到它上面。
+     */
+    private void runRestore(Uri uri) {
+        Toast.makeText(this, R.string.restore_running, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final BackupStore.RestoreResult r = BackupStore.restore(getApplicationContext(), uri);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (r.error != null) {
+                    Toast.makeText(this, getString(R.string.restore_failed, r.error),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Toast.makeText(this, getString(R.string.restore_done, r.items, r.prefsKeys,
+                        r.images, r.droppedItems), Toast.LENGTH_LONG).show();
+                recreate();
+            });
+        }, "lib-restore").start();
+    }
+
+    /** 上一次备份的时间与文件名（只记在本机，重装后是空的，这正常）。 */
+    private void refreshBackupRow() {
+        TextView state = findViewById(R.id.tv_backup);
+        if (state == null) {
+            return;
+        }
+        long at = prefs.getLong("backup_last_at", 0L);
+        String name = prefs.getString("backup_last_name", "");
+        state.setText(at == 0L || name == null || name.isEmpty()
+                ? getString(R.string.backup_desc)
+                : getString(R.string.backup_last, TimerScheduler.clockText(this, at), name));
     }
 
     /** 导出目录那行的状态回显。 */

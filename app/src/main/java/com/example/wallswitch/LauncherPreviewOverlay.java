@@ -72,6 +72,11 @@ public class LauncherPreviewOverlay extends View {
         return new File(context.getFilesDir(), OVERLAY_FILE);
     }
 
+    /** 底图的文件名（打包/还原按这个名字取）。 */
+    public static String overlayFileName() {
+        return OVERLAY_FILE;
+    }
+
     /** 读取全局预览底图；没设置过或文件损坏返回 null。 */
     public static Bitmap loadSaved(Context context) {
         File file = overlayFile(context);

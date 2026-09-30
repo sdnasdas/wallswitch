@@ -77,7 +77,8 @@ public final class SwitchLog {
         return forHome ? "_h" : "_l";
     }
 
-    private static String fileName(boolean forHome) {
+    /** 某范围的日志文件名（打包/还原按这个名字取）。 */
+    public static String fileName(boolean forHome) {
         return forHome ? FILE_HOME : FILE_LOCK;
     }
 

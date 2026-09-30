@@ -162,9 +162,82 @@ public class RealMetaTest {
         if (cond) pass++; else fail++;
     }
 
+    /**
+     * 按「字节」切（Files.write 打的是字节，真机上被打断就是切在某个字节后），
+     * 解码时落在多字节字符中间的按 JDK 默认 REPLACE 处理 —— 和 MetaFiles.readJson 的
+     * `new String(raw, UTF_8)` 行为一致。目的：看哪类切点会被解析器收下（静默收下才是最坏的）。
+     */
+    static void byteCutAnalysis(Path file) throws IOException {
+        System.out.println("\n===== 真字节切点分析（" + file.getFileName() + "）=====");
+        byte[] b = Files.readAllBytes(file);
+        JSONArray intact = new JSONArray(new String(b, StandardCharsets.UTF_8));
+        int accepted = 0, threw = 0, salvageable = 0, firstAt = -1;
+        String firstExample = null;
+        for (int k = 1; k < b.length; k++) {
+            String s;
+            boolean lossy = false;
+            try {
+                java.nio.charset.CharsetDecoder cd = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
+                cd.decode(java.nio.ByteBuffer.wrap(b, 0, k));
+                s = new String(b, 0, k, StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                lossy = true;
+                s = new String(b, 0, k, StandardCharsets.UTF_8);   // 默认 REPLACE，同生产代码
+            }
+            try {
+                new JSONArray(s);
+                accepted++;
+                if (firstAt < 0) {
+                    firstAt = k;
+                    firstExample = s.substring(Math.max(0, s.length() - 18));
+                }
+            } catch (JSONException e) {
+                threw++;
+                if (!lossy && longestValidPrefix(s) != null) {
+                    salvageable++;
+                }
+            }
+        }
+        System.out.println("  切点共 " + (b.length - 1) + " 个：抛异常（能被救回路接住）" + threw + " 个，其中可救回 "
+                + salvageable + " 个；解析器直接收下 " + accepted + " 个");
+        if (firstAt > 0) {
+            System.out.println("  最早被「收下」的切点在第 " + firstAt + " 字节，结尾 「" + firstExample
+                    + "」（这类是静默改数据，不是读失败）");
+        }
+        // 只少最后半个字节序列这一类：整份解析不出，但前缀能救回全部已完成条目
+        String tailCut = new String(b, 0, b.length - 1, StandardCharsets.UTF_8);
+        try {
+            new JSONArray(tailCut);
+            System.out.println("  切掉最后 1 字节：解析器居然收下了（说明末尾是 ASCII）");
+        } catch (JSONException e) {
+            String cand = longestValidPrefix(tailCut);
+            int kept = cand == null ? -1 : new JSONArray(cand).length();
+            System.out.println("  切掉最后 1 字节：解析不出 -> 救回 " + kept + " 条（原件 " + intact.length()
+                    + " 条），条目内容核对：" + prefixMatches(cand, intact));
+            ok(cand != null && kept == intact.length(), "切掉收尾括号也能靠退让救回全部条目");
+        }
+    }
+
+    static boolean prefixMatches(String candidate, JSONArray intact) {
+        if (candidate == null) {
+            return false;
+        }
+        try {
+            JSONArray a = new JSONArray(candidate);
+            for (int i = 0; i < a.length(); i++) {
+                if (!a.getJSONObject(i).toString().equals(intact.getJSONObject(i).toString())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 真数据上的一轮：原件解析 + 多点人为截断。 */
-    static void runOne(String label, Path file) throws IOException {
-        System.out.println("\n===== " + label + "  (" + file + ") =====");
+    static void runOne(String label, Path file) throws IOException {        System.out.println("\n===== " + label + "  (" + file + ") =====");
         byte[] raw = Files.readAllBytes(file);
         String text = new String(raw, StandardCharsets.UTF_8);
         System.out.println("字节数=" + raw.length + "  顶层条目数=" + countTopLevelElements(text));
@@ -227,6 +300,7 @@ public class RealMetaTest {
         }
         Files.deleteIfExists(copy);
         Files.deleteIfExists(sandbox);
+        byteCutAnalysis(file);
     }
 
     /** 真实规模下的覆写实验：边写边读，比较裸覆写与 tmp+rename 各自读到坏内容的次数。 */
