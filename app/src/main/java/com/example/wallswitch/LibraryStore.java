@@ -59,10 +59,14 @@ public class LibraryStore {
         List<Library> libs = new ArrayList<>();
         File file = new File(ctx.getFilesDir(), LIBS_FILE);
         if (file.exists()) {
+            JSONArray arr;
             try {
-                byte[] bytes = Files.readAllBytes(file.toPath());
-                JSONArray arr = new JSONArray(new String(bytes, "UTF-8"));
-                for (int i = 0; i < arr.length(); i++) {
+                arr = MetaFiles.readJson(ctx, LIBS_FILE, Files.readAllBytes(file.toPath()));
+            } catch (Exception | OutOfMemoryError ignored) {
+                arr = new JSONArray();
+            }
+            for (int i = 0; i < arr.length(); i++) {
+                try {
                     JSONObject o = arr.getJSONObject(i);
                     Library lib = new Library();
                     lib.id = o.getString("id");
@@ -73,8 +77,9 @@ public class LibraryStore {
                     lib.intervalSeconds = o.optInt("interval_seconds", DEFAULT_INTERVAL_SECONDS);
                     lib.mode = o.optString("mode", MODE_ORDER);
                     libs.add(lib);
+                } catch (Exception ignored) {
+                    // 单条缺 id 属于历史脏数据，跳过该条，不影响其余库
                 }
-            } catch (Exception ignored) {
             }
             migrateSlotsIfNeeded(ctx, libs);
             return libs;
@@ -161,7 +166,7 @@ public class LibraryStore {
         TimerScheduler.scheduleScope(ctx, false);
     }
 
-    /** 把库列表写回 libraries.json。 */
+    /** 把库列表写回 libraries.json（原子写：临时文件刷盘后 rename，不再有半截状态）。 */
     public static void saveList(Context ctx, List<Library> libs) {
         try {
             JSONArray arr = new JSONArray();
@@ -176,8 +181,7 @@ public class LibraryStore {
                 o.put("mode", lib.mode);
                 arr.put(o);
             }
-            File file = new File(ctx.getFilesDir(), LIBS_FILE);
-            Files.write(file.toPath(), arr.toString().getBytes("UTF-8"));
+            MetaFiles.writeJson(ctx, LIBS_FILE, arr.toString());
         } catch (Exception ignored) {
         }
     }

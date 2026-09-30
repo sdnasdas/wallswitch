@@ -89,10 +89,13 @@ public class WallpaperStore {
         if (!libFile.exists()) {
             return result;
         }
+        JSONArray arr;
         try {
-            byte[] bytes = Files.readAllBytes(libFile.toPath());
-            String json = new String(bytes, "UTF-8");
-            JSONArray arr = new JSONArray(json);
+            arr = MetaFiles.readJson(context, LIB_FILE, Files.readAllBytes(libFile.toPath()));
+        } catch (Exception | OutOfMemoryError ignored) {
+            return result;
+        }
+        try {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.getJSONObject(i);
                 Item item = new Item();
@@ -102,6 +105,7 @@ public class WallpaperStore {
                 result.add(item);
             }
         } catch (Exception ignored) {
+            // 数组本身已经过解析（或前缀救回），单个条目缺 id 属于历史脏数据，跳过该条
         }
         return result;
     }
@@ -679,7 +683,7 @@ public class WallpaperStore {
         return Bitmap.createScaledBitmap(src, newW, newH, true);
     }
 
-    /** 把列表写回 library.json。 */
+    /** 把列表写回 library.json（原子写：临时文件刷盘后 rename，不再有半截状态）。 */
     private static void saveLibrary(Context context, List<Item> items) throws Exception {
         JSONArray arr = new JSONArray();
         for (Item item : items) {
@@ -689,9 +693,6 @@ public class WallpaperStore {
             obj.put("title", item.title == null ? "" : item.title);
             arr.put(obj);
         }
-        File libFile = new File(context.getFilesDir(), LIB_FILE);
-        String json = arr.toString();
-        byte[] bytes = json.getBytes("UTF-8");
-        Files.write(libFile.toPath(), bytes);
+        MetaFiles.writeJson(context, LIB_FILE, arr.toString());
     }
 }

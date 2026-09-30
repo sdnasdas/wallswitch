@@ -319,4 +319,13 @@
     <string name="update_failed">下载失败，点按重试</string>
     <string name="update_pkg_gone">安装包已不在本机（可能被系统清理），请重新检查更新</string>
     <string name="update_need_install_perm">还没允许本应用安装未知应用，已跳到授权页，打开后回来再点一次</string>
+
+    <!-- 元数据文件（files/library.json、files/libraries.json）读写守卫的对外交代：
+         救回一部分时只说「丢了几条」；整份读不动时原件留在原地（正是它拦住后续覆盖写），
+         另存一份留档供用户拷走手工捡，文案要跟这个行为严格对齐 -->
+    <string name="meta_notice_title">壁纸库元数据出了问题</string>
+    <string name="meta_notice_salvaged">%1$s 是写到一半被打断的（全路径 %2$s）。\n\n已按「括号配对的完整前缀」救回前 %3$d 条并重新写好，末尾可能丢掉 %4$d 条；改动前的原件整份另存在 %5$s。\n\n壁纸图片本身没受影响。</string>
+    <string name="meta_notice_lost">%1$s 整份读不动（全路径 %2$s）。\n\n已另存一份到 %3$s。原件留在原地不动、也不允许被覆盖，所以库暂时看起来是空的——这是为了防止只读回空列表就把元数据写坏。\n\n壁纸图片本身没受影响：把上面那份拷到电脑上，用文本编辑器按可读的前缀找回 id、所属库和标题，就能重建元数据。\n\n如果你用过「导出目录」，也可以从导出的图片重新导入。</string>
+    <string name="meta_archive_failed">同目录下带 .broken 后缀的文件</string>
+
 </resources>

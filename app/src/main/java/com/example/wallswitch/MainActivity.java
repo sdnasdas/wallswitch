@@ -219,6 +219,7 @@ public class MainActivity extends AppCompatActivity {
         refreshVersion();
         // 首页 = 库列表（首屏直接落地，不播页面过渡动画）
         applyLibPage();
+        maybeShowMetaNotice();
         setupSwipeToOpenDrawer();
         // 老版本缩略图（长边 256 的等比图）在两列方格上会被放大 2 倍多发虚：
         // 后台一次性重做成「中心正方形 + 按屏幕取边长」，做完清缓存重绑一次，这次启动就能看到清晰图
@@ -865,6 +866,33 @@ public class MainActivity extends AppCompatActivity {
         if (name != null && !name.isEmpty()) {
             version.setText(getString(R.string.title_with_version, getString(R.string.app_name), name));
         }
+    }
+
+    /**
+     * 元数据文件出过事时如实告诉用户（MetaFiles 在读 library.json / libraries.json 时登记）。
+     * 救回来的一律自动写回；整份读不动的原样留在原地并另存留档，
+     * 让用户把留档拷走手工捡 id/标题，而不是静默显示「库是空的」。
+     */
+    private void maybeShowMetaNotice() {
+        final MetaFiles.Notice notice = MetaFiles.takeNotice();
+        if (notice == null) {
+            return;
+        }
+        String dir = getFilesDir().getAbsolutePath();
+        String msg;
+        if (notice.salvaged) {
+            msg = getString(R.string.meta_notice_salvaged, notice.fileName, dir + "/" + notice.fileName,
+                    notice.kept, notice.dropped,
+                    notice.archivePath == null ? getString(R.string.meta_archive_failed) : notice.archivePath);
+        } else {
+            msg = getString(R.string.meta_notice_lost, notice.fileName, dir + "/" + notice.fileName,
+                    notice.archivePath == null ? getString(R.string.meta_archive_failed) : notice.archivePath);
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.meta_notice_title)
+                .setMessage(msg)
+                .setPositiveButton(R.string.confirm, null)
+                .show();
     }
 
     /** 右下角 ＋（库页 = 新建库 / 壁纸页 = 添加壁纸）与电池行、接管开关。 */
