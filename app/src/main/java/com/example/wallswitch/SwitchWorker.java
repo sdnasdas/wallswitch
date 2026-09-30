@@ -27,8 +27,9 @@ public class SwitchWorker extends Worker {
             return Result.success();
         }
         boolean forHome = getInputData().getBoolean(EXTRA_FOR_HOME, true);
-        // 只在“确实到点且本轮未执行”时切换：避免与“补切”（小组件刷新/开机/打开应用）重复切一次
-        if (!TimerScheduler.isDue(getApplicationContext(), forHome)) {
+        // 闹钟归 WorkManager：它醒 = 该切一张了。这里只挡「刚刚已经切过」（补切撞车、重排后立刻醒），
+        // 不再判到点没到点 —— 挡掉这一格只会让下一次白等将近一整轮
+        if (TimerScheduler.justSwitched(getApplicationContext(), forHome)) {
             return Result.success();
         }
         // 执行该范围槽位库的切换并记账（前移下次触发时间、记录结果、刷新小组件倒计时）

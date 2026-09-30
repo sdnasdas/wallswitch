@@ -280,7 +280,10 @@ public final class TakeoverManager {
         File file = currentId == null ? null : WallpaperStore.getFullFile(ctx, currentId);
         if (file == null || !file.exists()) {
             // 还没有指针（或文件丢了）：推进一张，Switcher 内部会走 setLockFromFile
-            Switcher.next(ctx, lib.id, false);
+            // 屏上确实换了一张，按「换了就顺延」重起算这一轮（传 null 不冒「手动」正文行）
+            if (Switcher.next(ctx, lib.id, false)) {
+                TimerScheduler.restartScope(ctx, false, null);
+            }
             currentId = Switcher.getCurrent(ctx, lib.id, false);
             file = currentId == null ? null : WallpaperStore.getFullFile(ctx, currentId);
             if (file == null || !file.exists()) {

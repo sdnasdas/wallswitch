@@ -40,6 +40,8 @@ public class TimerScheduler {
     private static final String KEY_LAST_RESULT_PREFIX = "last_result_";
     // 每范围「上次排定时的指纹」（库id|间隔秒），决定重排该用 KEEP 还是 UPDATE
     private static final String KEY_SPEC_PREFIX = "slot_spec_";
+    // Worker 的防重复窗口：同一轮被两条路径（补切 / 重排后立刻醒）连着唤起时，只认第一次
+    private static final long REPEAT_GUARD_MILLIS = 60 * 1000L;
     // 上次执行结果：成功
     public static final String RESULT_OK = "ok";
     // 查询 WorkManager 任务状态的单线程执行器（ListenableFuture 回调，避免占用主线程）
@@ -104,7 +106,9 @@ public class TimerScheduler {
         scheduleInternal(ctx, forHome, false);
     }
 
-    /** force = true 时无视指纹强制 UPDATE（手动切换后要重新起算周期就走这条）。 */
+    /** force = true 时无视指纹用 REPLACE 重排 —— 把周期格子的起算时刻挪到「此刻」。
+     *  真机实测 UPDATE 不平移格子（12:41 手动 force UPDATE 之后，格子仍在 13:19 醒），
+     *  只有 REPLACE（新建 WorkSpec、新 jobId）才重新起算。 */
     private static void scheduleInternal(Context ctx, boolean forHome, boolean force) {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         // 暂停的那一面一律撤任务：不撤的话，每次回应用的 scheduleAll 会把刚撤掉的定时又排回来，
@@ -116,14 +120,24 @@ public class TimerScheduler {
         int seconds = intervalSeconds(ctx, forHome);
         String spec = libId + "|" + seconds;
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        ExistingPeriodicWorkPolicy policy =
-                !force && spec.equals(prefs.getString(KEY_SPEC_PREFIX + suffix(forHome), null))
-                        ? ExistingPeriodicWorkPolicy.KEEP : ExistingPeriodicWorkPolicy.UPDATE;
+        ExistingPeriodicWorkPolicy policy;
+        if (force) {
+            policy = ExistingPeriodicWorkPolicy.REPLACE;
+        } else if (!spec.equals(prefs.getString(KEY_SPEC_PREFIX + suffix(forHome), null))) {
+            policy = ExistingPeriodicWorkPolicy.UPDATE;
+        } else {
+            policy = ExistingPeriodicWorkPolicy.KEEP;
+        }
         try {
             Data data = new Data.Builder()
                     .putBoolean(SwitchWorker.EXTRA_FOR_HOME, forHome).build();
+            // initialDelay = 一整轮：WorkManager 2.9.1 的 WorkSpec.calculateNextRunTime 里，
+            // 周期任务的**第一次**（periodCount==0，即刚排定/刚 REPLACE 之后）算的是
+            // lastEnqueueTime + initialDelay，而不是 + 间隔 —— 不设它就等于 0，任务会立刻醒一次。
+            // 不设 flex（三参构造器里 flex 恒等于 interval，flex 分支不生效），所以第二次起都是准点 + 间隔。
             PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
                     SwitchWorker.class, seconds, TimeUnit.SECONDS)
+                    .setInitialDelay(seconds, TimeUnit.SECONDS)
                     .setInputData(data)
                     .build();
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
@@ -135,18 +149,22 @@ public class TimerScheduler {
     }
 
     /**
-     * 手动上屏一张之后调用（卡片双击、通知的上一张/下一张、小组件点按、长按设为主页、
-     * 删掉正在屏上的那张）：该范围的下一轮从此刻重新起算，免得刚手动切完紧接着又被定时切一张。
-     * 只写这本账 + 强制重排周期，不做 WorkManager 状态查询（刚算出来的值查回来还是它，白跑一次异步往返）。
+     * 「屏上换了一张图」之后调用，该范围的下一轮从此刻重新起算（免得刚切完紧接着又被定时切一张）。
+     * 五个用户直接动手的入口走这条：卡片双击、通知的上一张/下一张、小组件点按、
+     * 网格长按设为桌面壁纸、删掉正在屏上的那张。
+     * 只写这本账 + 用 REPLACE 把周期格子挪到「此刻重新起算」，不做 WorkManager 状态查询
+     * （刚算出来的值查回来还是它，白跑一次异步往返）。
+     * 注意这本账（next_trigger）现在只用于显示：切不切由 isDue 看「距上次上屏够不够一整轮」决定，
+     * 格子早醒几步会被它挡掉、晚醒则照切 —— 宁可晚，绝不早。
      */
     public static void restartScope(Context ctx, boolean forHome) {
         restartScope(ctx, forHome, ctx.getString(R.string.log_tag_manual));
     }
 
     /**
-     * 同上，但由调用方决定日志上怎么写这一笔：六个手动入口走一参版（标「手动」）；
-     * 换库、改间隔传 null —— 它们另有自己的标记行（SwitchLog.recordSwitchLib / recordIntervalChange），
-     * 不该再冒一条正文行出来。
+     * 同上，但由调用方决定日志上怎么写这一笔：上面那五个入口走一参版（标「手动」）；
+     * 换库、改间隔、恢复暂停、引擎自愈推进、接管同步首次上图传 null —— 前两样另有自己的标记行
+     * （SwitchLog.recordSwitchLib / recordIntervalChange），不该再冒一条正文行；后三样不是用户动作。
      *
      * @return 重排后的下次触发时刻（毫秒），该范围没库可重排时 -1
      */
@@ -301,8 +319,9 @@ public class TimerScheduler {
                 .apply();
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
-        // 与 WorkManager 的真实调度时间对齐（它的值更旧且本轮已执行时不会被采纳）
-        syncFromWorkManager(ctx);
+        // 这一轮真的上屏了一张 = 从现在重新起算：把周期格子的起算时刻也挪到此刻，
+        // 让「下一次」跟上面写下的承诺时刻对齐（补切尤其要挪，格子原本那一轮根本没跑过）
+        scheduleInternal(ctx, forHome, true);
         return ok;
     }
 
@@ -324,16 +343,27 @@ public class TimerScheduler {
     }
 
     /**
-     * 该范围本轮是否“已到点且尚未执行”——Worker 与补切共用，避免两边重复切换。
-     * 从未排定过（无记录）时，仅在从未执行过的情况下视为到点（对应周期任务的首次立即执行）。
+     * 补切专用闸门：系统那一格没跑成（Doze 延后、ROM 冻结后台）时，在设备活跃的时机判断
+     * 「距上一次真的上屏够不够一整轮」，够才补一张 —— 否则每次打开应用都会多切一张。
+     * 不拿 next_trigger 当判据：那只是显示用的估算值，格子按它自己的节奏醒。
      */
-    public static boolean isDue(Context ctx, boolean forHome) {
-        long due = recordedTrigger(ctx, forHome);
+    private static boolean isDue(Context ctx, boolean forHome) {
         long last = lastRun(ctx, forHome);
-        if (due <= 0) {
-            return last == 0;
+        if (last == 0) {
+            return true;    // 这一面从没切过：第一次不必等满一轮
         }
-        return due <= System.currentTimeMillis() && last < due;
+        return System.currentTimeMillis() - last >= intervalSeconds(ctx, forHome) * 1000L;
+    }
+
+    /**
+     * Worker 专用闸门：只挡「刚刚已经切过一张」。周期闹钟完全交给 WorkManager
+     * （排定时带 initialDelay = 一整轮，见 scheduleInternal），它醒就该切；这里若再要求等满
+     * 一整轮，挡掉的那一格等于白丢一轮，下一次要将近一整轮之后才来。
+     * 要挡的只有两种撞车：补切与 Worker 同时跑、以及 REPLACE 之后 periodCount 归零引起的立刻醒。
+     */
+    public static boolean justSwitched(Context ctx, boolean forHome) {
+        long last = lastRun(ctx, forHome);
+        return last > 0 && System.currentTimeMillis() - last < REPEAT_GUARD_MILLIS;
     }
 
     /**
@@ -422,8 +452,9 @@ public class TimerScheduler {
             scheduleInternal(ctx, forHome);
             return;
         }
-        // 只采纳比“上次执行时间”更晚的调度值：避免补切成功后，被 WorkManager 里那个过期的
-        // 周期时间覆盖回去，导致小组件一直显示“待切换”甚至重复补切
+        // next_trigger 现在只是「显示用的下一次预计时刻」，不再参与该不该切的判定（判定见 isDue，
+        // 只认「距上次上屏够不够一个整间隔」），所以这里可以放心以系统的真值为准：它说几点就是几点，
+        // 比它早的估算没有意义。仍要求晚于上次执行，避免把已经跑掉的那一轮的时间摆回屏上。
         if (trigger > 0 && trigger > lastRun(ctx, forHome)) {
             applyTrigger(ctx, forHome, trigger);
         }

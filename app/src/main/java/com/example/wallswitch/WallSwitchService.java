@@ -283,7 +283,11 @@ public class WallSwitchService extends GLWallpaperService {
                     List<WallpaperStore.Item> items = WallpaperStore.loadByLib(ctx, lib.id);
                     if (!items.isEmpty()) {
                         if (autoAdvanceFails < 3) {
-                            Switcher.next(ctx, lib.id, true);
+                            // 引擎自愈也真的换了一张上图：按「换了就顺延」的一刀切口径重起算这一轮
+                            // （传 null 不写「手动」正文行，它不是用户动作）
+                            if (Switcher.next(ctx, lib.id, true)) {
+                                TimerScheduler.restartScope(ctx, true, null);
+                            }
                             id = Switcher.getCurrent(ctx, lib.id, true);
                             file = currentFile(ctx, lib.id);
                             if (id == null || file == null) {
