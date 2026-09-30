@@ -210,6 +210,10 @@
     <string name="slot_paused_toast">已暂停：这张停着，定时已撤下</string>
     <string name="slot_resumed_toast">已继续：下次切换约 %1$s</string>
     <string name="slot_theme_label">卡片配色</string>
+    <string name="slot_theme_hue">色相</string>
+    <string name="slot_theme_tone">浓淡</string>
+    <string name="slot_preview_name">壁纸库名字</string>
+    <string name="slot_preview_desc">随机切换 · 每 60 分钟</string>
     <string name="slot_none_toast">先单击卡片给这个范围选一个壁纸库</string>
     <string name="slot_already_set">这个范围已经是该库了</string>
     <string name="slot_lib_label">壁纸库</string>

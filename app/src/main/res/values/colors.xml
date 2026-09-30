@@ -11,24 +11,11 @@
     <color name="text_secondary">#5F6368</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
-    <!-- 范围槽位卡片的四套配色（聚合设置里四个色块当场挑，全局一份、两面同色）。
-         默认 = A 纸白；item_slot.xml 里的初值也用它，绑定时再由 SlotTheme 覆盖。
-         刻意与库行不同样子：靠底色 + 描边拉开层级，色彩让给左边那张缩略图。 -->
-    <color name="slot_bg">#F7F4EF</color>
-    <color name="slot_stroke">#E6DFD5</color>
-    <!-- A 纸白：暖中性 -->
-    <color name="slot_a_bg">#F7F4EF</color>
-    <color name="slot_a_stroke">#E6DFD5</color>
-    <!-- B 灰紫：还是冷的，但不跟品牌蓝抢同一片色相 -->
-    <color name="slot_b_bg">#F2F0F6</color>
-    <color name="slot_b_stroke">#DFDCE8</color>
-    <!-- C 灰绿：保留一点彩色感 -->
-    <color name="slot_c_bg">#EDF3F0</color>
-    <color name="slot_c_stroke">#D2E2DA</color>
-    <!-- D 墨：深色控制条，三行文字要跟着翻白，缩略图占位底色也压暗 -->
-    <color name="slot_d_bg">#2B2F33</color>
-    <color name="slot_d_stroke">#2B2F33</color>
-    <color name="slot_d_thumb_bg">#3A4046</color>
-    <color name="slot_d_text">#FFFFFF</color>
-    <color name="slot_d_text_dim">#B8BDC2</color>
+    <!-- 范围槽位卡片的初值（= 色相 30、浓淡 0 算出来的纸白）：实际显示色由 SlotTheme
+         按用户挑的色相 + 浓淡现算，这里只顶住绑定前那一帧，免得闪一下旧底色。 -->
+    <color name="slot_bg">#F6F5F3</color>
+    <color name="slot_stroke">#E1DBD6</color>
+    <!-- 底色偏暗时三行文字翻白的两档（亮度判定见 SlotTheme.dark） -->
+    <color name="slot_text_on_dark">#FFFFFF</color>
+    <color name="slot_text_dim_on_dark">#D6DADE</color>
 </resources>

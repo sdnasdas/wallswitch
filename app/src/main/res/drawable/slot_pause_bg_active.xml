@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暂停键的圆底（暂停中）：整圆染成品牌蓝、图标转白 —— 滑块一次只显示一面，
+     实心圆比"图标换个颜色"抢眼得多，扫一眼就知道这一面停着 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item
+        android:drawable="@drawable/circle_brand" />
+</ripple>

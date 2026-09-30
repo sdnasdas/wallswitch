@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暂停键的圆底（未暂停）：白圆 + 按下时一层淡品牌蓝水波纹。
+     圆底而不是裸图标：44dp 的触控目标配一个实心圆才看得出那是个键，也不会跟右上角感叹号混成一片 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#331E88E5">
+    <item
+        android:drawable="@drawable/circle_surface" />
+</ripple>

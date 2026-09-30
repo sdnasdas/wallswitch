@@ -16,7 +16,9 @@ import android.graphics.Paint;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -41,13 +43,13 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
 import android.widget.ProgressBar;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -139,6 +141,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int SLOT_LOOP = 1000;
     // 滑块停在哪个范围（拖头像设库时归属就是它），以及被高亮的卡片
     private boolean slotPageForHome = true;
+    // 当前停着的那一页在虚拟页数里的下标：全量刷新后按它复位，免得看着像"自己滑回了桌面"
+    private int slotCurrentPos = SLOT_LOOP;
     private View slotPageCard;
     private View highlightedSlotCard;
     // 库行排序拖拽（长按行的空白处手动 startDrag 起来的那套）
@@ -417,6 +421,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         slotPageForHome = pos % 2 == 0;
+        slotCurrentPos = pos;
         RecyclerView.ViewHolder holder = slotPager.findViewHolderForAdapterPosition(pos);
         slotPageCard = holder == null ? null : holder.itemView;
     }
@@ -473,6 +478,9 @@ public class MainActivity extends AppCompatActivity {
         }
         syncSlotPage();
         slotAdapter.notifyDataSetChanged();
+        // 全量刷新会让两千页的滑块从头排一遍（第 0 页是桌面），不按原页复位就成了
+        // 「在锁屏页双击切一张，界面自己滑回桌面」——暂停键、改设置那几处走的是同一条路
+        slotPager.scrollToPosition(slotCurrentPos);
     }
 
     /** 滑块适配器：真实两页（偶数 = 桌面、奇数 = 锁屏），虚拟页数取模 → 左右无限循环。 */
@@ -519,25 +527,28 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 绑一页：范围小标题与徽标固定，两行文字与缩略图跟着槽位走，配色跟着设置走。 */
+    /** 绑一页：范围小标题与徽标固定，两行文字与缩略图跟着槽位走，整套颜色跟着挑的色相/浓淡走。 */
     private void bindSlotPage(SlotPagerAdapter.SlotHolder holder, boolean forHome) {
         int placeholder = forHome ? R.drawable.ic_home : R.drawable.ic_lock;
-        int theme = SlotTheme.current(this);
-        int dim = SlotTheme.dimText(this, theme);
+        int hue = SlotTheme.hue(this), tone = SlotTheme.tone(this);
+        int bg = SlotTheme.color(hue, tone);
+        int dim = SlotTheme.dimText(this, tone);
         MaterialCardView card = (MaterialCardView) holder.itemView;
-        card.setCardBackgroundColor(SlotTheme.bg(this, theme));
-        card.setStrokeColor(SlotTheme.stroke(this, theme));
-        holder.tvScope.setTextColor(SlotTheme.scopeText(this, theme));
-        holder.tvName.setTextColor(SlotTheme.nameText(this, theme));
+        card.setCardBackgroundColor(bg);
+        card.setStrokeColor(SlotTheme.stroke(hue, tone));
+        holder.tvScope.setTextColor(SlotTheme.scopeText(this, tone));
+        holder.tvName.setTextColor(SlotTheme.nameText(this, tone));
         holder.tvDesc.setTextColor(dim);
-        holder.imgThumb.setBackgroundColor(SlotTheme.thumbBg(this, theme));
+        holder.imgThumb.setBackgroundColor(SlotTheme.thumbBg(this, hue, tone));
         holder.btnHelp.setImageTintList(ColorStateList.valueOf(dim));
         holder.itemView.setAlpha(1f);
         boolean paused = LibraryStore.slotPaused(this, forHome);
+        // 暂停中整圆染品牌蓝、图标转白；未暂停是白圆灰图标（深色卡片上白圆照样看得见）
+        holder.btnPause.setBackgroundResource(
+                paused ? R.drawable.slot_pause_bg_active : R.drawable.slot_pause_bg);
         holder.btnPause.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause);
-        // 暂停中染成品牌蓝：整排里只有它是彩色的，滑过去也认得出这一面停了
-        holder.btnPause.setImageTintList(ColorStateList.valueOf(
-                paused ? getColor(R.color.brand) : dim));
+        holder.btnPause.setImageTintList(getColorStateList(
+                paused ? R.color.card_bg : R.color.text_secondary));
         holder.tvScope.setText(forHome ? R.string.slot_home_title : R.string.slot_lock_title);
         holder.imgBadge.setImageResource(placeholder);
         LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
@@ -1437,7 +1448,7 @@ public class MainActivity extends AppCompatActivity {
     private void showSlotSettingsDialog(final boolean forHome) {
         final View content = LayoutInflater.from(this).inflate(R.layout.dialog_slot_settings, null, false);
         bindSlotLibRow(content, forHome);
-        bindThemeSwatches(content);
+        bindThemeControls(content);
         content.findViewById(R.id.row_slot_lib).setOnClickListener(
                 v -> showLibPickerDialog(forHome, content));
         RadioGroup rgMode = content.findViewById(R.id.rg_mode);
@@ -1478,41 +1489,74 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 聚合设置里的四块配色：色块按那套的底色染，选中的那一块外面套一圈品牌蓝。
-     * 点一下当场生效（重绑滑块）且不关弹窗，四种在真机上比着挑，不用回来改一次装一次。
+     * 聚合设置里的配色：色相那条画成整圈色带、浓淡那条画成「当前色相从纸白到墨」，
+     * 底下那块小卡片实时跟着变。松手才写偏好并重绑真卡片 —— 拖着每像素都写盘、
+     * 每像素都重排两千页滑块没有意义。
      */
-    private void bindThemeSwatches(final View content) {
-        LinearLayout row = content.findViewById(R.id.row_slot_theme);
-        row.removeAllViews();
-        int current = SlotTheme.current(this);
-        float density = getResources().getDisplayMetrics().density;
-        int size = (int) (34 * density);
-        int gap = (int) (10 * density);
-        for (int theme = 0; theme < SlotTheme.COUNT; theme++) {
-            final int which = theme;
-            FrameLayout swatch = new FrameLayout(this);
-            LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(size, size);
-            slot.setMarginEnd(gap);
-            swatch.setLayoutParams(slot);
-            swatch.setBackgroundResource(R.drawable.slot_swatch_ring);
-            swatch.setBackgroundTintList(ColorStateList.valueOf(
-                    theme == current ? getColor(R.color.brand) : Color.TRANSPARENT));
-            View fill = new View(this);
-            FrameLayout.LayoutParams inner = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-            int inset = (int) (4 * density);
-            inner.setMargins(inset, inset, inset, inset);
-            fill.setLayoutParams(inner);
-            fill.setBackgroundResource(R.drawable.slot_swatch);
-            fill.setBackgroundTintList(ColorStateList.valueOf(SlotTheme.bg(this, theme)));
-            swatch.addView(fill);
-            swatch.setOnClickListener(v -> {
-                SlotTheme.set(this, which);
-                bindThemeSwatches(content);
+    private void bindThemeControls(final View content) {
+        final SeekBar sbHue = content.findViewById(R.id.sb_slot_hue);
+        final SeekBar sbTone = content.findViewById(R.id.sb_slot_tone);
+        sbHue.setMax(SlotTheme.HUE_MAX);
+        sbTone.setMax(SlotTheme.TONE_MAX);
+        sbHue.setProgress(SlotTheme.hue(this));
+        sbTone.setProgress(SlotTheme.tone(this));
+        // 色带画在背景上，进度条本身涂透明，拇指就正好压在色带上
+        sbHue.setProgressDrawable(new ColorDrawable(Color.TRANSPARENT));
+        sbTone.setProgressDrawable(new ColorDrawable(Color.TRANSPARENT));
+        SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
+                paintThemePreview(content, sbHue.getProgress(), sbTone.getProgress());
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+                SlotTheme.set(MainActivity.this, sbHue.getProgress(), sbTone.getProgress());
                 refreshSlotCards();
-            });
-            row.addView(swatch);
+            }
+        };
+        sbHue.setOnSeekBarChangeListener(listener);
+        sbTone.setOnSeekBarChangeListener(listener);
+        paintThemePreview(content, sbHue.getProgress(), sbTone.getProgress());
+    }
+
+    /** 按给定的色相/浓淡刷两条色带与预览卡（预览与真卡片走同一套 SlotTheme 换算）。 */
+    private void paintThemePreview(View content, int hue, int tone) {
+        MaterialCardView preview = content.findViewById(R.id.card_slot_preview);
+        preview.setCardBackgroundColor(SlotTheme.color(hue, tone));
+        preview.setStrokeColor(SlotTheme.stroke(hue, tone));
+        ((TextView) content.findViewById(R.id.tv_slot_preview_scope))
+                .setTextColor(SlotTheme.scopeText(this, tone));
+        ((TextView) content.findViewById(R.id.tv_slot_preview_name))
+                .setTextColor(SlotTheme.nameText(this, tone));
+        ((TextView) content.findViewById(R.id.tv_slot_preview_desc))
+                .setTextColor(SlotTheme.dimText(this, tone));
+        content.findViewById(R.id.img_slot_preview_thumb)
+                .setBackgroundColor(SlotTheme.thumbBg(this, hue, tone));
+        ((ImageView) content.findViewById(R.id.img_slot_preview_pause))
+                .setImageTintList(getColorStateList(R.color.text_secondary));
+        // 色带的每一格都按当前浓淡算，浓淡条则按当前色相算 —— 两条互相反映对方
+        int[] hueStops = new int[13];
+        for (int i = 0; i < hueStops.length; i++) {
+            hueStops[i] = SlotTheme.color(i * (360 / (hueStops.length - 1)), tone);
         }
+        int[] toneStops = new int[9];
+        for (int i = 0; i < toneStops.length; i++) {
+            toneStops[i] = SlotTheme.color(hue, i * (SlotTheme.TONE_MAX / (toneStops.length - 1)));
+        }
+        content.findViewById(R.id.sb_slot_hue).setBackground(gradientBar(hueStops));
+        content.findViewById(R.id.sb_slot_tone).setBackground(gradientBar(toneStops));
+    }
+
+    /** 一条圆角色带（滑杆的背景）。 */
+    private GradientDrawable gradientBar(int[] colors) {
+        GradientDrawable bar = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors);
+        bar.setCornerRadius(13 * getResources().getDisplayMetrics().density);
+        return bar;
     }
 
     /** 库选择列表：第 0 项「不切换」（清空本范围），其余带各自缩略图；当前占位库打勾。 */

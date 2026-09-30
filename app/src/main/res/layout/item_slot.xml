@@ -92,15 +92,16 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- 右侧垂直居中：暂停/继续这一面的自动切换（暂停中换成播放键并染成品牌蓝） -->
+        <!-- 右侧垂直居中：暂停/继续这一面的自动切换（44dp 实心圆底，暂停中整圆染品牌蓝、图标转白） -->
         <ImageView
             android:id="@+id/btn_slot_pause"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:layout_gravity="center_vertical"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/slot_pause_bg"
             android:contentDescription="@string/slot_pause_desc"
-            android:padding="7dp"
+            android:padding="11dp"
             android:src="@drawable/ic_pause"
             android:tint="@color/text_secondary" />
 
