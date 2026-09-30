@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暂停这一面的自动切换（卡片右侧；暂停中换成 ic_play 表示可继续） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M6,19h4V5H6v14zM14,5v14h4V5h-4z" />
+</vector>

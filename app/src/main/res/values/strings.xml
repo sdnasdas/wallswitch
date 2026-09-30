@@ -205,6 +205,11 @@
     <string name="slot_none_name">未设置</string>
     <string name="slot_help_desc">操作指南</string>
     <string name="slot_guide_msg">左右滑动可切换桌面 / 锁屏，单击修改配置、双击手动触发切换</string>
+    <string name="slot_pause_desc">暂停这一面</string>
+    <string name="slot_paused_label">已暂停</string>
+    <string name="slot_paused_toast">已暂停：这张停着，定时已撤下</string>
+    <string name="slot_resumed_toast">已继续：下次切换约 %1$s</string>
+    <string name="slot_theme_label">卡片配色</string>
     <string name="slot_none_toast">先单击卡片给这个范围选一个壁纸库</string>
     <string name="slot_already_set">这个范围已经是该库了</string>
     <string name="slot_lib_label">壁纸库</string>
@@ -216,21 +221,41 @@
     <string name="slot_confirm_title">确认设置</string>
     <string name="slot_confirm_msg">把「%1$s」改为「%2$s」？</string>
     <string name="slot_confirm_clear">把「%1$s」改为不切换？该范围将停止自动切换。</string>
-    <!-- 定时自动切换日志（files/switch_log.txt）：一条两行 —— 时间 + 范围与壁纸标题，第二行是实际/配置间隔 -->
-    <string name="log_interval_line">实际间隔 %1$d 分钟 · 设置 %2$d 分钟 · %3$s</string>
+    <!-- 切换日志：桌面/锁屏各一份文件（files/switch_log_home.txt / switch_log_lock.txt），各记各的账。
+         段头讲清版本·范围·设置·模式，正文一条一行；带缩进的串要整体加引号，否则 aapt 会吃掉行首空格 -->
+    <string name="log_block_header">=== %1$s · %2$s · 每 %3$d 分钟 · %4$s ===</string>
+    <string name="log_entry_line">"  %1$s  %2$s%3$s"</string>
+    <string name="log_config_line">"  %1$s  —— %2$s ——"</string>
     <string name="log_detail_scope">%1$s「%2$s」</string>
-    <string name="log_detail_both">%1$s  /  %2$s</string>
+    <!-- 间隔 = 距上一条重置过计时的记录；误差 = 实际执行 − 当时排定的触发时刻；下次约 = 重排后的触发时刻 -->
+    <string name="log_gap_part">"间隔 %1$d分 · "</string>
+    <string name="log_gap_walked">"距上张走了 %1$d 分 · "</string>
+    <string name="log_suffix_auto">" （间隔 %1$d分，误差 %2$d分）"</string>
+    <string name="log_suffix_gap_only">" （间隔 %1$d分）"</string>
+    <string name="log_suffix_manual">" （%1$s%2$s · 下次约 %3$s）"</string>
+    <string name="log_suffix_manual_paused">" （%1$s%2$s · 已暂停）"</string>
+    <string name="log_config_paused">暂停：这张停在「%1$s」</string>
+    <string name="log_config_resumed">继续 · 下次约 %1$s</string>
+    <string name="log_config_interval">间隔 %1$d→%2$d 分钟 · %3$s下次约 %4$s</string>
+    <string name="log_config_switch_lib">换库「%1$s」· %2$s下次约 %3$s</string>
+    <string name="log_config_mode">改为%1$s · 下次约 %2$s 不变</string>
+    <string name="log_config_mode_no_next">改为%1$s · 该范围还没排定下次切换</string>
+    <string name="log_config_stopped">停：%1$s槽位已清空</string>
+    <string name="log_tag_manual">手动</string>
     <!-- 抽屉里的日志入口：直接读文件弹窗看，不用导出到文件夹 -->
     <string name="log_view_title">切换日志</string>
-    <string name="log_view_hint">点开查看 · 长按清空（只记定时自动切换）</string>
+    <string name="log_view_hint">点开查看 · 长按清空（自动、手动、换库都记）</string>
     <string name="log_clear_title">清空日志</string>
-    <string name="log_clear_msg">删除全部切换日志记录？导出目录里的同名副本也会一起清空。\n\n（老版本写的记录是旧格式，不会自动改写，想看得整齐就清掉重新记。）</string>
+    <string name="log_clear_msg">删除桌面和锁屏两份切换日志？导出目录里的同名副本也会一起清空。\n\n（老版本写的记录是旧格式，不会自动改写，想看得整齐就清掉重新记。）</string>
     <string name="log_clear_done">日志已清空</string>
-    <string name="log_view_empty_row">还没有记录（只有定时自动切换成功才记）</string>
-    <string name="log_view_latest">最近记录：%1$s</string>
-    <string name="log_view_empty">还没有日志记录。\n\n只有「定时自动切换」成功时才会记一条：手动切换和小组件点按都不记；「开启接管」关闭时定时任务会跳过，同样不记。</string>
+    <string name="log_view_empty_row">还没有记录（自动切换、手动切换、换库都会记）</string>
+    <string name="log_view_latest">最近：桌面 %1$s · 锁屏 %2$s</string>
+    <string name="log_view_none">无</string>
+    <string name="log_view_empty">还没有日志记录。\n\n自动切换成功、手动切换、换库都会记一条；「开启接管」关着时定时任务会跳过，那种周期不记。</string>
     <string name="log_view_copy">复制</string>
     <string name="log_view_copied">日志已复制</string>
+    <string name="log_tab_home">桌面</string>
+    <string name="log_tab_lock">锁屏</string>
 
     <!-- v3.14：层级导航 UI（首页=库列表，进库=两列网格；库级设置进齿轮弹窗） -->
     <string name="app_title">WallPaper</string>

@@ -107,7 +107,9 @@ public class TimerScheduler {
     /** force = true 时无视指纹强制 UPDATE（手动切换后要重新起算周期就走这条）。 */
     private static void scheduleInternal(Context ctx, boolean forHome, boolean force) {
         String libId = LibraryStore.slotLibId(ctx, forHome);
-        if (libId == null || libId.isEmpty()) {
+        // 暂停的那一面一律撤任务：不撤的话，每次回应用的 scheduleAll 会把刚撤掉的定时又排回来，
+        // 暂停等于没生效（比"到点跳过"更省 —— 暂停期间连一次唤醒都没有）
+        if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, forHome)) {
             cancelScope(ctx, forHome);
             return;
         }
@@ -138,20 +140,66 @@ public class TimerScheduler {
      * 只写这本账 + 强制重排周期，不做 WorkManager 状态查询（刚算出来的值查回来还是它，白跑一次异步往返）。
      */
     public static void restartScope(Context ctx, boolean forHome) {
+        restartScope(ctx, forHome, ctx.getString(R.string.log_tag_manual));
+    }
+
+    /**
+     * 同上，但由调用方决定日志上怎么写这一笔：六个手动入口走一参版（标「手动」）；
+     * 换库、改间隔传 null —— 它们另有自己的标记行（SwitchLog.recordSwitchLib / recordIntervalChange），
+     * 不该再冒一条正文行出来。
+     *
+     * @return 重排后的下次触发时刻（毫秒），该范围没库可重排时 -1
+     */
+    public static long restartScope(Context ctx, boolean forHome, String logTag) {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         if (libId == null || libId.isEmpty()) {
             // 这个范围本来就没排定，没什么可重排的
-            return;
+            return -1L;
         }
+        boolean paused = LibraryStore.slotPaused(ctx, forHome);
         long now = System.currentTimeMillis();
-        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putLong(KEY_LAST_RUN_PREFIX + suffix(forHome), now)
-                .putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome),
-                        now + intervalSeconds(ctx, forHome) * 1000L)
-                .apply();
+        long next = paused ? -1L : now + intervalSeconds(ctx, forHome) * 1000L;
+        SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putLong(KEY_LAST_RUN_PREFIX + suffix(forHome), now);
+        if (paused) {
+            // 暂停中没有「下次」可言：手动切一张只把 last_run 推到此刻，恢复时再从那一刻起算一整轮
+            editor.remove(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome));
+        } else {
+            editor.putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome), next);
+        }
+        editor.apply();
         scheduleInternal(ctx, forHome, true);
+        if (logTag != null) {
+            SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome), logTag, next);
+        }
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
+        return next;
+    }
+
+    /**
+     * 暂停 / 继续某一面的自动切换（卡片右侧那个键）。
+     * 暂停 = 撤掉该范围的周期任务，屏上这张原样停着（引擎与锁屏都不动）；
+     * 继续 = 从这一刻重新起算一整轮。两面的暂停各管各的。
+     */
+    public static void setPaused(Context ctx, boolean forHome, boolean paused) {
+        LibraryStore.setSlotPaused(ctx, forHome, paused);
+        if (paused) {
+            String title = currentTitleForLog(ctx, forHome);
+            cancelScope(ctx, forHome);
+            SwitchLog.recordPaused(ctx, forHome, title);
+        } else {
+            long next = restartScope(ctx, forHome, null);
+            SwitchLog.recordResumed(ctx, forHome, next);
+        }
+        WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
+    }
+
+    /** 该范围此刻在屏上的壁纸标题（暂停标记行用；没库给空串）。 */
+    public static String currentTitleForLog(Context ctx, boolean forHome) {
+        String libId = LibraryStore.slotLibId(ctx, forHome);
+        return libId == null || libId.isEmpty() ? "" : currentTitle(ctx, libId, forHome);
     }
 
     /** 取消指定范围的定时任务，并清除该范围的倒计时记录。 */
@@ -165,6 +213,8 @@ public class TimerScheduler {
                 // 指纹一起清掉：以后重新占上同一个库要当作"变了"，强制重新起算
                 .remove(KEY_SPEC_PREFIX + suffix(forHome))
                 .apply();
+        // 计时起点不在这里抹：暂停也走这条路，而暂停中屏上那张还在、日志仍要数得出间隔；
+        // 只有槽位真的清空（不再接管这面）时才由 setSlotLib 去抹
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
     }
@@ -209,6 +259,10 @@ public class TimerScheduler {
         if (lib == null) {
             return false;
         }
+        if (LibraryStore.slotPaused(ctx, forHome)) {
+            // 暂停中不切、不记账、不记日志：正常情况下任务早被撤掉了，这里只给排队中的那一次兜底
+            return false;
+        }
         // 「开启接管」关着 = 本 App 不接管系统壁纸：定时任务完全不动系统（不发通知、不记日志），
         // 但仍按间隔推进记账，免得每个周期都白跑一次、状态行还停在上次的旧结果
         if (!TakeoverManager.isEnabled(ctx)) {
@@ -224,6 +278,8 @@ public class TimerScheduler {
         // 桌面：引擎未激活时不做任何事 —— 桌面静态兜底已按需求删除。
         // 关键：这不算「失败」，否则每个定时周期都会弹一条失败横幅，纯噪音。
         boolean nothingToDo = forHome && !WallSwitchService.isActive(ctx);
+        // 日志里的「误差」要跟这一轮承诺的触发时刻比，所以下面那笔写覆盖 next_trigger 之前先把它读出来
+        long planned = recordedTrigger(ctx, forHome);
         boolean ok = !nothingToDo && Switcher.next(ctx, lib.id, forHome);
         long now = System.currentTimeMillis();
         String result = nothingToDo ? "engine_inactive" : (ok ? RESULT_OK : Switcher.lastError());
@@ -231,9 +287,9 @@ public class TimerScheduler {
         // 手动切换/小组件点击仍由界面侧用 Toast 即时反馈，不走这里
         if (!nothingToDo) {
             SwitchNotifier.notifyResult(ctx, forHome, lib, ok, result);
-            // 日志只记「定时自动切换」成功的那次（手动切换与小组件点按不记）
+            // 日志只记真的把新图上屏的那一次
             if (ok) {
-                SwitchLog.recordAuto(ctx, forHome, switchDetail(ctx, lib.id, forHome));
+                SwitchLog.recordAuto(ctx, forHome, switchDetail(ctx, lib.id, forHome), planned);
             }
         }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 色块外圈：只有描边不填色，选中时染成品牌蓝、未选中染成透明（tint 是乘法，透明即消失） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="10dp" />
+    <solid android:color="#00000000" />
+    <stroke
+        android:width="2dp"
+        android:color="#FFFFFFFF" />
+</shape>

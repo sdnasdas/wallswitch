@@ -126,4 +126,21 @@
             android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
+
+    <!-- 卡片配色：色块由代码生成（四套，点一下当场换、不关弹窗就能比着挑） -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="@string/slot_theme_label"
+        android:textColor="@color/brand"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:id="@+id/row_slot_theme"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal" />
 </LinearLayout>

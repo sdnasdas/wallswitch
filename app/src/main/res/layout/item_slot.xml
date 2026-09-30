@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 范围槽位滑块的一页（桌面 / 锁屏各一页，同一份布局按页绑不同数据）：
-     左端出血缩略图（圆角由卡片自己裁）+ 三行文字（范围小标题 / 库名 / 模式·间隔）+ 右上角指南感叹号。
-     刻意与库行不同样子——浅品牌色底 + 描边，免得被误认成列表的前两项。 -->
+     左端出血缩略图（圆角由卡片自己裁）+ 三行文字（范围小标题 / 库名 / 模式·间隔）
+     + 右侧暂停键 + 右上角指南感叹号。
+     刻意与库行不同样子：底色 + 描边（四套配色在聚合设置里挑），免得被误认成列表的前两项。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/slot_card"
@@ -90,6 +91,18 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <!-- 右侧垂直居中：暂停/继续这一面的自动切换（暂停中换成播放键并染成品牌蓝） -->
+        <ImageView
+            android:id="@+id/btn_slot_pause"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_gravity="center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/slot_pause_desc"
+            android:padding="7dp"
+            android:src="@drawable/ic_pause"
+            android:tint="@color/text_secondary" />
 
         <!-- 右上角小感叹号：单击/双击都留给操作，这里只管弹「怎么用」 -->
         <ImageView

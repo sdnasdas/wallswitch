@@ -284,12 +284,18 @@ public class LibraryStore {
                 .getString(slotKey(forHome) + "_mode", MODE_ORDER);
     }
 
-    /** 改该范围的切换模式（顺序/随机）。 */
+    /** 改该范围的切换模式（顺序/随机）。模式不在重排指纹里，所以格子不动、下次触发时刻不变。 */
     public static void setScopeMode(Context ctx, boolean forHome, String mode) {
+        String normalized = MODE_RANDOM.equals(mode) ? MODE_RANDOM : MODE_ORDER;
+        if (normalized.equals(scopeMode(ctx, forHome))) {
+            return;
+        }
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putString(slotKey(forHome) + "_mode",
-                        MODE_RANDOM.equals(mode) ? MODE_RANDOM : MODE_ORDER)
+                .putString(slotKey(forHome) + "_mode", normalized)
                 .apply();
+        SwitchLog.recordModeChange(ctx, forHome,
+                ctx.getString(MODE_RANDOM.equals(normalized) ? R.string.mode_random : R.string.mode_order),
+                TimerScheduler.scopeTrigger(ctx, forHome));
     }
 
     /** 该范围占位库的切换间隔（秒，下限 15 分钟）。 */
@@ -298,12 +304,50 @@ public class LibraryStore {
                 .getInt(slotKey(forHome) + "_interval", DEFAULT_INTERVAL_SECONDS));
     }
 
-    /** 改该范围的切换间隔（秒，下限 15 分钟），立即重排该范围定时。 */
+    /**
+     * 改该范围的切换间隔（秒，下限 15 分钟），立即重排该范围定时。
+     * 有库时按「从现在重新起算」处理：当场写 last_run / next_trigger 再强制 UPDATE。
+     * 以前只排任务、把这本账留给随后那次异步的 WorkManager 查询去挪，查询一失败旧时刻就留在
+     * 原地，下一次补切会照着它多切一张（刚改完间隔转眼又被切掉）。
+     */
     public static void setScopeInterval(Context ctx, boolean forHome, int seconds) {
+        int clamped = clampInterval(seconds);
+        int oldSeconds = scopeIntervalSeconds(ctx, forHome);
+        if (clamped == oldSeconds) {
+            // 滚轮点了确定但没动值：不该白重排一轮，也不该在日志里插一条假标记
+            return;
+        }
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putInt(slotKey(forHome) + "_interval", clampInterval(seconds))
+                .putInt(slotKey(forHome) + "_interval", clamped)
                 .apply();
-        TimerScheduler.scheduleScope(ctx, forHome);
+        String libId = slotLibId(ctx, forHome);
+        if (libId == null || libId.isEmpty()) {
+            TimerScheduler.scheduleScope(ctx, forHome);
+            return;
+        }
+        long next = TimerScheduler.restartScope(ctx, forHome, null);
+        SwitchLog.recordIntervalChange(ctx, forHome, oldSeconds, clamped, next);
+    }
+
+    /**
+     * 该范围是否暂停自动切换：屏上这张停住，周期任务整个撤掉（暂停期间零唤醒）。
+     * 只影响定时，不影响手动切换 —— 暂停中手动切一张 = 换一张继续停着。
+     */
+    public static boolean slotPaused(Context ctx, boolean forHome) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(slotKey(forHome) + "_paused", false);
+    }
+
+    /** 写暂停标记。撤任务/重新起算与日志都在 TimerScheduler.setPaused 里收口。 */
+    public static void setSlotPaused(Context ctx, boolean forHome, boolean paused) {
+        SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit();
+        if (paused) {
+            editor.putBoolean(slotKey(forHome) + "_paused", true);
+        } else {
+            editor.remove(slotKey(forHome) + "_paused");
+        }
+        editor.apply();
     }
 
     /**
@@ -331,9 +375,20 @@ public class LibraryStore {
             }
         }
         editor.apply();
-        TimerScheduler.scheduleScope(ctx, forHome);
-        WidgetProvider.updateWidget(ctx);
-        StatusNotifier.update(ctx);
+        // 两条分支各自的重排入口（cancelScope / restartScope）内部都会刷小组件与常驻通知，这里不再重复刷
+        if (trimmed.isEmpty()) {
+            TimerScheduler.cancelScope(ctx, forHome);
+            SwitchLog.recordStopped(ctx, forHome);
+            // 停了就没有"本轮计时"：抹掉日志的起算点，免得以后重新占库去跟几天前那条比间隔
+            SwitchLog.resetAnchor(ctx, forHome);
+        } else {
+            // 换库=该范围换了一张图（上屏由调用方的接管同步去做），所以按「重新起算」同一本账处理；
+            // 这一刻新库的指针还没落地，日志里只标库名、不标壁纸标题
+            long next = TimerScheduler.restartScope(ctx, forHome, null);
+            Library target = get(ctx, trimmed);
+            SwitchLog.recordSwitchLib(ctx, forHome,
+                    target == null ? "" : target.name, next);
+        }
     }
 
     /** 重命名库（库行点库名就地改名的写回入口；留空则保留原名）。 */

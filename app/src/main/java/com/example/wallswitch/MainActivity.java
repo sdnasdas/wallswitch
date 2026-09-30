@@ -11,6 +11,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -40,6 +41,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -64,7 +66,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.PagerSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.File;
@@ -477,7 +481,7 @@ public class MainActivity extends AppCompatActivity {
         class SlotHolder extends RecyclerView.ViewHolder {
 
             final TextView tvScope, tvName, tvDesc;
-            final ImageView imgThumb, imgBadge;
+            final ImageView imgThumb, imgBadge, btnHelp, btnPause;
             /** 这一页现在代表哪个范围（绑定时写入，手势回调读它）。 */
             boolean forHome = true;
 
@@ -488,7 +492,11 @@ public class MainActivity extends AppCompatActivity {
                 tvDesc = item.findViewById(R.id.tv_slot_desc);
                 imgThumb = item.findViewById(R.id.img_slot_thumb);
                 imgBadge = item.findViewById(R.id.img_slot_badge);
-                item.findViewById(R.id.btn_slot_help).setOnClickListener(v -> showSlotGuide());
+                btnHelp = item.findViewById(R.id.btn_slot_help);
+                btnPause = item.findViewById(R.id.btn_slot_pause);
+                btnHelp.setOnClickListener(v -> showSlotGuide());
+                // 子 View 自己消费点击，卡片那套单击/双击手势收不到落在键上的事件（感叹号同理）
+                btnPause.setOnClickListener(v -> toggleSlotPause(forHome));
                 attachCardGestures(this);
             }
         }
@@ -511,23 +519,55 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 绑一页：范围小标题与徽标固定，两行文字与缩略图跟着槽位走。 */
+    /** 绑一页：范围小标题与徽标固定，两行文字与缩略图跟着槽位走，配色跟着设置走。 */
     private void bindSlotPage(SlotPagerAdapter.SlotHolder holder, boolean forHome) {
         int placeholder = forHome ? R.drawable.ic_home : R.drawable.ic_lock;
+        int theme = SlotTheme.current(this);
+        int dim = SlotTheme.dimText(this, theme);
+        MaterialCardView card = (MaterialCardView) holder.itemView;
+        card.setCardBackgroundColor(SlotTheme.bg(this, theme));
+        card.setStrokeColor(SlotTheme.stroke(this, theme));
+        holder.tvScope.setTextColor(SlotTheme.scopeText(this, theme));
+        holder.tvName.setTextColor(SlotTheme.nameText(this, theme));
+        holder.tvDesc.setTextColor(dim);
+        holder.imgThumb.setBackgroundColor(SlotTheme.thumbBg(this, theme));
+        holder.btnHelp.setImageTintList(ColorStateList.valueOf(dim));
+        holder.itemView.setAlpha(1f);
+        boolean paused = LibraryStore.slotPaused(this, forHome);
+        holder.btnPause.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause);
+        // 暂停中染成品牌蓝：整排里只有它是彩色的，滑过去也认得出这一面停了
+        holder.btnPause.setImageTintList(ColorStateList.valueOf(
+                paused ? getColor(R.color.brand) : dim));
         holder.tvScope.setText(forHome ? R.string.slot_home_title : R.string.slot_lock_title);
         holder.imgBadge.setImageResource(placeholder);
-        // 拖拽高亮改过 alpha，重绑时复位，免得回收来的视图带着半透明上线
-        holder.itemView.setAlpha(1f);
         LibraryStore.Library lib = LibraryStore.slotLib(this, forHome);
         if (lib == null) {
             holder.tvName.setText(R.string.slot_none_name);
             holder.tvDesc.setText(R.string.slot_unset);
-            bindThumb(holder.imgThumb, null, placeholder, 30);
+            bindThumb(holder.imgThumb, null, placeholder, 30, dim);
             return;
         }
         holder.tvName.setText(lib.name);
         holder.tvDesc.setText(slotIntervalDisplay(forHome));
-        bindThumb(holder.imgThumb, slotThumbId(lib.id, forHome), placeholder, 30);
+        bindThumb(holder.imgThumb, slotThumbId(lib.id, forHome), placeholder, 30, dim);
+    }
+
+    /**
+     * 卡片右侧的暂停键：撤掉/重排这一面的周期任务，屏上那张原样停着。
+     * WorkManager 的撤与排是进程内 IPC，跟其它设置写点一样放主线程调用。
+     */
+    private void toggleSlotPause(final boolean forHome) {
+        final boolean paused = !LibraryStore.slotPaused(this, forHome);
+        TimerScheduler.setPaused(getApplicationContext(), forHome, paused);
+        refreshSlotCards();
+        refreshTimerStatus();
+        if (paused) {
+            Toast.makeText(this, R.string.slot_paused_toast, Toast.LENGTH_SHORT).show();
+        } else {
+            long next = TimerScheduler.scopeTrigger(this, forHome);
+            Toast.makeText(this, getString(R.string.slot_resumed_toast,
+                    TimerScheduler.clockText(this, next)), Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 卡片上的「马上切换一张」：槽位没库先提示去卡片设置。 */
@@ -540,11 +580,18 @@ public class MainActivity extends AppCompatActivity {
         switchAndToast(lib, forHome);
     }
 
+    /** 占位图标用默认次级灰的简写。 */
+    private void bindThumb(ImageView view, String wallpaperId, int placeholderRes, int padDp) {
+        bindThumb(view, wallpaperId, placeholderRes, padDp, getColor(R.color.text_secondary));
+    }
+
     /**
      * 缩略图位统一绑定：有图清掉占位用的内边距与着色（不清会把真图按 SRC_IN 染成剪影），
-     * 没图退回指定线性图标（按 padDp 居中）。回收复用时两条路径都显式设置，状态才不串。
+     * 没图退回指定线性图标（按 padDp 居中、用 placeholderTint 着色）。
+     * 回收复用时两条路径都显式设置，状态才不串。
      */
-    private void bindThumb(ImageView view, String wallpaperId, int placeholderRes, int padDp) {
+    private void bindThumb(ImageView view, String wallpaperId, int placeholderRes, int padDp,
+                           int placeholderTint) {
         if (view == null) {
             return;
         }
@@ -556,7 +603,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             int pad = (int) (padDp * getResources().getDisplayMetrics().density);
             view.setPadding(pad, pad, pad, pad);
-            view.setImageTintList(ColorStateList.valueOf(getColor(R.color.text_secondary)));
+            view.setImageTintList(ColorStateList.valueOf(placeholderTint));
             view.setImageResource(placeholderRes);
         }
     }
@@ -1390,6 +1437,7 @@ public class MainActivity extends AppCompatActivity {
     private void showSlotSettingsDialog(final boolean forHome) {
         final View content = LayoutInflater.from(this).inflate(R.layout.dialog_slot_settings, null, false);
         bindSlotLibRow(content, forHome);
+        bindThemeSwatches(content);
         content.findViewById(R.id.row_slot_lib).setOnClickListener(
                 v -> showLibPickerDialog(forHome, content));
         RadioGroup rgMode = content.findViewById(R.id.rg_mode);
@@ -1427,6 +1475,44 @@ public class MainActivity extends AppCompatActivity {
         }
         row.setText(lib.name);
         bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 10);
+    }
+
+    /**
+     * 聚合设置里的四块配色：色块按那套的底色染，选中的那一块外面套一圈品牌蓝。
+     * 点一下当场生效（重绑滑块）且不关弹窗，四种在真机上比着挑，不用回来改一次装一次。
+     */
+    private void bindThemeSwatches(final View content) {
+        LinearLayout row = content.findViewById(R.id.row_slot_theme);
+        row.removeAllViews();
+        int current = SlotTheme.current(this);
+        float density = getResources().getDisplayMetrics().density;
+        int size = (int) (34 * density);
+        int gap = (int) (10 * density);
+        for (int theme = 0; theme < SlotTheme.COUNT; theme++) {
+            final int which = theme;
+            FrameLayout swatch = new FrameLayout(this);
+            LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(size, size);
+            slot.setMarginEnd(gap);
+            swatch.setLayoutParams(slot);
+            swatch.setBackgroundResource(R.drawable.slot_swatch_ring);
+            swatch.setBackgroundTintList(ColorStateList.valueOf(
+                    theme == current ? getColor(R.color.brand) : Color.TRANSPARENT));
+            View fill = new View(this);
+            FrameLayout.LayoutParams inner = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+            int inset = (int) (4 * density);
+            inner.setMargins(inset, inset, inset, inset);
+            fill.setLayoutParams(inner);
+            fill.setBackgroundResource(R.drawable.slot_swatch);
+            fill.setBackgroundTintList(ColorStateList.valueOf(SlotTheme.bg(this, theme)));
+            swatch.addView(fill);
+            swatch.setOnClickListener(v -> {
+                SlotTheme.set(this, which);
+                bindThemeSwatches(content);
+                refreshSlotCards();
+            });
+            row.addView(swatch);
+        }
     }
 
     /** 库选择列表：第 0 项「不切换」（清空本范围），其余带各自缩略图；当前占位库打勾。 */
@@ -1615,6 +1701,10 @@ public class MainActivity extends AppCompatActivity {
 
     /** 单个范围的定时状态文案：上次 时间（结果）｜下次预计 时间；过点未执行给补切提示。 */
     private String scopeTimerLine(boolean forHome) {
+        if (LibraryStore.slotPaused(this, forHome)) {
+            // 暂停的那一面没有「下次」：任务已撤，倒计时留着只会骗人
+            return getString(R.string.slot_paused_label);
+        }
         long next = TimerScheduler.scopeTrigger(this, forHome);
         long now = System.currentTimeMillis();
         if (next >= 0 && next <= now) {
@@ -2176,39 +2266,48 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         new Thread(() -> {
-            final String latest = SwitchLog.latestTimeLabel(getApplicationContext());
+            final Context app = getApplicationContext();
+            final String home = SwitchLog.latestTimeLabel(app, true);
+            final String lock = SwitchLog.latestTimeLabel(app, false);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                state.setText(latest == null
+                state.setText(home == null && lock == null
                         ? getString(R.string.log_view_empty_row)
-                        : getString(R.string.log_view_latest, latest));
+                        : getString(R.string.log_view_latest,
+                                home == null ? getString(R.string.log_view_none) : home,
+                                lock == null ? getString(R.string.log_view_none) : lock));
             });
         }, "log-row").start();
     }
 
-    /** 读日志文件并弹窗展示。纯 IO 放后台线程，读完回主线程弹。 */
+    /** 读两份日志文件并弹窗展示。纯 IO 放后台线程，读完回主线程弹。 */
     private void showSwitchLog() {
         new Thread(() -> {
-            final String content = SwitchLog.readAllText(getApplicationContext());
+            final Context app = getApplicationContext();
+            final String home = SwitchLog.readAllText(app, true);
+            final String lock = SwitchLog.readAllText(app, false);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                showSwitchLogDialog(content);
+                showSwitchLogDialog(home, lock);
             });
         }, "log-read").start();
     }
 
     /**
-     * 日志弹窗：可滚动、可长按选中的等宽正文；非空时给一个「复制」，
-     * 方便直接粘到聊天里（比导出到文件夹再翻文件管理器省事）。
+     * 日志弹窗：顶部 桌面/锁屏 两个 tab（两份文件各记各的账，混在一起看只会看错），
+     * 正文是等宽、可长按选中的可滚动区；当前 tab 非空时给一个「复制」，只复制这一面。
      */
-    private void showSwitchLogDialog(String content) {
-        final boolean empty = content == null || content.trim().isEmpty();
-        TextView body = new TextView(this);
-        body.setText(empty ? getString(R.string.log_view_empty) : content);
+    private void showSwitchLogDialog(String home, String lock) {
+        final String[] contents = {home == null ? "" : home, lock == null ? "" : lock};
+        final int[] shown = {0};
+        final boolean empty = contents[0].trim().isEmpty() && contents[1].trim().isEmpty();
+
+        final TextView body = new TextView(this);
+        bindLogBody(body, contents[0]);
         body.setTextSize(12f);
         body.setTextIsSelectable(true);
         body.setTypeface(Typeface.MONOSPACE);
@@ -2217,21 +2316,52 @@ public class MainActivity extends AppCompatActivity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(body);
-        // 固定高度上限，日志长了在弹窗内部滚动，不会把弹窗撑到超出屏幕
+        final TabLayout tabs = new TabLayout(this);
+        tabs.addTab(tabs.newTab().setText(R.string.log_tab_home));
+        tabs.addTab(tabs.newTab().setText(R.string.log_tab_lock));
+        tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                shown[0] = tab.getPosition();
+                bindLogBody(body, contents[shown[0]]);
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+            }
+        });
+
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        // 固定高度上限：日志长了在弹窗内部滚动，不会把弹窗撑到超出屏幕
         int maxHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.6f);
-        scroll.setLayoutParams(new ViewGroup.LayoutParams(
+        column.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+        column.addView(tabs);
+        column.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         // 用父类型接收：MaterialAlertDialogBuilder 只对 setTitle/setView 做了协变覆盖，
         // setNegativeButton 继承自 AlertDialog.Builder，链式表达式静态类型是 Builder
         AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.log_view_title)
-                .setView(scroll)
+                .setView(column)
                 .setNegativeButton(R.string.cancel, null);
         if (!empty) {
-            builder.setNeutralButton(R.string.log_view_copy, (dialog, which) -> copySwitchLog(content));
+            builder.setNeutralButton(R.string.log_view_copy,
+                    (dialog, which) -> copySwitchLog(contents[shown[0]]));
         }
         builder.show();
+    }
+
+    /** 弹窗正文换内容（切 tab 时用）：空的那一面给一句说明，不留白屏。 */
+    private void bindLogBody(TextView body, String content) {
+        body.setText(content == null || content.trim().isEmpty()
+                ? getString(R.string.log_view_empty) : content);
     }
 
     /** 复制日志全文到剪贴板。 */

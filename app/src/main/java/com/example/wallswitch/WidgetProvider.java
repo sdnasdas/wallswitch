@@ -128,7 +128,12 @@ public class WidgetProvider extends AppWidgetProvider {
         long now = System.currentTimeMillis();
         if (trigger == null) {
             views.setViewVisibility(R.id.widget_timer, View.GONE);
-            views.setViewVisibility(R.id.widget_waiting, View.GONE);
+            // 两面都暂停时任务已被撤掉（没有排定值），这里说清是"停了"而不是"没排上"
+            boolean paused = LibraryStore.slotPaused(ctx, true) && LibraryStore.slotPaused(ctx, false);
+            views.setViewVisibility(R.id.widget_waiting, paused ? View.VISIBLE : View.GONE);
+            if (paused) {
+                views.setTextViewText(R.id.widget_waiting, ctx.getString(R.string.slot_paused_label));
+            }
         } else if (trigger > now) {
             // 走秒模式用 Chronometer 倒计时，静态模式填「预计下次切换时间」；与常驻通知同一开关
             views.setViewVisibility(R.id.widget_waiting, View.GONE);

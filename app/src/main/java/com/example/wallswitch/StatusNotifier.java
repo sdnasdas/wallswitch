@@ -161,7 +161,12 @@ public class StatusNotifier {
         // 样式开关两处（通知/小组件）共用 TimerScheduler.tickingCountdown，保证显示与设置一致。
         long trigger = TimerScheduler.scopeTrigger(ctx, true);
         long now = System.currentTimeMillis();
-        if (trigger > now) {
+        if (LibraryStore.slotPaused(ctx, true)) {
+            // 通知这条是桌面那面的状态：暂停就直说，别继续挂着几天前算出来的时刻
+            views.setViewVisibility(R.id.notif_timer, View.GONE);
+            views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
+            views.setTextViewText(R.id.notif_waiting, ctx.getString(R.string.slot_paused_label));
+        } else if (trigger > now) {
             views.setViewVisibility(R.id.notif_timer, View.VISIBLE);
             views.setViewVisibility(R.id.notif_waiting, View.GONE);
             if (TimerScheduler.tickingCountdown(ctx)) {
