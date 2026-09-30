@@ -807,11 +807,6 @@ public class MainActivity extends AppCompatActivity {
         if (restoreRow != null) {
             restoreRow.setOnClickListener(v -> restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}));
         }
-        // 元数据快照：不需要设导出目录也能拿到（落 App 专属外部目录，文件管理器能翻到）
-        View dumpMetaRow = findViewById(R.id.row_dump_meta);
-        if (dumpMetaRow != null) {
-            dumpMetaRow.setOnClickListener(v -> dumpMetaFiles());
-        }
         // 保存当前壁纸：接管中导出引擎正在显示的那张；未接管备份系统壁纸（并记为可还原存档）
         View saveWallpaperRow = findViewById(R.id.row_save_wallpaper);
         if (saveWallpaperRow != null) {
@@ -2407,27 +2402,6 @@ public class MainActivity extends AppCompatActivity {
                         Toast.LENGTH_LONG).show();
             });
         }, "wallpaper-export-all").start();
-    }
-
-    /** 把元数据原样复制到不用 root 就能取的地方（排查用，不改任何数据）。 */
-    private void dumpMetaFiles() {
-        Toast.makeText(this, R.string.meta_dump_running, Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            final MetaDump.Result r = MetaDump.run(getApplicationContext());
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                String tail = r.treeNote == null ? "" : System.lineSeparator() + r.treeNote;
-                if (r.dirPath == null) {
-                    Toast.makeText(this, getString(R.string.meta_dump_failed, r.treeNote == null ? "" : r.treeNote),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                Toast.makeText(this, getString(R.string.meta_dump_done, r.dirName,
-                        r.written.size(), r.missing.size()) + tail, Toast.LENGTH_LONG).show();
-            });
-        }, "meta-dump").start();
     }
 
     /** 备份整库：一个 zip 装下图、缩略图、两个 json 和 prefs，写进导出目录。 */

@@ -49,7 +49,8 @@ public final class BackupStore {
 
     private static final String PREFS_NAME = "settings";
     // 还原时要保住的本机 key：导出目录 uri 的字符串能随包回来，但 SAF 持久化授权是系统按 UID 发的、
-    // 卸载即失效，把它写回来会让那一行显示"已设置"而实际点不动；另外两个是本机自己的记账。
+    // 卸载即失效，把它写回来会让那一行显示"已设置"而实际点不动；
+    // restore_prompt_shown 是本机弹没弹过小窗，meta_dump_seq 只出现在还带快照导出那几版做出来的旧包里。
     private static final String KEY_TREE_URI = "export_tree_uri";
     private static final String KEY_PROMPT_SHOWN = "restore_prompt_shown";
     private static final String KEY_DUMP_SEQ = "meta_dump_seq";

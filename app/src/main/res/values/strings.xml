@@ -328,14 +328,6 @@
     <string name="meta_notice_lost">%1$s 整份读不动（全路径 %2$s）。\n\n已另存一份到 %3$s。原件留在原地不动、也不允许被覆盖，所以库暂时看起来是空的——这是为了防止只读回空列表就把元数据写坏。\n\n壁纸图片本身没受影响：把上面那份拷到电脑上，用文本编辑器按可读的前缀找回 id、所属库和标题，就能重建元数据。\n\n如果你用过「导出目录」，也可以从导出的图片重新导入。</string>
     <string name="meta_archive_failed">同目录下带 .broken 后缀的文件</string>
 
-    <!-- 元数据快照导出（临时排查功能，MetaDump）：落 App 专属外部目录，不需要 root、也不需要设导出目录。
-         只按原字节复制，绝不解析重写 —— 这份东西的价值就是手机上此刻真实落盘的样子（含可能的半截状态） -->
-    <string name="meta_dump_title">导出元数据快照</string>
-    <string name="meta_dump_desc">把 library.json、libraries.json、切换日志和现场信息原样复制到 Android/data/com.example.wallswitch/files/wallswitch-meta（文件管理器可直接翻到），设过导出目录的话顺手再放一份</string>
-    <string name="meta_dump_running">正在复制元数据…</string>
-    <string name="meta_dump_done">已导出 %1$d 份到 Android/data/com.example.wallswitch/files/%2$s（%3$d 份缺失或失败）</string>
-    <string name="meta_dump_failed">外部目录不可用：%1$s</string>
-
     <!-- 整库备份/还原（BackupStore）：一个 zip 装下 图 + 缩略图 + 两个 json + prefs 的那几个 xml。
          还原方向走 ACTION_OPEN_DOCUMENT 现授临时读权限，所以卸载重装后照样点得到；
          备份方向依赖导出目录的 SAF 授权，那个授权随卸载失效 —— 所以重装后要先重选一次目录才能再备份 -->

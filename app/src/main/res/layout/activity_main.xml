@@ -641,7 +641,6 @@
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <!-- 导出元数据快照：把 library.json / libraries.json 等原样复制到不用 root 就能取的地方 -->
                         <!-- 备份整库到导出目录（一个 zip：图 + 缩略图 + 两个 json + prefs），下一行从包还原 -->
                         <LinearLayout
                             android:id="@+id/row_backup"
@@ -694,34 +693,6 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
                                 android:text="@string/restore_desc"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- 元数据快照：只吐元数据和小文件，给排查用的临时件，正式备份包上线后可删 -->
-                        <LinearLayout
-                            android:id="@+id/row_dump_meta"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/meta_dump_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/meta_dump_desc"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="12sp" />
                         </LinearLayout>

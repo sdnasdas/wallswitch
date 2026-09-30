@@ -165,54 +165,6 @@ public final class WallpaperExporter {
     }
 
     /**
-     * 按原名把一个任意文件复制到导出目录（已存在同名就覆盖）。
-     * 与 exportFile 的区别：那个会「标题 + id 后缀」重命名并只认图片，这里保持文件名不变，
-     * 给排查/备份类的小文件用。纯 IO，调用方放后台线程。
-     */
-    public static boolean exportNamedFile(Context context, File source) {
-        Uri tree = treeUri(context);
-        if (tree == null || source == null || !source.exists()) {
-            return false;
-        }
-        InputStream in = null;
-        OutputStream out = null;
-        try {
-            String name = source.getName();
-            String mime = name.endsWith(".json") ? "application/json"
-                    : name.endsWith(".xml") ? "text/xml" : "text/plain";
-            Uri parent = DocumentsContract.buildDocumentUriUsingTree(
-                    tree, DocumentsContract.getTreeDocumentId(tree));
-            // 同名先删掉再建：直接 createDocument 多数提供方会自动改名成 "xxx (1).json"，
-            // 目录里会堆出一堆版本，分不清哪份是最新的
-            Uri sameName = findChildByName(context, parent, name);
-            if (sameName != null) {
-                DocumentsContract.deleteDocument(context.getContentResolver(), sameName);
-            }
-            Uri doc = DocumentsContract.createDocument(
-                    context.getContentResolver(), parent, mime, name);
-            if (doc == null) {
-                return false;
-            }
-            in = new FileInputStream(source);
-            out = context.getContentResolver().openOutputStream(doc, "wt");
-            if (out == null) {
-                return false;
-            }
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) > 0) {
-                out.write(buffer, 0, read);
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        } finally {
-            closeQuietly(in);
-            closeQuietly(out);
-        }
-    }
-
-    /**
      * 把库内全部壁纸导出到目录，返回成功张数。
      * 纯 IO，调用方放在后台线程。
      */
@@ -237,42 +189,6 @@ public final class WallpaperExporter {
         base = base.replaceAll("[\\\\/:*?\"<>|]", "_");
         String suffix = id == null ? "0" : id.substring(0, Math.min(6, id.length()));
         return base + "_" + suffix + (source.getName().endsWith(FULL_EXT_PNG) ? ".png" : ".jpg");
-    }
-
-    /** 在导出目录这一层里按显示名找一个已有文件（找不到返回 null）。 */
-    private static Uri findChildByName(Context context, Uri parent, String name) {
-        android.database.Cursor c = null;
-        try {
-            c = context.getContentResolver().query(
-                    DocumentsContract.buildChildDocumentsUriUsingTree(
-                            parent, DocumentsContract.getDocumentId(parent)),
-                    new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                            DocumentsContract.Document.COLUMN_DISPLAY_NAME},
-                    null, null, null);
-            if (c == null) {
-                return null;
-            }
-            int idIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
-            int nameIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
-            if (idIdx < 0 || nameIdx < 0) {
-                return null;
-            }
-            while (c.moveToNext()) {
-                if (name.equals(c.getString(nameIdx))) {
-                    return DocumentsContract.buildDocumentUriUsingTree(parent, c.getString(idIdx));
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            return null;
-        } finally {
-            if (c != null) {
-                try {
-                    c.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
     }
 
     private static void closeQuietly(java.io.Closeable closeable) {
