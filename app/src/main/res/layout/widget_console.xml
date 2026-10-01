@@ -4,9 +4,14 @@
      第三行是一整条横键 = 进入 App。四格只作用「桌面」这一面（锁屏仍回 App 里设），
      与 1×1 那格"点一下桌面+锁屏各自切"是有意的差别。
 
-     尺寸为什么全部写死 dp、根层还透明：桌面给的 2×3 槽位是竖长的（一格高 > 宽），
+     尺寸为什么全部写死 dp、根层还透明：桌面给的槽位高宽比不归我们控制（一格高 > 宽），
      用 weight 平铺会把每格都拉成长方形 —— 缩略图被裁成竖条、按钮像两块大灰砖。
-     所以这里卡片自己按固定 dp 排（格 62dp ≈ 荣耀桌面图标大小），在槽位里居中，多出来的高度透明露出壁纸。
+     所以卡片自己按固定 dp 排、在槽位里居中，多出来的高度透明露出壁纸。
+
+     为什么是 52dp 格 + 40dp 条（v3.79 第一版是 62+62）：真机上 MagicOS 只给了约 2 行高（≈200dp），
+     62dp 那版整张卡 214dp 高，底部「进入 App」被切掉一截。现在卡片约 130×170dp，
+     2 行还是 3 行的槽位都放得下。不做"读尺寸自适应"：RemoteViews 拿不到也改不了 LayoutParams，
+     真要按高度换档只能整份换布局文件，为这一个变量多养一份布局不值得。
 
      点击目标挂在格子（FrameLayout/LinearLayout）上而不是图标上：图标四周留白也算触控区。
      这里刻意不写任何颜色（背景、android:tint 都不写）：深浅色两档全部由 WidgetConsoleProvider#buildViews
@@ -24,7 +29,7 @@
         android:layout_gravity="center"
         android:background="@drawable/widget_bg"
         android:orientation="vertical"
-        android:padding="5dp">
+        android:padding="4dp">
 
         <!-- 第一行：缩略图（点=选库）+ 暂停/继续 -->
         <LinearLayout
@@ -34,8 +39,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_lib"
-                android:layout_width="62dp"
-                android:layout_height="62dp"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:layout_margin="3dp"
                 android:background="@drawable/widget_cell_bg">
 
@@ -52,8 +57,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_pause"
-                android:layout_width="62dp"
-                android:layout_height="62dp"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:layout_margin="3dp"
                 android:background="@drawable/widget_cell_bg">
 
@@ -62,7 +67,7 @@
                     android:id="@+id/widget_pause"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="14dp"
+                    android:layout_margin="12dp"
                     android:contentDescription="@string/widget_console_pause_desc"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_pause" />
@@ -77,8 +82,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_prev"
-                android:layout_width="62dp"
-                android:layout_height="62dp"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:layout_margin="3dp"
                 android:background="@drawable/widget_cell_bg">
 
@@ -86,7 +91,7 @@
                     android:id="@+id/widget_prev"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="14dp"
+                    android:layout_margin="12dp"
                     android:contentDescription="@string/notif_action_prev"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_notif_prev" />
@@ -94,8 +99,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_next"
-                android:layout_width="62dp"
-                android:layout_height="62dp"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
                 android:layout_margin="3dp"
                 android:background="@drawable/widget_cell_bg">
 
@@ -103,7 +108,7 @@
                     android:id="@+id/widget_next"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="14dp"
+                    android:layout_margin="12dp"
                     android:contentDescription="@string/notif_action_next"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_notif_next" />
@@ -114,7 +119,7 @@
         <LinearLayout
             android:id="@+id/widget_cell_open"
             android:layout_width="match_parent"
-            android:layout_height="62dp"
+            android:layout_height="40dp"
             android:layout_margin="3dp"
             android:background="@drawable/widget_cell_bg"
             android:gravity="center"

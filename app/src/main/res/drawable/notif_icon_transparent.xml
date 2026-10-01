@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知小图标的全透明替身。
+     Android 要求通知必须有 small icon（不给整条通知直接不显示），而 MagicOS 会把它画成正文左边那颗
+     带品牌色的大角标 —— 换成本图后那颗角标看不见。
+     已知代价：状态栏里这条通知的小图标也一起没了（两者是同一个 drawable）。
+     另一条要真机验的路：个别 ROM 在 small icon 解不出可见内容时会回退成应用图标，
+     若真机看到反而冒出应用 logo，就把本文件换回 ic_widget_switch 并改回用图标占位。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <size android:width="1dp" android:height="1dp" />
+    <solid android:color="@android:color/transparent" />
+</shape>

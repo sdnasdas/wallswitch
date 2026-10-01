@@ -16,39 +16,48 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * 常驻「音乐播放器样式」切换通知：下拉通知栏常驻一条，显示当前桌面壁纸库、
- * 正在显示的壁纸标题与缩略图封面、下次自动切换的走秒倒计时，并提供
- * 「上一张 / 下一张」按钮直接切图（{@link NotifActionReceiver}）。
+ * 常驻「音乐播放器样式」切换通知：封面 + 当前这张的标题 + 「范围 · 库名 · 模式 · 每 X」
+ * + 下次切换时间 + 上一张/暂停·继续/下一张三颗键（{@link NotifActionReceiver}）。
  *
- * 为什么自绘 RemoteViews 而不是系统媒体卡片（MediaStyle + MediaSession）：
+ * <h3>桌面与锁屏各一条、各一个渠道</h3>
+ * v3.80 起从"只服务桌面"改成按范围各建一条：两条通知走两个渠道（桌面切换状态 / 锁屏切换状态），
+ * 用户可以在系统通知设置里分别调——例如桌面那条关掉锁屏显示、锁屏那条关掉横幅，
+ * 于是锁屏时只看得到锁屏那条、使用时只看得到桌面那条。哪一面的槽位没库，那一条就不存在（撤掉）。
+ * 桌面渠道的 id 沿用旧的 "home_status" 没改：他已经在旧渠道上调过的设置不能因为升级而失效。
+ *
+ * <h3>为什么自绘 RemoteViews 而不是系统媒体卡片（MediaStyle + MediaSession）</h3>
  * MagicOS 通知栏同时只显示一张媒体卡片——带媒体会话的通知会把音乐 App 的卡挤掉，
  * 而且伪装「正在播放」换进度条还会被系统换成自带暂停键的播放模板、吃掉按钮行。
  * 自绘布局零冲突、按钮常显，观感随深浅色（复用应用自己的 text/divider 颜色）。
  *
- * 下次切换时间用**静态文案**（「预计下次切换时间：15:42」），由切换/改设置时刷新。
- * 早期用走秒 Chronometer：真机实测它每秒唤醒 SystemUI 重绘通知，是持续发热的主要来源，已废弃；
- * 到点未执行（Doze 推迟）时改显「待切换」，与小组件一致。
+ * <h3>固定展开：只给一份视图</h3>
+ * 以前给"收起态 + 展开态"两份，系统在右上角加那个 ⌄ 展开箭头、还得先展开才按得到。
+ * 现在只给 {@code setCustomContentView} 一份完整布局，箭头消失、高度恒定。
  *
- * 为什么常驻（setOngoing）：当前壁纸与切换节奏是用户想随时瞄一眼的状态，
- * 混在「到点通知」的历次记录里会被冲掉；ongoing 不会被一键清理清掉
- * （长按仍可单独移除，移除后由开机/周期任务/回到应用等刷新点自动补回；
- * 荣耀 ROM 的一键清理若仍会清掉，靠同样的刷新点自愈）。
+ * <h3>下次切换时间</h3>
+ * 静态文案（「预计下次切换时间：15:42」），由切换/改设置时刷新。早期用走秒 Chronometer：
+ * 真机实测它每秒唤醒 SystemUI 重绘通知，是持续发热的主要来源，已废弃为默认；
+ * 只有在设置里打开「走秒」开关时才用 Chronometer（与小组件同一个开关 {@code tickingCountdown}）。
  *
- * 只服务桌面范围（与桌面小组件同一套语义）：桌面启用库换人/停用即整条消失。
+ * <h3>为什么常驻（setOngoing）</h3>
+ * 当前壁纸与切换节奏是用户想随时瞄一眼的状态，混在「到点通知」的历次记录里会被冲掉；
+ * ongoing 不会被一键清理清掉（长按仍可单独移除，移除后由开机/周期任务/回到应用等刷新点自动补回）。
  *
- * 与 {@link SwitchNotifier} 互补：那边是「每次切换发一条留痕记录」（独立 id 互不覆盖），
- * 这边是「永远只有一条、内容随状态覆盖更新」（固定 id）。
+ * <p>与 {@link SwitchNotifier} 互补：那边是「每次切换发一条留痕记录」（独立 id 互不覆盖），
+ * 这边是「每个范围永远只有一条、内容随状态覆盖更新」（固定 id）。
  *
- * update() 可在任意线程调用：内部转到单线程后台执行器（缩略图解码是磁盘 IO），
+ * <p>{@code update()} 可在任意线程调用：内部转到单线程后台执行器（两封封面解码都是磁盘 IO），
  * 串行执行保证后到的状态覆盖先到的。
  */
 public class StatusNotifier {
 
-    // 通知渠道 id：常驻状态类通知独立建渠道，IMPORTANCE_LOW 静音不弹横幅
-    private static final String CHANNEL = "home_status";
-    // 固定通知 id（覆盖写）：避开 SwitchNotifier 的 ID_BASE=2000 自增段
-    private static final int NOTIFY_ID = 1500;
-    // 开关存储（与其它设置共用 settings），默认开
+    // 通知渠道 id：桌面沿用旧值（不让已生效的用户设置落空），锁屏新增
+    private static final String CHANNEL_HOME = "home_status";
+    private static final String CHANNEL_LOCK = "lock_status";
+    // 固定通知 id（各自覆盖写）：避开 SwitchNotifier 的 ID_BASE=2000 自增段
+    private static final int NOTIFY_ID_HOME = 1500;
+    private static final int NOTIFY_ID_LOCK = 1501;
+    // 开关存储（与其它设置共用 settings），默认开；一个开关管两条（单独关某一条走系统里的渠道开关）
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "status_notify";
 
@@ -65,7 +74,7 @@ public class StatusNotifier {
                 .getBoolean(KEY_ENABLED, true);
     }
 
-    /** 设置常驻通知开关；关闭时立刻移除已发出的通知。 */
+    /** 设置常驻通知开关；关闭时立刻把两条都撤掉。 */
     public static void setEnabled(Context ctx, boolean enabled) {
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_ENABLED, enabled)
@@ -76,64 +85,80 @@ public class StatusNotifier {
     }
 
     /**
-     * 按当前状态刷新常驻通知：无启用桌面库/开关关 → 移除；否则按最新状态重发（幂等）。
+     * 按当前状态刷新两个范围的常驻通知：该范围没库/开关关 → 撤那一条；否则按最新状态重发（幂等）。
      * 所有成功上屏与触发时间变化的路径都会调它，保证通知始终反映最新状态。
      */
     public static void update(Context ctx) {
         final Context app = ctx.getApplicationContext();
         EXECUTOR.execute(() -> {
-            try {
-                updateNow(app);
-            } catch (Exception ignored) {
-            }
+            // 两条一起刷：桌面切一张时锁屏那条不会自己动，反之也一样
+            //（代价是每次多解一封缩略图，后台线程、几毫秒级，比当年走秒那种每秒重绘低两个量级）
+            safeUpdate(app, true);
+            safeUpdate(app, false);
         });
     }
 
-    private static void updateNow(Context ctx) {
-        if (!isEnabled(ctx)) {
-            cancel(ctx);
-            return;
-        }
-        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm == null || !nm.areNotificationsEnabled()) {
-            return;
-        }
-        ensureChannel(ctx, nm);
-        LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
-        if (lib == null) {
-            cancel(ctx);
-            return;
-        }
+    private static void safeUpdate(Context app, boolean forHome) {
         try {
-            nm.notify(NOTIFY_ID, build(ctx, lib));
+            updateScope(app, forHome);
         } catch (Exception ignored) {
         }
     }
 
-    /** 构建通知：标题=当前壁纸标题、副行=库名+走秒倒计时，封面=缩略图，按钮=上一张/下一张。 */
-    private static Notification build(Context ctx, LibraryStore.Library lib) {
-        String currentId = Switcher.getCurrent(ctx, lib.id, true);
+    private static void updateScope(Context ctx, boolean forHome) {
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) {
+            return;
+        }
+        if (!isEnabled(ctx) || !nm.areNotificationsEnabled()) {
+            // 开关关了或系统通知总闸关了：把这一条撤掉，别留一条停在过去某时刻的僵尸卡
+            nm.cancel(notifyId(forHome));
+            return;
+        }
+        ensureChannel(ctx, nm, forHome);
+        LibraryStore.Library lib = LibraryStore.slotLib(ctx, forHome);
+        if (lib == null) {
+            nm.cancel(notifyId(forHome));
+            return;
+        }
+        nm.notify(notifyId(forHome), build(ctx, forHome, lib));
+    }
+
+    private static int notifyId(boolean forHome) {
+        return forHome ? NOTIFY_ID_HOME : NOTIFY_ID_LOCK;
+    }
+
+    private static String channel(boolean forHome) {
+        return forHome ? CHANNEL_HOME : CHANNEL_LOCK;
+    }
+
+    /** 移除两条常驻通知（开关关闭时调用）。 */
+    public static void cancel(Context ctx) {
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) {
+            return;
+        }
+        nm.cancel(NOTIFY_ID_HOME);
+        nm.cancel(NOTIFY_ID_LOCK);
+    }
+
+    /** 构建某范围的通知：一份完整视图（固定展开），小图标用全透明替身（见 notif_icon_transparent）。 */
+    private static Notification build(Context ctx, boolean forHome, LibraryStore.Library lib) {
+        String currentId = Switcher.getCurrent(ctx, lib.id, forHome);
         String title = currentId == null ? null : WallpaperStore.getTitle(ctx, currentId);
         if (title == null || title.isEmpty()) {
             title = ctx.getString(R.string.untitled);
         }
         Bitmap cover = currentId == null ? null : WallpaperStore.getThumb(ctx, currentId);
-        // 收起态与展开态共用一套内容：收起显示小图标按钮（高度受限），展开换成大按钮
-        RemoteViews collapsed = buildViews(ctx, lib, title, cover);
-        collapsed.setViewVisibility(R.id.notif_icon_actions, View.VISIBLE);
-        collapsed.setViewVisibility(R.id.notif_pill_actions, View.GONE);
-        RemoteViews expanded = buildViews(ctx, lib, title, cover);
-        expanded.setViewVisibility(R.id.notif_icon_actions, View.GONE);
-        expanded.setViewVisibility(R.id.notif_pill_actions, View.VISIBLE);
+        RemoteViews views = buildViews(ctx, forHome, lib, title, cover);
         Intent open = new Intent(ctx, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPending = PendingIntent.getActivity(ctx, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        // DecoratedCustomViewStyle：让系统包一层标准头部（应用名等），正文用我们的布局
-        return new Notification.Builder(ctx, CHANNEL)
-                .setSmallIcon(R.drawable.ic_widget_switch)
-                .setCustomContentView(collapsed)
-                .setCustomBigContentView(expanded)
+        // DecoratedCustomViewStyle：让系统包一层标准头部，正文用我们的布局
+        return new Notification.Builder(ctx, channel(forHome))
+                .setSmallIcon(R.drawable.notif_icon_transparent)
+                .setCustomContentView(views)
                 .setStyle(new Notification.DecoratedCustomViewStyle())
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -143,26 +168,51 @@ public class StatusNotifier {
                 .build();
     }
 
-    /**
-     * 构建通知正文视图（收起/展开两份共用）：内容一致，只有按钮形态由调用方切换。
-     * RemoteViews 不带主题，文字颜色直接引用应用颜色资源（自带 values-night 夜间变体）。
-     */
-    private static RemoteViews buildViews(Context ctx, LibraryStore.Library lib,
+    /** 通知正文视图：封面 + 标题 + 范围/库/模式/间隔 + 下次切换时间 + 三颗键。 */
+    private static RemoteViews buildViews(Context ctx, boolean forHome, LibraryStore.Library lib,
             String title, Bitmap cover) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.notification_status);
         views.setTextViewText(R.id.notif_title, title);
-        views.setTextViewText(R.id.notif_lib, lib.name == null ? "" : lib.name);
+        views.setTextViewText(R.id.notif_lib, summaryLine(ctx, forHome, lib));
         if (cover != null) {
             views.setImageViewBitmap(R.id.notif_cover, cover);
+            views.setViewVisibility(R.id.notif_cover, View.VISIBLE);
         } else {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        // 下次切换时间：走秒模式用 Chronometer 倒计时，静态模式填「预计下次切换时间：15:42」。
-        // 样式开关两处（通知/小组件）共用 TimerScheduler.tickingCountdown，保证显示与设置一致。
-        long trigger = TimerScheduler.scopeTrigger(ctx, true);
+        bindTimerLine(ctx, views, forHome);
+        boolean paused = LibraryStore.slotPaused(ctx, forHome);
+        views.setImageViewResource(R.id.notif_pause,
+                paused ? R.drawable.ic_play : R.drawable.ic_pause);
+        // 图标是黑色 vector，RemoteViews 不走主题 tint，手动按深浅色染成正文色
+        int tint = ctx.getColor(R.color.text_primary);
+        views.setInt(R.id.notif_prev, "setColorFilter", tint);
+        views.setInt(R.id.notif_pause, "setColorFilter", tint);
+        views.setInt(R.id.notif_next, "setColorFilter", tint);
+        views.setOnClickPendingIntent(R.id.notif_prev, actionPending(ctx, 1,
+                NotifActionReceiver.ACTION_PREV, forHome));
+        views.setOnClickPendingIntent(R.id.notif_pause, actionPending(ctx, 3,
+                NotifActionReceiver.ACTION_PAUSE, forHome));
+        views.setOnClickPendingIntent(R.id.notif_next, actionPending(ctx, 2,
+                NotifActionReceiver.ACTION_NEXT, forHome));
+        return views;
+    }
+
+    /** 「范围 · 库名 · 模式 · 每 X」一行（范围写在最前：两条通知长得很像，靠它分辨）。 */
+    private static String summaryLine(Context ctx, boolean forHome, LibraryStore.Library lib) {
+        boolean random = LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome));
+        return ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock)
+                + " · " + (lib.name == null ? "" : lib.name)
+                + " · " + ctx.getString(random ? R.string.mode_random : R.string.mode_order)
+                + " · " + ctx.getString(R.string.slot_every_prefix)
+                + intervalText(LibraryStore.scopeIntervalSeconds(ctx, forHome));
+    }
+
+    /** 时间那一行：暂停中直说"已暂停"，否则走秒倒计时或静态「预计下次切换时间：HH:mm」。 */
+    private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome) {
+        long trigger = TimerScheduler.scopeTrigger(ctx, forHome);
         long now = System.currentTimeMillis();
-        if (LibraryStore.slotPaused(ctx, true)) {
-            // 通知这条是桌面那面的状态：暂停就直说，别继续挂着几天前算出来的时刻
+        if (LibraryStore.slotPaused(ctx, forHome)) {
             views.setViewVisibility(R.id.notif_timer, View.GONE);
             views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
             views.setTextViewText(R.id.notif_waiting, ctx.getString(R.string.slot_paused_label));
@@ -182,41 +232,39 @@ public class StatusNotifier {
             views.setViewVisibility(R.id.notif_timer, View.GONE);
             views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
         }
-        // 图标是黑色 vector，RemoteViews 不走主题 tint，手动按深浅色染成正文色
-        int tint = ctx.getColor(R.color.text_primary);
-        views.setInt(R.id.notif_prev_ic, "setColorFilter", tint);
-        views.setInt(R.id.notif_next_ic, "setColorFilter", tint);
-        // 上一张/下一张：两种形态的按钮挂同一组 PendingIntent
-        PendingIntent prev = actionPending(ctx, NotifActionReceiver.ACTION_PREV, 1);
-        PendingIntent next = actionPending(ctx, NotifActionReceiver.ACTION_NEXT, 2);
-        views.setOnClickPendingIntent(R.id.notif_prev_ic, prev);
-        views.setOnClickPendingIntent(R.id.notif_next_ic, next);
-        views.setOnClickPendingIntent(R.id.notif_prev_pill, prev);
-        views.setOnClickPendingIntent(R.id.notif_next_pill, next);
-        return views;
     }
 
-    /** 上一张/下一张按钮的广播 PendingIntent（接收在 NotifActionReceiver）。 */
-    private static PendingIntent actionPending(Context ctx, String action, int requestCode) {
+    /** 间隔的中文读法（与 App 内卡片那行一致：整分钟说「30分钟」，带秒说「1分30秒」）。 */
+    private static String intervalText(int seconds) {
+        if (seconds >= 60 && seconds % 60 == 0) {
+            return (seconds / 60) + "分钟";
+        }
+        if (seconds >= 60) {
+            return (seconds / 60) + "分" + (seconds % 60) + "秒";
+        }
+        return seconds + "秒";
+    }
+
+    /**
+     * 三颗键的广播 PendingIntent（接收在 NotifActionReceiver）。
+     * requestCode 必须「动作 × 范围」各占一个：两条通知的 prev 若共用一个号，
+     * FLAG_UPDATE_CURRENT 会让后建的那条把前一条的 extras 覆盖掉，锁屏的键就去切桌面了。
+     */
+    private static PendingIntent actionPending(Context ctx, int actionCode, String action, boolean forHome) {
         Intent intent = new Intent(ctx, NotifActionReceiver.class);
         intent.setAction(action);
-        return PendingIntent.getBroadcast(ctx, requestCode, intent,
+        intent.putExtra(NotifActionReceiver.EXTRA_FOR_HOME, forHome);
+        return PendingIntent.getBroadcast(ctx, actionCode + (forHome ? 0 : 10), intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** 移除常驻通知（开关关闭/无启用桌面库时调用）。 */
-    public static void cancel(Context ctx) {
-        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) {
-            nm.cancel(NOTIFY_ID);
-        }
-    }
-
-    /** 创建通知渠道（幂等，重复创建同 id 不会重置用户改动过的重要性）。 */
-    private static void ensureChannel(Context ctx, NotificationManager nm) {
-        NotificationChannel channel = new NotificationChannel(CHANNEL,
-                ctx.getString(R.string.notify_channel_status), NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription(ctx.getString(R.string.notify_channel_status_desc));
+    /** 创建两个渠道（幂等，重复创建同 id 不会重置用户改动过的重要性/锁屏/横幅设置）。 */
+    private static void ensureChannel(Context ctx, NotificationManager nm, boolean forHome) {
+        NotificationChannel channel = new NotificationChannel(channel(forHome),
+                ctx.getString(forHome ? R.string.notify_channel_status : R.string.notify_channel_status_lock),
+                NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription(ctx.getString(forHome
+                ? R.string.notify_channel_status_desc : R.string.notify_channel_status_lock_desc));
         try {
             nm.createNotificationChannel(channel);
         } catch (Exception ignored) {

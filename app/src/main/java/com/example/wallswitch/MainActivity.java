@@ -976,8 +976,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 常驻切换通知开关：通知栏常驻一条「音乐播放器样式」的状态通知（库名+壁纸+倒计时+上一张/下一张）。
-     * 打开时同样先确保通知可用；打开后立刻按当前状态补发一条。
+     * 常驻切换通知开关：通知栏按范围常驻「音乐播放器样式」的状态通知 —— 桌面与锁屏各一条
+     * （封面 + 壁纸标题 + 范围/库名/模式/间隔 + 下次切换时间 + 上一张/暂停·继续/下一张）。
+     * 一个开关管两条；只想关其中一条，去系统通知设置里按渠道关（渠道名：桌面切换状态 / 锁屏切换状态）。
+     * 打开时同样先确保通知可用；打开后立刻按当前状态补发。
      */
     private void setupStatusNotifySwitch() {
         CompoundButton swStatus = findViewById(R.id.sw_status_notify);

@@ -45,7 +45,8 @@
     <!-- 小组件名：小组件列表里显示的就是这一条（1×1 以前没配 label，显示的是应用名，
          加了控制台之后两个同名分不清，所以两边各起一个） -->
     <string name="widget_label">切换 1×1</string>
-    <string name="widget_console_label">控制台 2×3</string>
+    <!-- 名字里不带尺寸：格位随观感调过两回（2×2 → 2×3 → 缩回 2×2），写进名字迟早对不上 -->
+    <string name="widget_console_label">控制台</string>
     <string name="widget_console_desc">换库 · 暂停 · 上一张 · 下一张 · 进入 App（只作用桌面这一面）</string>
     <string name="widget_console_thumb_desc">当前壁纸，点按选择壁纸库</string>
     <string name="widget_console_pause_desc">暂停或继续桌面的自动切换</string>
@@ -285,10 +286,15 @@
     <string name="battery_state_on">已允许</string>
     <string name="battery_state_off">未允许 · 点按设置</string>
 
-    <!-- v3.19：常驻切换通知（音乐播放器样式：库名+壁纸标题+倒计时+上一张/下一张） -->
+    <!-- v3.19：常驻切换通知（音乐播放器样式：库名+壁纸标题+倒计时+上一张/下一张）
+         v3.80 起拆成两条：桌面与锁屏各一条、各一个渠道，好在系统通知设置里分别调
+         （例如桌面那条关锁屏显示、锁屏那条关横幅） -->
     <string name="status_notify_enabled">常驻切换通知</string>
-    <string name="notify_channel_status">常驻切换通知</string>
-    <string name="notify_channel_status_desc">常驻显示当前桌面壁纸与下次自动切换倒计时（静音、不被一键清理）</string>
+    <string name="notify_channel_status">桌面切换状态</string>
+    <string name="notify_channel_status_desc">常驻显示桌面当前壁纸与下次自动切换时间，带上一张/暂停/下一张（静音、不被一键清理）</string>
+    <string name="notify_channel_status_lock">锁屏切换状态</string>
+    <string name="notify_channel_status_lock_desc">常驻显示锁屏当前壁纸与下次自动切换时间，带上一张/暂停/下一张（静音、不被一键清理）</string>
+    <string name="notif_action_pause_desc">暂停或继续这一面的自动切换</string>
     <string name="notif_action_prev">上一张</string>
     <string name="notif_action_next">下一张</string>
     <string name="notif_cover_desc">当前壁纸封面</string>

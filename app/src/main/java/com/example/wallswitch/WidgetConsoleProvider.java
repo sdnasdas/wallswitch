@@ -67,10 +67,11 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 第三行那条「进入 App」
     private static final int REQ_OPEN_APP = 15;
 
-    // 缩略图边长：布局里格子写死 62dp（≈ 荣耀桌面图标大小），这里按同一档取像素并硬夹上限。
+    // 缩略图边长：与布局里写死的格子同宽（52dp，见 widget_console.xml 顶部：62dp 那版在真机上
+    // 被 2 行高的槽位切掉了底部那条，整卡缩到 130×170dp）。再硬夹上限。
     // 不能直接用 WallpaperStore.getThumb() 的结果 —— 那是 384~768px 正方形（解码出来 0.6~2.3MB），
     // 而 RemoteViews 经 Binder 递交、单次事务约 1MB，超了的表现是小组件静默不更新（不报错）
-    private static final int THUMB_CELL_DP = 62;
+    private static final int THUMB_CELL_DP = 52;
     private static final int THUMB_MIN_PX = 96;
     private static final int THUMB_MAX_PX = 192;
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）

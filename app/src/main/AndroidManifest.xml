@@ -60,8 +60,8 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
-        <!-- 控制台小组件：四格 = 换库（缩略图）/ 暂停 / 上一张 / 下一张，只作用桌面这一面。
-             与 1×1 是两个独立入口（各一份 widget_info），1×1 的行为一点没动 -->
+        <!-- 控制台小组件：上两行四格 = 换库（缩略图）/ 暂停 / 上一张 / 下一张，第三行一条 = 进入 App，
+             动作只作用桌面这一面。与 1×1 是两个独立入口（各一份 widget_info），1×1 的行为一点没动 -->
         <receiver
             android:name=".WidgetConsoleProvider"
             android:exported="false"

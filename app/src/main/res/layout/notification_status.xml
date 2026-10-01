@@ -1,25 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 常驻切换通知的自绘布局。为什么不用系统媒体卡片：MagicOS 通知栏同时只显示一张
-     媒体卡片，用 MediaStyle 会把音乐 App 的卡挤掉，自绘 RemoteViews 无此冲突。
-     收起/展开共用本布局：收起=紧凑单行（图标按钮），展开=多一行大文字按钮。 -->
+<!-- 常驻切换通知的自绘布局（播放器样式，固定展开）。
+     为什么不用系统媒体卡片：MagicOS 通知栏同时只显示一张媒体卡片，用 MediaStyle 会把音乐 App 的卡挤掉。
+
+     为什么只有一份视图：以前给"收起态 + 展开态"两份（setCustomBigContentView），系统就在右上角加那个
+     ⌄ 展开箭头。现在只给一份完整布局 → 箭头消失、通知永远这个高度，不再需要"先展开才能按"。
+
+     桌面与锁屏各一条通知，共用本布局（StatusNotifier 按范围建两条、走两个渠道），
+     只有文案与三颗键的目标不同。三颗键的图标颜色由代码 setColorFilter 现挑（RemoteViews 不带主题）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/notif_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <!-- 第一行：封面 + 当前这张的标题 + 「范围 · 库名 · 模式 · 每 X」 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingHorizontal="12dp"
-        android:paddingVertical="10dp">
+        android:paddingTop="10dp">
 
         <ImageView
             android:id="@+id/notif_cover"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:contentDescription="@string/notif_cover_desc"
             android:scaleType="centerCrop" />
 
@@ -40,98 +46,83 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/notif_lib"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/notif_lib"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-
-                <!-- Chronometer（TextView 子类）：走秒模式当倒计时用，静态模式用 setTextViewText 填时间 -->
-                <Chronometer
-                    android:id="@+id/notif_timer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/notif_waiting"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/widget_waiting"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- 收起态按钮：小图标（收起高度放不下大按钮） -->
-        <LinearLayout
-            android:id="@+id/notif_icon_actions"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <ImageView
-                android:id="@+id/notif_prev_ic"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:contentDescription="@string/notif_action_prev"
-                android:padding="6dp"
-                android:src="@drawable/ic_notif_prev" />
-
-            <ImageView
-                android:id="@+id/notif_next_ic"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:contentDescription="@string/notif_action_next"
-                android:padding="6dp"
-                android:src="@drawable/ic_notif_next" />
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 展开态按钮：两个大文字按钮（收起态隐藏，图标按钮隐藏） -->
+    <!-- 第二行：下次切换时间。Chronometer 只在"走秒"开关打开时当倒计时用，
+         静态模式下用 setTextViewText 填「预计下次切换时间：21:45」；两者互斥，靠代码切可见性 -->
     <LinearLayout
-        android:id="@+id/notif_pill_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="6dp">
+
+        <Chronometer
+            android:id="@+id/notif_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/notif_waiting"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_waiting"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 第三行：上一张 / 暂停·继续 / 下一张。三颗键各占 1/3 宽、整块可点（图标只有 24dp，
+         留白算进触控区才按得到）；中间那颗是主键，位置与播放器一致 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingHorizontal="12dp"
-        android:paddingBottom="12dp"
-        android:visibility="gone">
+        android:paddingHorizontal="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="8dp">
 
-        <TextView
-            android:id="@+id/notif_prev_pill"
+        <ImageView
+            android:id="@+id/notif_prev"
             android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_marginEnd="6dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
-            android:background="@drawable/notif_pill_bg"
-            android:gravity="center"
-            android:text="@string/notif_action_prev"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:contentDescription="@string/notif_action_prev"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_notif_prev" />
 
-        <TextView
-            android:id="@+id/notif_next_pill"
+        <ImageView
+            android:id="@+id/notif_pause"
             android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="6dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
-            android:background="@drawable/notif_pill_bg"
-            android:gravity="center"
-            android:text="@string/notif_action_next"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:contentDescription="@string/notif_action_pause_desc"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_pause" />
+
+        <ImageView
+            android:id="@+id/notif_next"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:contentDescription="@string/notif_action_next"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_notif_next" />
     </LinearLayout>
 </LinearLayout>
