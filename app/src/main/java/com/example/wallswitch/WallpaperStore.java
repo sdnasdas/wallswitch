@@ -29,7 +29,9 @@ import java.util.UUID;
  * - wallpapers/ 全图，文件名 &lt;uuid&gt;.jpg（无损 PNG，不再二次压缩）
  * - thumbs/     缩略图，同名，最长边 256px
  * - inbox/      待编辑收件箱，文件名 &lt;uuid&gt;，保留原始字节
+ * - originals/  原图（重复调整的源），文件名 &lt;uuid&gt;，保留原始字节；历史数据可能没有
  * 元数据：filesDir/library.json，JSON 数组，每个元素 {"id":"&lt;uuid&gt;","home":true,"lock":true}
+ * 条目另可带 src_w/src_h/crop_l/crop_t/crop_r/crop_b —— 上次成品图在原图坐标下的裁剪矩形
  */
 public class WallpaperStore {
 
@@ -37,6 +39,9 @@ public class WallpaperStore {
     private static final String DIR_FULL = "wallpapers";
     private static final String DIR_THUMB = "thumbs";
     private static final String DIR_INBOX = "inbox";
+    // 原图目录：用户从相册选的那张的原始字节，重复调整的源。文件名跟 id 一样、不带扩展名 ——
+    // 读它的一方（BitmapFactory / BitmapRegionDecoder）都靠嗅探格式，不用扩展名猜
+    private static final String DIR_ORIGINAL = "originals";
     // 元数据文件名
     private static final String LIB_FILE = "library.json";
     // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
@@ -80,6 +85,20 @@ public class WallpaperStore {
         public String libId;
         // 壁纸标题：默认取导入时的原文件名（去扩展名），可在预览弹窗里改；历史数据可能为空
         public String title;
+        // 上次成品图是从原图的哪块矩形导出的。坐标一律是**原图像素坐标**，与导出用的区域解码同一套，
+        // 不另立归一化约定 —— 少一次换算就少一处能错的地方。
+        // srcWidth/srcHeight <= 0 就是「没有参数」，此时那四个 crop 值不参与任何判断。
+        public int srcWidth;
+        public int srcHeight;
+        public float cropLeft;
+        public float cropTop;
+        public float cropRight;
+        public float cropBottom;
+
+        /** 有没有可复原的构图参数（尺寸有效 + 矩形不退化）。 */
+        public boolean hasCropRect() {
+            return srcWidth > 0 && srcHeight > 0 && cropRight > cropLeft && cropBottom > cropTop;
+        }
     }
 
     /** 从 library.json 读取壁纸库列表，文件不存在时返回空列表。 */
@@ -102,6 +121,13 @@ public class WallpaperStore {
                 item.id = obj.getString("id");
                 item.libId = obj.optString("lib_id", "");
                 item.title = obj.optString("title", "");
+                // 裁剪矩形：旧文件/旧包读不出就是 0，按「没有参数」处理
+                item.srcWidth = obj.optInt("src_w", 0);
+                item.srcHeight = obj.optInt("src_h", 0);
+                item.cropLeft = (float) obj.optDouble("crop_l", 0d);
+                item.cropTop = (float) obj.optDouble("crop_t", 0d);
+                item.cropRight = (float) obj.optDouble("crop_r", 0d);
+                item.cropBottom = (float) obj.optDouble("crop_b", 0d);
                 result.add(item);
             }
         } catch (Exception ignored) {
@@ -138,6 +164,35 @@ public class WallpaperStore {
         item.id = id;
         item.title = title;
         return item;
+    }
+
+    /**
+     * 给一张已入库的存量壁纸补原图：把相册 URI 的原始字节复制进 originals/&lt;id&gt;。
+     * 只服务历史数据 —— 新导入的走 confirmImport 里的移动，不需要这个动作。
+     * 复制失败（授权失效、流断了）返回 false 并清掉半截文件，绝不留下一个「存在但解不开」的原图。
+     */
+    public static boolean linkOriginal(Context context, String id, Uri uri) {
+        if (id == null || id.isEmpty() || uri == null) {
+            return false;
+        }
+        File target = getOriginalFile(context, id);
+        try {
+            target.getParentFile().mkdirs();
+        } catch (Exception ignored) {
+        }
+        try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                return false;
+            }
+            Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return target.isFile() && target.length() > 0L;
+        } catch (Exception | OutOfMemoryError e) {
+            try {
+                Files.deleteIfExists(target.toPath());
+            } catch (Exception ignored) {
+            }
+            return false;
+        }
     }
 
     /** 读取相册 URI 的原始文件名（OpenableColumns.DISPLAY_NAME），读不到返回空串。 */
@@ -211,7 +266,40 @@ public class WallpaperStore {
         return "";
     }
 
-    /** 确认导入：保存全图与缩略图、按所属壁纸库追加元数据，并删除收件箱原文件。 */
+    /**
+     * 记下这次成品图是从原图的哪块矩形导出的（原图像素坐标），供下次进编辑页复原取景框。
+     * 只在「本次编辑的源确实是原图」时调用：源是成品图时那块矩形的坐标意义是成品图坐标，
+     * 跟 src_w/src_h 想记的原图尺寸不同源，读回来会给出错误构图。
+     * 读-改-写整份 library.json：这条只有编辑页确认那一下触发，属用户手速级并发，不额外加锁。
+     */
+    public static void saveCropRect(Context context, String id, int srcWidth, int srcHeight,
+                                    float left, float top, float right, float bottom) {
+        if (id == null || id.isEmpty() || srcWidth <= 0 || srcHeight <= 0) {
+            return;
+        }
+        try {
+            List<Item> items = load(context);
+            boolean changed = false;
+            for (Item item : items) {
+                if (!item.id.equals(id)) {
+                    continue;
+                }
+                item.srcWidth = srcWidth;
+                item.srcHeight = srcHeight;
+                item.cropLeft = left;
+                item.cropTop = top;
+                item.cropRight = right;
+                item.cropBottom = bottom;
+                changed = true;
+            }
+            if (changed) {
+                saveLibrary(context, items);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 确认导入：保存成品图与缩略图、按所属壁纸库追加元数据，并把收件箱那份原图搬进 originals/。 */
     public static Item confirmImport(Context context, String inboxId, Bitmap edited, String libId) throws Exception {
         Bitmap bitmap = edited;
         if (bitmap == null) {
@@ -252,11 +340,19 @@ public class WallpaperStore {
             } catch (Exception ignored) {
             }
         }, "wallpaper-export").start();
-        // 删除收件箱原文件：元数据已写完，此时删除失败不应让调用方误报「保存失败」
+        // 原图搬进 originals/ 长期留存（重复调整的源）：用移动而不是复制，省一次全量 IO，
+        // 也不会让收件箱留下已经入库的孤儿文件。搬不走（极少数 ROM 的权限限制）就退回原来的
+        // 删除语义 —— 元数据与成品图此时都已落盘，这一步失败不该让调用方误报「保存失败」。
+        File inboxFile = getInboxFile(context, inboxId);
+        File originalFile = getOriginalFile(context, id);
         try {
-            File inboxFile = getInboxFile(context, inboxId);
-            Files.deleteIfExists(inboxFile.toPath());
-        } catch (Exception ignored) {
+            originalFile.getParentFile().mkdirs();
+            Files.move(inboxFile.toPath(), originalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception | OutOfMemoryError e) {
+            try {
+                Files.deleteIfExists(inboxFile.toPath());
+            } catch (Exception ignored) {
+            }
         }
         return item;
     }
@@ -322,6 +418,8 @@ public class WallpaperStore {
             File thumbFile = getThumbFile(context, id);
             deleteFullFiles(context, id);
             Files.deleteIfExists(thumbFile.toPath());
+            // 原图跟着条目一起走，否则留下的孤儿文件既占地方（几百 KB～几 MB）又再也认不回来
+            Files.deleteIfExists(getOriginalFile(context, id).toPath());
             List<Item> items = load(context);
             List<Item> remain = new ArrayList<>();
             for (Item item : items) {
@@ -358,6 +456,7 @@ public class WallpaperStore {
                 if (libId.equals(item.libId)) {
                     deleteFullFiles(context, item.id);
                     Files.deleteIfExists(getThumbFile(context, item.id).toPath());
+                    Files.deleteIfExists(getOriginalFile(context, item.id).toPath());
                 } else {
                     remain.add(item);
                 }
@@ -571,6 +670,20 @@ public class WallpaperStore {
         return new File(dir, inboxId);
     }
 
+    /** 某张壁纸的原图文件（可能不存在：历史数据没留存，或 confirmImport 那一步移动失败）。 */
+    public static File getOriginalFile(Context context, String id) {
+        return new File(new File(context.getFilesDir(), DIR_ORIGINAL), id);
+    }
+
+    /** 原图在不在。空文件按「没有」算 —— 那是复制中断的半截文件，解不开也裁不了。 */
+    public static boolean hasOriginal(Context context, String id) {
+        if (id == null || id.isEmpty()) {
+            return false;
+        }
+        File f = getOriginalFile(context, id);
+        return f.isFile() && f.length() > 0L;
+    }
+
     /** 获取某张壁纸的缩略图文件。 */
     private static File getThumbFile(Context context, String id) {
         File dir = new File(context.getFilesDir(), DIR_THUMB);
@@ -709,6 +822,16 @@ public class WallpaperStore {
         return Bitmap.createScaledBitmap(src, newW, newH, true);
     }
 
+    /** 整表写回 library.json。BackupStore 还原时也走这里，保证字段序列化只有一处定义。 */
+    public static void saveItems(Context context, List<Item> items) throws Exception {
+        saveLibrary(context, items);
+    }
+
+    /** 矩形坐标保留两位小数：0.01 像素的精度对复原取景框足够，又不至于让 library.json 啰嗦。 */
+    private static double round2(float v) {
+        return Math.round(v * 100d) / 100d;
+    }
+
     /** 把列表写回 library.json（原子写：临时文件刷盘后 rename，不再有半截状态）。 */
     private static void saveLibrary(Context context, List<Item> items) throws Exception {
         JSONArray arr = new JSONArray();
@@ -717,6 +840,16 @@ public class WallpaperStore {
             obj.put("id", item.id);
             obj.put("lib_id", item.libId == null ? "" : item.libId);
             obj.put("title", item.title == null ? "" : item.title);
+            // 有参数才写这六个键：老条目读出来 srcWidth=0，写回时不带，文件不虚胖；
+            // 旧版本读到不认识的键会直接忽略，所以降级回滚不会崩
+            if (item.hasCropRect()) {
+                obj.put("src_w", item.srcWidth);
+                obj.put("src_h", item.srcHeight);
+                obj.put("crop_l", round2(item.cropLeft));
+                obj.put("crop_t", round2(item.cropTop));
+                obj.put("crop_r", round2(item.cropRight));
+                obj.put("crop_b", round2(item.cropBottom));
+            }
             arr.put(obj);
         }
         MetaFiles.writeJson(context, LIB_FILE, arr.toString());

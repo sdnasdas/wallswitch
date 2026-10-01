@@ -47,6 +47,49 @@
             android:textColor="@android:color/white"
             android:textSize="12sp" />
 
+        <!-- 重复调整的原图状态条：只有「没原图 / 原图换过 / 刚关联」这三种情况才出现，
+             位置排在操作提示胶囊下方（胶囊约 10dp + 24dp 高，这里留 52dp 顶距免得叠住） -->
+        <LinearLayout
+            android:id="@+id/edit_notice_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="52dp"
+            android:background="@drawable/overlay_pill_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_edit_notice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <!-- 「关联原图」用 TextView 而不是 MaterialButton：这条浮在成品图之上，
+                 按钮样式（Material3 那套）要引资源，本地类型检查查不出引错的样式名，
+                 等 CI 才炸；这里只要一个能点的小链接 -->
+            <TextView
+                android:id="@+id/btn_link_original"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:paddingStart="6dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="4dp"
+                android:text="@string/edit_link_original"
+                android:textColor="@color/brand"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <!-- 加载中：源图解码放在后台线程（解的是像素预算内最大的那张，主线程做会卡住页面） -->
         <LinearLayout
             android:id="@+id/loading_box"

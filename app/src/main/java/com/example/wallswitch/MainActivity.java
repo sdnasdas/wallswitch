@@ -2434,7 +2434,7 @@ public class MainActivity extends AppCompatActivity {
                         .putLong("backup_last_at", System.currentTimeMillis()).apply();
                 refreshBackupRow();
                 Toast.makeText(this, getString(R.string.backup_done, r.name, r.entries,
-                        r.images, r.thumbs), Toast.LENGTH_LONG).show();
+                        r.images, r.originals, r.thumbs), Toast.LENGTH_LONG).show();
             });
         }, "lib-backup").start();
     }
@@ -2468,7 +2468,7 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage(getString(R.string.restore_confirm,
                         m.backupTime == null || m.backupTime.isEmpty() ? "未知" : m.backupTime,
                         m.appVersion == null || m.appVersion.isEmpty() ? "未知" : m.appVersion,
-                        m.libraryItems, m.images, m.thumbs, m.bytes / (1024 * 1024), local))
+                        m.libraryItems, m.images, m.originals, m.thumbs, m.bytes / (1024 * 1024), local))
                 .setPositiveButton(R.string.restore_go, (dialog, which) -> runRestore(uri))
                 .setNegativeButton(R.string.cancel, null)
                 .show();

@@ -34,7 +34,8 @@ import java.util.zip.ZipFile;
  * - prefs/settings.xml            槽位→库、间隔、锚点、暂停标记、当前指针与历史、配色、各类开关、更新源地址…
  *   prefs/wallswitch.xml          检查更新的状态
  * - library.json / libraries.json 每张壁纸的 id/库/标题、库列表本身
- * - wallpapers/*.{png,jpg}        全图原始字节（不解码不重压）
+ * - wallpapers/*.{png,jpg}        成品图原始字节（不解码不重压）
+ * - originals/*                 原图原始字节：重复调整的源。v3.8x 之前的包没这条，还原时跳过
  * - thumbs/*.jpg                  缩略图：派生数据但一定要带 —— 缺了的话冷路径在 UI 线程解全图
  *                                  （onBindViewHolder → thumbFor → getThumb），还原后第一次进列表是一帧冻几百毫秒
  * - launcher_overlay.png          桌面图标预览底图，用户自制，重造不出来
@@ -56,6 +57,8 @@ public final class BackupStore {
     private static final String KEY_DUMP_SEQ = "meta_dump_seq";
     private static final String DIR_IN_ZIP = "wallpapers/";
     private static final String THUMB_DIR_IN_ZIP = "thumbs/";
+    // 原图（重复调整的源）。v3.8x 之前的包没这个目录，还原时读到就跳过 —— 不能因为缺它而报错
+    private static final String ORIGINAL_DIR_IN_ZIP = "originals/";
     private static final String PREFS_DIR_IN_ZIP = "prefs/";
 
     private BackupStore() {
@@ -65,6 +68,7 @@ public final class BackupStore {
     public static final class BackupResult {
         public String name;
         public int images;
+        public int originals;
         public int thumbs;
         public int entries;
         public String error;
@@ -73,6 +77,7 @@ public final class BackupStore {
     /** 包里的现场（还原前给用户看一眼，别盲覆盖现有库）。 */
     public static final class Manifest {
         public int images;
+        public int originals;
         public int thumbs;
         public int libraryItems;
         public int libraries;
@@ -111,16 +116,21 @@ public final class BackupStore {
                     context.getContentResolver().openOutputStream(doc, "wt"));
             // 内容清单先算一次，好写进 manifest
             java.util.List<File> images = listFiles(new File(context.getFilesDir(), "wallpapers"));
+            java.util.List<File> originals = listFiles(new File(context.getFilesDir(), "originals"));
             java.util.List<File> thumbs = listFiles(new File(context.getFilesDir(), "thumbs"));
             r.images = images.size();
+            r.originals = originals.size();
             r.thumbs = thumbs.size();
             r.entries = WallpaperStore.load(context).size();
 
-            writeManifest(context, zout, r, images, thumbs);
+            writeManifest(context, zout, r, images, thumbs, originals);
             writeFile(zout, new File(context.getFilesDir(), "library.json"), "library.json");
             writeFile(zout, new File(context.getFilesDir(), "libraries.json"), "libraries.json");
             for (File f : images) {
                 writeFile(zout, f, DIR_IN_ZIP + f.getName());
+            }
+            for (File f : originals) {
+                writeFile(zout, f, ORIGINAL_DIR_IN_ZIP + f.getName());
             }
             for (File f : thumbs) {
                 writeFile(zout, f, THUMB_DIR_IN_ZIP + f.getName());
@@ -167,6 +177,8 @@ public final class BackupStore {
                 String n = e.getName();
                 if (n.startsWith(DIR_IN_ZIP) && !n.equals(DIR_IN_ZIP)) {
                     m.images++;
+                } else if (n.startsWith(ORIGINAL_DIR_IN_ZIP)) {
+                    m.originals++;
                 } else if (n.startsWith(THUMB_DIR_IN_ZIP)) {
                     m.thumbs++;
                 } else if (n.equals("library.json")) {
@@ -203,6 +215,7 @@ public final class BackupStore {
         try {
             zip = new ZipFile(tmp);
             new File(context.getFilesDir(), "wallpapers").mkdirs();
+            new File(context.getFilesDir(), "originals").mkdirs();
             new File(context.getFilesDir(), "thumbs").mkdirs();
             java.util.Enumeration<? extends ZipEntry> es = zip.entries();
             while (es.hasMoreElements()) {
@@ -214,6 +227,9 @@ public final class BackupStore {
                 if (n.startsWith(DIR_IN_ZIP)) {
                     extract(context, zip, e, new File(context.getFilesDir(), "wallpapers"), safeName(n));
                     r.images++;
+                } else if (n.startsWith(ORIGINAL_DIR_IN_ZIP)) {
+                    // 原图落回同名文件；老包不会走到这条分支（缺原图只是以后不能重复调整，不是错误）
+                    extract(context, zip, e, new File(context.getFilesDir(), "originals"), safeName(n));
                 } else if (n.startsWith(THUMB_DIR_IN_ZIP)) {
                     extract(context, zip, e, new File(context.getFilesDir(), "thumbs"), safeName(n));
                 } else if (n.equals("library.json")) {
@@ -267,10 +283,15 @@ public final class BackupStore {
 
     private static void writeManifest(Context context, java.util.zip.ZipOutputStream zout,
                                       BackupResult r, java.util.List<File> images,
-                                      java.util.List<File> thumbs) throws Exception {
+                                      java.util.List<File> thumbs,
+                                      java.util.List<File> originals) throws Exception {
         long imageBytes = 0;
         for (File f : images) {
             imageBytes += f.length();
+        }
+        long originalBytes = 0;
+        for (File f : originals) {
+            originalBytes += f.length();
         }
         long thumbBytes = 0;
         for (File f : thumbs) {
@@ -282,6 +303,8 @@ public final class BackupStore {
         o.put("library_items", r.entries);
         o.put("images", images.size());
         o.put("image_bytes", imageBytes);
+        o.put("originals", originals.size());
+        o.put("original_bytes", originalBytes);
         o.put("thumbs", thumbs.size());
         o.put("thumb_bytes", thumbBytes);
         o.put("libraries", LibraryStore.load(context).size());
@@ -312,40 +335,6 @@ public final class BackupStore {
         zout.closeEntry();
     }
 
-    /** library.json 里有记录、盘上没有图片文件的条目：丢掉并计数，否则会留下点开黑图的死条目。 */
-    private static void dropMissingImages(Context context) {
-        try {
-            java.util.List<WallpaperStore.Item> items = WallpaperStore.load(context);
-            java.util.List<WallpaperStore.Item> keep = new java.util.ArrayList<>();
-            int dropped = 0;
-            for (WallpaperStore.Item item : items) {
-                File full = WallpaperStore.getFullFile(context, item.id);
-                if (full.exists()) {
-                    keep.add(item);
-                } else {
-                    dropped++;
-                }
-            }
-            if (dropped > 0) {
-                saveItems(context, keep);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void saveItems(Context context, java.util.List<WallpaperStore.Item> items)
-            throws Exception {
-        JSONArray arr = new JSONArray();
-        for (WallpaperStore.Item item : items) {
-            JSONObject o = new JSONObject();
-            o.put("id", item.id);
-            o.put("lib_id", item.libId == null ? "" : item.libId);
-            o.put("title", item.title == null ? "" : item.title);
-            arr.put(o);
-        }
-        MetaFiles.writeJson(context, "library.json", arr.toString());
-    }
-
     /**
      * 归属兜底：新装机第一次启动会自己建一个「默认库」（随机新 id），包里的壁纸指向的是旧库 id，
      * 对不上就全落在一个不存在的库里 = 文件在、界面上进不去也管不了。
@@ -371,7 +360,33 @@ public final class BackupStore {
                 }
             }
             if (changed) {
-                saveItems(context, items);
+                // 同样必须走 WallpaperStore.saveItems：这条是还原路径上第二处会整表重写 library.json 的地方
+                WallpaperStore.saveItems(context, items);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * library.json 里有记录、盘上没有图片文件的条目：丢掉并计数，否则会留下点开黑图的死条目。
+     * 写回必须走 {@link WallpaperStore#saveItems} —— 它自己那份只写 id/lib_id/title 的副本已经删掉了，
+     * 留着就会在还原时把裁剪参数（src_w/src_h/crop_*）整表抹掉。
+     */
+    private static void dropMissingImages(Context context) {
+        try {
+            java.util.List<WallpaperStore.Item> items = WallpaperStore.load(context);
+            java.util.List<WallpaperStore.Item> keep = new java.util.ArrayList<>();
+            int dropped = 0;
+            for (WallpaperStore.Item item : items) {
+                File full = WallpaperStore.getFullFile(context, item.id);
+                if (full.exists()) {
+                    keep.add(item);
+                } else {
+                    dropped++;
+                }
+            }
+            if (dropped > 0) {
+                WallpaperStore.saveItems(context, keep);
             }
         } catch (Exception ignored) {
         }
@@ -568,6 +583,10 @@ public final class BackupStore {
             }
             if (m.images <= 0) {
                 m.images = o.optInt("images", 0);
+            }
+            if (m.originals <= 0) {
+                // 老包压根没这个键，读出来就是 0：界面上显示「0 张原图」正好说明为什么还原后不能重复调整
+                m.originals = o.optInt("originals", 0);
             }
         } catch (Exception ignored) {
         }

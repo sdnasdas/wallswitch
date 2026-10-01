@@ -114,6 +114,40 @@ public class CropView extends View {
         }
     }
 
+    /**
+     * 按「当前位图坐标下的可见矩形」复原取景框，等价于用户自己捏到那个位置。
+     * 矩形来自 library.json（那里存的是**原图坐标**），调用方要先换算成位图坐标 ——
+     * 位图可能因像素预算被降采样过，直接拿原图坐标会偏。
+     * 位图/视图未就绪或矩形非法时什么都不做，保持 fit-cover 默认态：
+     * 宁可构图回默认，也不能让钳制区间是空的（那种静默失效见 matrixReady 的注释）。
+     */
+    public void restoreSourceRect(RectF rect) {
+        if (bitmap == null || rect == null) {
+            return;
+        }
+        // 先让 minScale/maxScale 有值：跳过这步它们会停在字段初值 1f/1f，下面的钳制就把比例按死了
+        ensureMatrixReady();
+        if (!matrixReady) {
+            return;
+        }
+        float viewW = getWidth();
+        float viewH = getHeight();
+        float rectW = rect.width();
+        float rectH = rect.height();
+        if (viewW <= 0f || viewH <= 0f || rectW <= 0f || rectH <= 0f) {
+            return;
+        }
+        // 只按宽轴算比例：这块矩形本来就是从同一个满屏取景框里截出来的，
+        // 高轴上的浮点/取整微差交给 clampTranslate 吸收，不立第二套比例约定
+        float scale = viewW / rectW;
+        scale = Math.max(minScale, Math.min(maxScale, scale));
+        matrix.reset();
+        matrix.setScale(scale, scale);
+        matrix.postTranslate(-rect.left * scale, -rect.top * scale);
+        clampTranslate();
+        invalidate();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (bitmap == null) {

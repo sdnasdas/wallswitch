@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -61,6 +62,15 @@ public class EditActivity extends AppCompatActivity {
     private int originalHeight;
     // 导出上限：屏幕长边（比屏幕分辨率更大没有意义，系统还要再缩一次）
     private int maxDim;
+    // 本次编辑的源是不是原图：导入模式的收件箱文件、重编模式找到 originals/ 的都算。
+    // 只有源是原图时才写裁剪参数 —— 源是成品图时矩形坐标不同源，读回来会给出错误构图
+    private boolean sourceIsOriginal;
+    // 待复原的矩形（原图坐标）；解码回来后换算成位图坐标再交给 CropView
+    private RectF pendingRestoreRect;
+    private View noticeBar;
+    private TextView noticeText;
+    private View noticeLinkButton;
+    private ActivityResultLauncher<PickVisualMediaRequest> linkOriginalLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +81,15 @@ public class EditActivity extends AppCompatActivity {
         btnConfirm = findViewById(R.id.btn_confirm);
         shotLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onShotPicked);
+        // 存量壁纸补原图用的第二个选择器：与「桌面图标预览底图」那条互不干扰
+        linkOriginalLauncher = registerForActivityResult(
+                new ActivityResultContracts.PickVisualMedia(), this::onOriginalPicked);
+        noticeBar = findViewById(R.id.edit_notice_bar);
+        noticeText = findViewById(R.id.tv_edit_notice);
+        noticeLinkButton = findViewById(R.id.btn_link_original);
+        if (noticeLinkButton != null) {
+            noticeLinkButton.setOnClickListener(v -> pickOriginalForLinking());
+        }
         // 全面屏/刘海屏适配：只让浮层（提示 / 加载中 / 按钮）避开状态栏与底部手势条；
         // 裁剪区本身保持满屏，取景框比例才等于壁纸上屏区域（否则预览与实况不一致）
         InsetsHelper.apply(this, R.id.edit_controls);
@@ -88,11 +107,42 @@ public class EditActivity extends AppCompatActivity {
         }
         btnConfirm.setOnClickListener(v -> onConfirm());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> onCancel());
-        sourceFile = itemId != null
-                ? WallpaperStore.getFullFile(this, itemId)
-                : WallpaperStore.getInboxFile(this, inboxId);
+        chooseSource();
         readOriginalBounds();
         startDecode();
+    }
+
+    /**
+     * 决定这次编辑的源，并顺手定下「复原还是默认构图」。四种情形：
+     * <ol>
+     *   <li>有原图 + 参数尺寸与原图对得上 → 源=原图，复原上次构图（微调就靠这一格）</li>
+     *   <li>有原图 + 没参数（刚关联上的存量壁纸）→ 源=原图，默认构图</li>
+     *   <li>有原图 + 参数尺寸对不上（换过原图）→ 源=原图，默认构图，提示位置已作废</li>
+     *   <li>没原图（历史数据）→ 源=成品图，等同今天的行为，给「关联原图」按钮</li>
+     * </ol>
+     * 导入模式的收件箱文件本身就是原图，落进第 1/2 格（第一次多半没参数）。
+     * 第 2、3 格的区分要等解码回来才知道参数是不是写给这张原图的，所以提示在
+     * {@link #applyPendingRestore()} 里发。
+     */
+    private void chooseSource() {
+        if (itemId == null) {
+            sourceFile = WallpaperStore.getInboxFile(this, inboxId);
+            sourceIsOriginal = true;
+            return;
+        }
+        if (WallpaperStore.hasOriginal(this, itemId)) {
+            sourceFile = WallpaperStore.getOriginalFile(this, itemId);
+            sourceIsOriginal = true;
+            WallpaperStore.Item item = WallpaperStore.get(this, itemId);
+            if (item != null && item.hasCropRect()) {
+                pendingRestoreRect = new RectF(item.cropLeft, item.cropTop,
+                        item.cropRight, item.cropBottom);
+            }
+            return;
+        }
+        sourceFile = WallpaperStore.getFullFile(this, itemId);
+        sourceIsOriginal = false;
+        pendingRestoreRect = null;
     }
 
     /** 读原图像素尺寸（只读文件头，很快）：区域解码要把取景框映射回原图坐标。 */
@@ -126,8 +176,134 @@ public class EditActivity extends AppCompatActivity {
                     return;
                 }
                 cropView.setBitmap(decoded);
+                applyPendingRestore();
             });
         }, "crop-decode").start();
+    }
+
+    /**
+     * 复原取景框。尺寸校验放在这里：{@link #readOriginalBounds()} 读的是当前 sourceFile 的文件头，
+     * 「那六个参数是不是写给眼前这张原图的」只有在这儿能判定。
+     * 对不上就当作没有参数（默认构图），并把提示换成「位置已作废」—— 不单独清除，
+     * 因为下一次确认会用新原图的尺寸覆盖写回，一次编辑就自好了。
+     */
+    private void applyPendingRestore() {
+        if (pendingRestoreRect == null) {
+            // 没参数：有原图就安静地用默认构图，没原图才需要提示并给「关联原图」按钮
+            showNotice(sourceIsOriginal ? 0 : R.string.edit_notice_no_original, !sourceIsOriginal);
+            return;
+        }
+        if (originalWidth <= 0 || originalHeight <= 0
+                || cropView.getSourceWidth() <= 0 || cropView.getSourceHeight() <= 0) {
+            showNotice(sourceIsOriginal ? 0 : R.string.edit_notice_no_original, !sourceIsOriginal);
+            return;
+        }
+        WallpaperStore.Item item = itemId == null ? null : WallpaperStore.get(this, itemId);
+        if (item == null || item.srcWidth != originalWidth || item.srcHeight != originalHeight) {
+            pendingRestoreRect = null;
+            showNotice(R.string.edit_notice_original_changed, false);
+            return;
+        }
+        // 原图坐标 → 位图坐标：两轴各按「位图 / 原图」换算（与导出那次的换算反方向）
+        float kx = cropView.getSourceWidth() / (float) originalWidth;
+        float ky = cropView.getSourceHeight() / (float) originalHeight;
+        cropView.restoreSourceRect(new RectF(
+                pendingRestoreRect.left * kx, pendingRestoreRect.top * ky,
+                pendingRestoreRect.right * kx, pendingRestoreRect.bottom * ky));
+        pendingRestoreRect = null;
+    }
+
+    /** 顶部提示条：resId 为 0 表示不提示 —— 有原图、正常进编辑时别多占一块屏幕。 */
+    private void showNotice(int resId, boolean withLinkButton) {
+        if (noticeBar == null || noticeText == null) {
+            return;
+        }
+        if (resId == 0) {
+            noticeBar.setVisibility(View.GONE);
+            return;
+        }
+        noticeText.setText(resId);
+        noticeBar.setVisibility(View.VISIBLE);
+        if (noticeLinkButton != null) {
+            noticeLinkButton.setVisibility(withLinkButton ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /**
+     * 把当前可见区域换算回**原图坐标**存下来，供下次进编辑页复原取景框。
+     * 只在源是原图时写：换算用的是「原图 / 解码位图」的比例，源换成成品图时这套比例对不上，
+     * 记下来的矩形读回来会给出错误构图。
+     */
+    private void saveCropRectIfNeeded(String id) {
+        if (!sourceIsOriginal || originalWidth <= 0 || originalHeight <= 0) {
+            return;
+        }
+        int srcW = cropView.getSourceWidth();
+        int srcH = cropView.getSourceHeight();
+        if (srcW <= 0 || srcH <= 0) {
+            return;
+        }
+        RectF visible = new RectF();
+        if (!cropView.getVisibleSourceRect(visible)) {
+            return;
+        }
+        // 与 exportByRegion 同一套换算（两轴分别算，避开 inSampleSize 向上取整的偏差），再夹回原图范围
+        float kx = originalWidth / (float) srcW;
+        float ky = originalHeight / (float) srcH;
+        float left = Math.max(0f, Math.min(originalWidth, visible.left * kx));
+        float top = Math.max(0f, Math.min(originalHeight, visible.top * ky));
+        float right = Math.max(0f, Math.min(originalWidth, visible.right * kx));
+        float bottom = Math.max(0f, Math.min(originalHeight, visible.bottom * ky));
+        if (right <= left || bottom <= top) {
+            return;
+        }
+        WallpaperStore.saveCropRect(this, id, originalWidth, originalHeight, left, top, right, bottom);
+    }
+
+    /**
+     * 提示条上的「关联原图」：开相册选一张，选完就地换成原图源。
+     * <b>临时功能</b> —— 只为用户手里那批 v3.8x 之前入库、没留原图的存量壁纸，新壁纸一律由
+     * confirmImport 自动留存原图，用不到这个入口。用户已说过以后要把它删掉，删除清单见
+     * `docs/reedit-from-original-design.md` 的「§6.1 以后删这一条时要动哪几处」。
+     */
+    private void pickOriginalForLinking() {
+        if (itemId == null || linkOriginalLauncher == null) {
+            return;
+        }
+        PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
+        builder.setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE);
+        linkOriginalLauncher.launch(builder.build());
+    }
+
+    /**
+     * 关联回来：原始字节复制进 originals/ → 源换成原图 → 参数作废（历史成品图不知道自己是从哪儿裁的）
+     * → 重新解码、从默认构图开始，接着裁接着保存。
+     * 复制放后台线程（整张图的 IO，可能几 MB），完成时页面可能已经关了，所以只用了 Application 上下文。
+     */
+    private void onOriginalPicked(Uri uri) {
+        if (uri == null || itemId == null) {
+            return;
+        }
+        setLoading(true);
+        final Context appCtx = getApplicationContext();
+        new Thread(() -> {
+            final boolean linked = WallpaperStore.linkOriginal(appCtx, itemId, uri);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (!linked) {
+                    setLoading(false);
+                    Toast.makeText(this, R.string.link_original_failed, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                sourceFile = WallpaperStore.getOriginalFile(this, itemId);
+                sourceIsOriginal = true;
+                pendingRestoreRect = null;
+                readOriginalBounds();
+                startDecode();
+            });
+        }, "link-original").start();
     }
 
     /** 切换「加载中」状态：加载中隐藏不了图，也没图可导，所以同时把确认置灰。 */
@@ -175,6 +351,9 @@ public class EditActivity extends AppCompatActivity {
             } else {
                 WallpaperStore.confirmImport(this, inboxId, result, libId);
             }
+            // 记下这次的可见矩形，下次点铅笔就落回这里。必须排在入库/覆盖之后：
+            // 导入模式的条目是 confirmImport 刚建的那一条，提前写会找不到条目
+            saveCropRectIfNeeded(itemId != null ? itemId : inboxId);
         } catch (Exception e) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
         }
