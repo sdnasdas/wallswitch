@@ -43,8 +43,11 @@
 
             <!-- 毛玻璃那层veil：切换中盖在封面上，转圈再压在veil上。真高斯模糊在 RemoteViews 里做不到
                  （SystemUI 不会给我们的子 view 加 RenderEffect），所以"毛"是靠代码把封面缩到 1/6 再拉回来
-                 近似出来的，这层半透 veil 负责"玻璃"——颜色跟随深浅色（见 @color/notif_frost） -->
-            <View
+                 近似出来的，这层半透 veil 负责"玻璃"——颜色跟随深浅色（见 @color/notif_frost）。
+                 **必须是 FrameLayout 这种带 @RemoteView 注解的类**：裸 <View> 不在 RemoteViews 允许的清单里，
+                  inflate 时抛 InflateException("Class not allowed to be inflated android.view.View")，
+                 后果不是少一层veil，而是整条通知被 NMS 以 REASON_ERROR 删掉（v3.83 就这么把通知弄没的）。 -->
+            <FrameLayout
                 android:id="@+id/notif_cover_frost"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
