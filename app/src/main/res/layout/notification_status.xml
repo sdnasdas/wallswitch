@@ -85,6 +85,36 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:visibility="gone" />
+
+                <!-- 切换中：锁屏那面走 setBitmap 要解码全图，几秒内没反馈会以为没按着。
+                     只在动作超过 400ms 时才亮起来（快的路径根本不画，免得闪一下），
+                     亮起时把库名/时间那一坨藏掉，整行高度不变 → 不会因此越过 146dp 的收起裁切线。
+                     ProgressBar 自己带 android:indeterminate，SystemUI 在通知可见时逐帧画它 -->
+                <LinearLayout
+                    android:id="@+id/notif_busy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <ProgressBar
+                        android:id="@+id/notif_busy_bar"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:indeterminate="true" />
+
+                    <TextView
+                        android:id="@+id/notif_busy_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/notif_busy"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

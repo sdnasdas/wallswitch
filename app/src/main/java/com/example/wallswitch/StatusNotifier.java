@@ -26,8 +26,19 @@ import java.util.concurrent.Executors;
  * 而且他给桌面渠道关掉的「锁屏显示」会继续作用在这条唯一的通知上——想在锁屏上翻面操作，得去系统里把它打开。
  * 渠道 id 沿用旧的 "home_status" 没改：他已经在旧渠道上调过的设置不能因为升级而失效；
  * 显示名改成「壁纸切换状态」只对全新安装生效（Android 不会重命名已存在的渠道）。
- * 锁屏那条的 id 1501 每次刷新顺手 cancel 一次，免得升级后留一条永远不动的僵尸卡；
- * 它的渠道 "lock_status" 只 cancel 不删——删了等于把他可能调过的设置抹掉，留着一个空渠道不占资源。
+ * 锁屏那条的 id 1501 每次刷新顺手 cancel 一次，免得升级后留一条永远不动的僵尸卡；它的渠道 "lock_status"
+ * 第一次刷新时删掉（一个一次性标记位）。原本打算留着不删，怕抹掉他调过的设置——真机反馈是他在通知管理里
+ * 看到这条「锁屏切换状态」，问"这个通知控制了什么，开关好像没影响"：一条不再发东西的渠道在设置里就是
+ * 划不掉的噪音，删掉才对。注意 Android 会挡住"删了重建同 id 渠道"约 24 小时（防 App 借重建重置用户设置），
+ * 真要恢复双通知得换个新渠道 id。
+ *
+ * <h3>切换中（loading）</h3>
+ * 锁屏那面走 {@code TakeoverManager.setLockFromFile} → 全图解码 + 系统写盘，真机要几秒；这期间通知上
+ * 没有任何反馈，他会以为没按着。所以 {@link #showBusy} 把副标题那一坨换成「转圈 + 切换中…」、四颗键摘掉
+ * 点击并把图标染成次级色（{@code setOnClickPendingIntent(id, null)} 在 AOSP 里就是 setClickable(false)）。
+ * 快路径（桌面）不该闪一下 loading，所以由 {@link NotifActionReceiver} 用 400ms 门槛决定画不画：
+ * 400ms 内跑完就一次都不画。跑完一定要落回正常态，那段收尾逻辑写在 NotifActionReceiver 里。
+ * loading 只多占副标题那一行的高度，整张卡还是 128dp。
  *
  * <h3>为什么不用系统媒体卡片（MediaStyle + MediaSession）</h3>
  * MagicOS 通知栏同时只显示一张媒体卡片——带媒体会话的通知会把音乐 App 的卡挤掉，
@@ -63,9 +74,11 @@ public class StatusNotifier {
     private static final String CHANNEL = "home_status";
     // 固定通知 id（覆盖写）：避开 SwitchNotifier 的 ID_BASE=2000 自增段
     private static final int NOTIFY_ID = 1500;
-    // v3.80 那条锁屏通知的后事：id 要 cancel 干净，渠道留着不删（删了会抹掉用户可能调过的设置）
+    // v3.80 那条锁屏通知的后事：id 要 cancel 干净，渠道也要撤掉——它已经不再发东西，
+    // 留在系统通知设置里就是一条划不掉的空条目（他会来问"这条管什么"，因为开关确实没影响）
     private static final int LEGACY_LOCK_NOTIFY_ID = 1501;
     private static final String LEGACY_LOCK_CHANNEL = "lock_status";
+    private static final String KEY_LEGACY_CHANNEL_CLEANED = "legacy_lock_channel_removed";
     // 开关存储（与其它设置共用 settings），默认开
     private static final String PREFS_NAME = "settings";
     private static final String KEY_ENABLED = "status_notify";
@@ -123,16 +136,28 @@ public class StatusNotifier {
      * 所有成功上屏与触发时间变化的路径都会调它，保证通知始终反映最新状态。
      */
     public static void update(Context ctx) {
+        render(ctx, false);
+    }
+
+    /**
+     * 把通知切成「切换中」态（转圈 + 四颗键不可点）。只在动作真的慢的时候由 {@link NotifActionReceiver}
+     * 调，跑完必须再调一次 {@link #update} 落回正常态。与 update 排同一个后台执行器，先后顺序可靠。
+     */
+    public static void showBusy(Context ctx) {
+        render(ctx, true);
+    }
+
+    private static void render(Context ctx, boolean busy) {
         final Context app = ctx.getApplicationContext();
         EXECUTOR.execute(() -> {
             try {
-                updateNotification(app);
+                updateNotification(app, busy);
             } catch (Exception ignored) {
             }
         });
     }
 
-    private static void updateNotification(Context ctx) {
+    private static void updateNotification(Context ctx, boolean busy) {
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) {
             return;
@@ -152,7 +177,7 @@ public class StatusNotifier {
             nm.cancel(NOTIFY_ID);
             return;
         }
-        nm.notify(NOTIFY_ID, build(ctx, forHome, lib));
+        nm.notify(NOTIFY_ID, build(ctx, forHome, lib, busy));
     }
 
     /** 移除常驻通知（开关关闭时调用）。 */
@@ -166,14 +191,14 @@ public class StatusNotifier {
     }
 
     /** 构建通知：一份完整视图（不提供展开态），小图标用全透明替身（见 notif_icon_transparent）。 */
-    private static Notification build(Context ctx, boolean forHome, LibraryStore.Library lib) {
+    private static Notification build(Context ctx, boolean forHome, LibraryStore.Library lib, boolean busy) {
         String currentId = Switcher.getCurrent(ctx, lib.id, forHome);
         String title = currentId == null ? null : WallpaperStore.getTitle(ctx, currentId);
         if (title == null || title.isEmpty()) {
             title = ctx.getString(R.string.untitled);
         }
         Bitmap cover = currentId == null ? null : WallpaperStore.getThumb(ctx, currentId);
-        RemoteViews views = buildViews(ctx, forHome, lib, title, cover);
+        RemoteViews views = buildViews(ctx, forHome, lib, title, cover, busy);
         Intent open = new Intent(ctx, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPending = PendingIntent.getActivity(ctx, 0, open,
@@ -191,9 +216,9 @@ public class StatusNotifier {
                 .build();
     }
 
-    /** 通知正文视图：封面 + 标题 + 库/模式/间隔/下次切换 + 作用面角标 + 三颗键。 */
+    /** 通知正文视图：封面 + 标题 + 库/模式/间隔/下次切换（或「切换中…」）+ 作用面角标 + 三颗键。 */
     private static RemoteViews buildViews(Context ctx, boolean forHome, LibraryStore.Library lib,
-            String title, Bitmap cover) {
+            String title, Bitmap cover, boolean busy) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.notification_status);
         views.setTextViewText(R.id.notif_title, title);
         views.setTextViewText(R.id.notif_lib, summaryLine(ctx, forHome, lib));
@@ -203,12 +228,12 @@ public class StatusNotifier {
         } else {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        bindTimerLine(ctx, views, forHome);
+        bindTimerLine(ctx, views, forHome, busy);
         boolean paused = LibraryStore.slotPaused(ctx, forHome);
         views.setImageViewResource(R.id.notif_pause,
                 paused ? R.drawable.ic_play : R.drawable.ic_pause);
-        // 图标是黑色 vector，RemoteViews 不走主题 tint，手动按深浅色染成正文色
-        int tint = ctx.getColor(R.color.text_primary);
+        // 图标是黑色 vector，RemoteViews 不走主题 tint，手动按深浅色染成正文色；切换中染成次级色装成"按不动"
+        int tint = ctx.getColor(busy ? R.color.text_secondary : R.color.text_primary);
         views.setInt(R.id.notif_prev, "setColorFilter", tint);
         views.setInt(R.id.notif_pause, "setColorFilter", tint);
         views.setInt(R.id.notif_next, "setColorFilter", tint);
@@ -217,14 +242,16 @@ public class StatusNotifier {
                 ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock));
         views.setTextColor(R.id.notif_scope,
                 ctx.getColor(forHome ? R.color.brand : R.color.notif_scope_lock));
+        // busy 时四颗键一律传 null：AOSP 的 setOnClickPendingIntent(id, null) 会改成 setClickable(false)，
+        // 也就是"点了没反应"，正是切换中要的效果（免得连点排出一串活）
         views.setOnClickPendingIntent(R.id.notif_scope,
-                actionPending(ctx, REQ_SCOPE, NotifActionReceiver.ACTION_SCOPE));
+                keyPending(ctx, busy, REQ_SCOPE, NotifActionReceiver.ACTION_SCOPE));
         views.setOnClickPendingIntent(R.id.notif_prev,
-                actionPending(ctx, REQ_PREV, NotifActionReceiver.ACTION_PREV));
+                keyPending(ctx, busy, REQ_PREV, NotifActionReceiver.ACTION_PREV));
         views.setOnClickPendingIntent(R.id.notif_pause,
-                actionPending(ctx, REQ_PAUSE, NotifActionReceiver.ACTION_PAUSE));
+                keyPending(ctx, busy, REQ_PAUSE, NotifActionReceiver.ACTION_PAUSE));
         views.setOnClickPendingIntent(R.id.notif_next,
-                actionPending(ctx, REQ_NEXT, NotifActionReceiver.ACTION_NEXT));
+                keyPending(ctx, busy, REQ_NEXT, NotifActionReceiver.ACTION_NEXT));
         return views;
     }
 
@@ -237,8 +264,18 @@ public class StatusNotifier {
                 + intervalText(LibraryStore.scopeIntervalSeconds(ctx, forHome));
     }
 
-    /** 时间那一行：暂停中直说"已暂停"，否则走秒倒计时或静态短句「下次 21:45」。 */
-    private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome) {
+    /** 时间那一行：切换中亮转圈，否则暂停中直说"已暂停"，再否则走秒倒计时或静态短句「下次 21:45」。 */
+    private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome, boolean busy) {
+        if (busy) {
+            // 只换这一行的内容，整行高度不变（小转圈 16dp 与 12sp 文字同高）→ 卡片还是 128dp
+            views.setViewVisibility(R.id.notif_lib, View.GONE);
+            views.setViewVisibility(R.id.notif_timer, View.GONE);
+            views.setViewVisibility(R.id.notif_waiting, View.GONE);
+            views.setViewVisibility(R.id.notif_busy, View.VISIBLE);
+            return;
+        }
+        views.setViewVisibility(R.id.notif_lib, View.VISIBLE);
+        views.setViewVisibility(R.id.notif_busy, View.GONE);
         long trigger = TimerScheduler.scopeTrigger(ctx, forHome);
         long now = System.currentTimeMillis();
         if (LibraryStore.slotPaused(ctx, forHome)) {
@@ -275,18 +312,25 @@ public class StatusNotifier {
     }
 
     /**
-     * 四颗键的广播 PendingIntent（接收在 NotifActionReceiver）。
+     * 四颗键的广播 PendingIntent（接收在 NotifActionReceiver）；{@code busy} 为真时返回 null，
+     * 也就是把那颗键在切换中锁掉。
      * 范围不再塞进 extras：三颗键在点击时现读 {@link #currentScope}，这样"通知上显示哪一面"和
      * "键打在哪一面"只有一个来源——升级前发出去、还带着旧 extras 的 PendingIntent 也就不会把键打到别的面去。
      */
-    private static PendingIntent actionPending(Context ctx, int requestCode, String action) {
+    private static PendingIntent keyPending(Context ctx, boolean busy, int requestCode, String action) {
+        if (busy) {
+            return null;
+        }
         Intent intent = new Intent(ctx, NotifActionReceiver.class);
         intent.setAction(action);
         return PendingIntent.getBroadcast(ctx, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** 创建渠道（幂等，重复创建同 id 不会重置用户改动过的重要性/锁屏/横幅设置）。 */
+    /**
+     * 创建渠道（幂等，重复创建同 id 不会重置用户改动过的重要性/锁屏/横幅设置）。
+     * 顺带一次性删掉 v3.80 遗留的锁屏渠道：它不再发任何东西，留着就是在通知管理里多一条管不着任何事的条目。
+     */
     private static void ensureChannel(Context ctx, NotificationManager nm) {
         NotificationChannel channel = new NotificationChannel(CHANNEL,
                 ctx.getString(R.string.notify_channel_status),
@@ -294,6 +338,15 @@ public class StatusNotifier {
         channel.setDescription(ctx.getString(R.string.notify_channel_status_desc));
         try {
             nm.createNotificationChannel(channel);
+        } catch (Exception ignored) {
+        }
+        SharedPreferences sp = prefs(ctx);
+        if (sp.getBoolean(KEY_LEGACY_CHANNEL_CLEANED, false)) {
+            return;
+        }
+        try {
+            nm.deleteNotificationChannel(LEGACY_LOCK_CHANNEL);
+            sp.edit().putBoolean(KEY_LEGACY_CHANNEL_CLEANED, true).apply();
         } catch (Exception ignored) {
         }
     }
