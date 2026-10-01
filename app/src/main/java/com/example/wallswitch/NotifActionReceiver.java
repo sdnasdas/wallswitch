@@ -8,13 +8,15 @@ import android.os.Looper;
 import android.widget.Toast;
 
 /**
- * 常驻通知上「上一张 / 暂停·继续 / 下一张」三颗键的落点：按 intent 里带的范围（{@link #EXTRA_FOR_HOME}）
- * 对那一面的启用库执行 {@link Switcher#prev}/{@link Switcher#next} 或 {@link TimerScheduler#setPaused}，
- * 与桌面小组件、App 内卡片同一套语义与守卫。
+ * 常驻通知上四颗键的落点：「上一张 / 暂停·继续 / 下一张」按 {@link StatusNotifier#currentScope}
+ * 当时指的那一面执行 {@link Switcher#prev}/{@link Switcher#next} 或 {@link TimerScheduler#setPaused}，
+ * 「桌面/锁屏」那颗角标执行 {@link StatusNotifier#toggleScope} 并立刻重画通知。
+ * 语义与守卫跟桌面小组件、App 内卡片保持一致。
  *
- * <p>范围为什么走 extras：桌面与锁屏各有一条常驻通知（见 StatusNotifier），三颗键的布局完全一样，
- * 只有"作用在哪一面"不同。以前这里硬编码桌面，所以锁屏那条通知的键会把桌面的图换掉。
- * 缺省值仍取桌面，兼容旧 intent（例如升级前已发出去、还没过期 PendingIntent）。
+ * <p>范围为什么在点击时现读、不从 intent 里带：只剩一条通知，"卡片显示哪一面"和"键打在哪一面"必须同源，
+ * 否则升级前发出去、还没过期的 PendingIntent 会带着旧 extras 把键打到别的面去（v3.80 那两条通知靠
+ * extras 分目标，正是为了让两条互不串台；现在只有一条，读一个来源更简单）。
+ * 现读多两次 SharedPreferences 取库，代价在后台线程上可以忽略。
  *
  * <p>切换含大图解码与系统调用，不能放主线程：仿 WidgetProvider 用 goAsync 起后台线程，
  * 结束前必须 pending.finish()；失败时回到主线程弹 Toast 说明原因（通知按钮本身无法给出反馈）。
@@ -28,24 +30,32 @@ public class NotifActionReceiver extends BroadcastReceiver {
     public static final String ACTION_NEXT = "com.example.wallswitch.NOTIF_NEXT";
     // 常驻通知「暂停 / 继续」按钮的 action（中间那颗，图标随状态在 ic_pause / ic_play 间换）
     public static final String ACTION_PAUSE = "com.example.wallswitch.NOTIF_PAUSE";
-    // 这颗键作用在哪一面：true = 桌面，false = 锁屏
-    public static final String EXTRA_FOR_HOME = "for_home";
+    // 常驻通知「桌面 / 锁屏」角标的 action：只翻作用面，不切图
+    public static final String ACTION_SCOPE = "com.example.wallswitch.NOTIF_SCOPE";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        if (!ACTION_PREV.equals(action) && !ACTION_NEXT.equals(action) && !ACTION_PAUSE.equals(action)) {
+        if (!ACTION_PREV.equals(action) && !ACTION_NEXT.equals(action)
+                && !ACTION_PAUSE.equals(action) && !ACTION_SCOPE.equals(action)) {
             return;
         }
         final PendingResult pending = goAsync();
         final Context app = context.getApplicationContext();
-        final boolean forHome = intent.getBooleanExtra(EXTRA_FOR_HOME, true);
+        final boolean scope = ACTION_SCOPE.equals(action);
         final boolean pause = ACTION_PAUSE.equals(action);
         final boolean prev = ACTION_PREV.equals(action);
         new Thread(() -> {
             try {
+                if (scope) {
+                    // 另一面没设库时 toggleScope 自己就不动，通知也就原样重发一遍
+                    StatusNotifier.toggleScope(app);
+                    StatusNotifier.update(app);
+                    return;
+                }
+                final boolean forHome = StatusNotifier.currentScope(app);
                 if (pause) {
-                    // 暂停/继续整面：撤任务或重新起算、日志、刷小组件与两条通知都在 setPaused 里收口
+                    // 暂停/继续整面：撤任务或重新起算、日志、刷小组件与通知都在 setPaused 里收口
                     TimerScheduler.setPaused(app, forHome, !LibraryStore.slotPaused(app, forHome));
                     return;
                 }

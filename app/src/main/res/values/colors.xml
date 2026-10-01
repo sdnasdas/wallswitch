@@ -27,6 +27,9 @@
     <color name="widget_ink_night">#E6E7E9</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
+    <!-- 常驻通知上那颗作用面角标的文字色：桌面用主色（上面已有 brand，含夜间变体），锁屏另给一色，
+         两色在浅底深底上都够对比。刻意不复用 brand 的夜间值，免得两颗看起来是同一个意思。 -->
+    <color name="notif_scope_lock">#7B52C9</color>
     <!-- 范围槽位卡片的初值（= 色相 30、浓淡 0 算出来的纸白）：实际显示色由 SlotTheme
          按用户挑的色相 + 浓淡现算，这里只顶住绑定前那一帧，免得闪一下旧底色。 -->
     <color name="slot_bg">#F6F5F3</color>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知里「桌面 / 锁屏」那颗作用面角标的底：小圆角块，底色用 divider（有夜间变体 #33363B），
+     在浅底深底上都比卡片略深/略亮一档，看得出那是个可点的东西。文字颜色由代码按作用面现挑。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/divider" />
+    <corners android:radius="6dp" />
+</shape>
