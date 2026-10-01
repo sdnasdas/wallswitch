@@ -1711,6 +1711,12 @@ public class MainActivity extends AppCompatActivity {
     /** 范围内库变更：槽位写入 + 受影响的两处界面刷新（角标与卡片），接管状态同步一次。 */
     private void applySlotLib(boolean forHome, String libId) {
         LibraryStore.setSlotLib(this, forHome, libId);
+        // 桌面这一面由引擎在画：换了占位库要主动标脏，否则得等下次亮屏（onVisibilityChanged 重放）
+        // 才换成新库那张 —— 刚选完看不出动，像没生效。锁屏那面走 setBitmap，由下面的 syncTakeover 负责。
+        // 引擎没被系统选中时 ENGINES 是空的，这一声就是空响，不必额外判断。
+        if (forHome) {
+            WallSwitchService.notifyWallpaperChanged();
+        }
         libAdapter.refreshBadges();
         refreshTimerStatus();
         refreshSlotCards();

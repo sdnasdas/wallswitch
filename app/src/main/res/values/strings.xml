@@ -42,6 +42,16 @@
     <string name="cancel">取消</string>
     <string name="thumb_desc">壁纸缩略图</string>
     <string name="widget_desc">点按切换下一张桌面壁纸</string>
+    <!-- 小组件名：小组件列表里显示的就是这一条（1×1 以前没配 label，显示的是应用名，
+         加了 2×2 之后两个同名分不清，所以两边各起一个） -->
+    <string name="widget_label">切换 1×1</string>
+    <string name="widget_console_label">控制台 2×2</string>
+    <string name="widget_console_desc">换库 · 暂停 · 上一张 · 下一张（只作用桌面这一面）</string>
+    <string name="widget_console_thumb_desc">当前壁纸，点按选择壁纸库</string>
+    <string name="widget_console_pause_desc">暂停或继续桌面的自动切换</string>
+    <string name="widget_console_no_engine">桌面壁纸库已换，但本应用还不是当前动态壁纸：去系统选择器确认启用</string>
+    <!-- 选库页只动桌面这一面，所以这一档把范围写明白（App 内那条「清空本范围」是两面通用的） -->
+    <string name="widget_console_lib_none">不切换（桌面停止自动切换）</string>
     <string name="timer_enabled">定时切换</string>
     <string name="delete_confirm_title">删除壁纸</string>
     <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->

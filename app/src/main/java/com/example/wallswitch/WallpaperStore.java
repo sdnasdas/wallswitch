@@ -413,6 +413,23 @@ public class WallpaperStore {
     }
 
     /**
+     * 小组件专用的小缩略图：按 {@code maxSide} 降采样，优先读 thumbs/ 里现成的正方形 JPEG，
+     * 缺图时退回全图（同样只解码到 {@code maxSide}，不写盘）。
+     *
+     * <p>为什么不让小组件直接用 {@link #getThumb}：那份是给两列方格看的 384~768px 正方形，
+     * 解码出来是 0.6~2.3MB 的位图，而 RemoteViews 要经 Binder 递交给桌面、单次事务上限约 1MB ——
+     * 超了不抛异常，表现是小组件静默不更新。一格 60~70dp，192px 已经够清楚。
+     */
+    public static Bitmap getWidgetThumb(Context context, String id, int maxSide) {
+        Bitmap thumb = decodeBounded(getThumbFile(context, id), maxSide);
+        if (thumb != null) {
+            return thumb;
+        }
+        File full = getFullFile(context, id);
+        return full != null && full.exists() ? decodeBounded(full, maxSide) : null;
+    }
+
+    /**
      * 缩略图边长：按「两列方格」在屏幕上的实际显示宽度取。
      * 老版本固定长边 256px，在 1080p 屏上单格约 540px —— 放大 2 倍多，肉眼看就是马赛克；
      * 现在跟着屏幕走（方形 JPEG，边长 540 约 40~80KB），给上下限控内存。

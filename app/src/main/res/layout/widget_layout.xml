@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 1×1 切换格：图标 + 下次切换时间/待切换文案。
+     两处文字用 @color/widget_ink（固定墨色）而不是 @color/text_primary：
+     卡片底 widget_bg 恒为近白、不随深浅色翻，而 text_primary 在 values-night 里是浅灰，
+     夜间模式这两行会糊在白卡片上看不见。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -27,7 +31,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:gravity="center"
-            android:textColor="@color/text_primary"
+            android:textColor="@color/widget_ink"
             android:textSize="10sp" />
 
         <!-- 已到最早可运行时间但系统尚未执行（Doze/省电延后）时的等待提示 -->
@@ -37,7 +41,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:text="@string/widget_waiting"
-            android:textColor="@color/text_primary"
+            android:textColor="@color/widget_ink"
             android:textSize="10sp"
             android:visibility="gone" />
     </LinearLayout>

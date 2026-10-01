@@ -46,9 +46,12 @@
             android:name=".EditActivity"
             android:exported="false" />
 
+        <!-- 1×1 切换格：点一下桌面+锁屏各自切一张；它同时是「30 分钟补切」的时机（见 widget_info.xml），
+             android:label 是小组件列表里显示的名字（以前没配，显示的是应用名，加了 2×2 就两个同名了） -->
         <receiver
             android:name=".WidgetProvider"
-            android:exported="false">
+            android:exported="false"
+            android:label="@string/widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -56,6 +59,29 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_info" />
         </receiver>
+
+        <!-- 2×2 控制台：四格 = 换库（缩略图）/ 暂停 / 上一张 / 下一张，只作用桌面这一面。
+             与 1×1 是两个独立入口（各一份 widget_info），1×1 的行为一点没动 -->
+        <receiver
+            android:name=".WidgetConsoleProvider"
+            android:exported="false"
+            android:label="@string/widget_console_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info_console" />
+        </receiver>
+
+        <!-- 控制台「缩略图那格」的选库页：透明主题只弹单选框，背景仍是桌面。
+             taskAffinity 留空 = 另起一个任务，不会把 App 主界面顶到前台；excludeFromRecents = 不进最近任务 -->
+        <activity
+            android:name=".LibPickerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/LibPickerTheme" />
 
         <!-- 动态壁纸引擎（Muzei 方案）：被设为动态壁纸后桌面由本引擎直接渲染，
              不再走系统静态壁纸链路，根治 MagicOS "幽灵图"；未激活时自动回退静态方案 -->

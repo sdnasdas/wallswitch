@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 控制台里一格的样子：比卡片底色略深一档的圆角方块，让人看得出"这是个能按的格子"。
+     固定半透明黑而不用 @color/ 里的语义色：小组件卡片恒为近白（widget_bg），深浅色模式都不该翻。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0A000000" />
+    <corners android:radius="12dp" />
+</shape>

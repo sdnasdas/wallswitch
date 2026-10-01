@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 控制台小组件：四格、无文字。
+     左上 = 当前壁纸缩略图（点按开选库页），右上 = 暂停/继续（只换图标），左下 = 上一张，右下 = 下一张。
+     四格只作用「桌面」这一面（锁屏仍回 App 里设置），与 1×1 那格"点一下桌面+锁屏各自切"是有意的差别。
+     点击目标挂在 FrameLayout（格子）上而不是图标上：图标四周留白也算触控区，60dp 见方一格才够按。
+     缩略图的圆角是代码里画进位图的（RemoteViews 不会替 ImageView 裁剪位图）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_console_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/widget_cell_lib"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="3dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/widget_console_thumb_desc"
+                android:scaleType="centerCrop"
+                android:src="@drawable/widget_thumb_empty" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/widget_cell_pause"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="3dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_cell_bg">
+
+            <!-- 暂停中换成 ic_play（代码里 setImageViewResource），不加文字、不另开一行 -->
+            <ImageView
+                android:id="@+id/widget_pause"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="15dp"
+                android:contentDescription="@string/widget_console_pause_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_pause"
+                android:tint="@color/widget_ink" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/widget_cell_prev"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="3dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_prev"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="15dp"
+                android:contentDescription="@string/notif_action_prev"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_notif_prev"
+                android:tint="@color/widget_ink" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/widget_cell_next"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="3dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_next"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="15dp"
+                android:contentDescription="@string/notif_action_next"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_notif_next"
+                android:tint="@color/widget_ink" />
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>

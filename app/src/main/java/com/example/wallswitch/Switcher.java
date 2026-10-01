@@ -337,8 +337,11 @@ public class Switcher {
                 }
             }
         }
-        // 覆盖路径不走 applyById（指针没动），通知里的大图标/标题要单独刷一次
+        // 覆盖路径不走 applyById（指针没动），通知里的大图标/标题要单独刷一次；
+        // 小组件同样要跟一遍 —— 2×2 控制台会显示当前这张，覆盖后指针没动、原先没人叫它刷新，
+        // 格子里就会停在覆盖前的旧图（1×1 那格只有个固定图标，所以这条缺口一直没显形）
         StatusNotifier.update(ctx);
+        WidgetProvider.updateWidget(ctx);
     }
 
     /** 清除某库的切换进度（删除库时调用）。 */

@@ -14,6 +14,16 @@
         <item name="android:windowBackground">@color/page_bg</item>
     </style>
 
+    <!-- 选库页（小组件「缩略图那格」拉起，见 LibPickerActivity）：这个 Activity 没有内容视图，
+         只弹一个单选框。透明 + 无标题 + windowIsTranslucent 让背景仍是桌面，
+         观感就是"小组件下拉出一个列表"而不是"打开了 App"。
+         父主题沿用 AppTheme，这样弹窗取到的是项目里那套 Material3 配色（浅色卡片/品牌蓝）。 -->
+    <style name="LibPickerTheme" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <!-- 壁纸列表缩略图的圆角外形 -->
     <style name="RoundedThumb">
         <item name="cornerFamily">rounded</item>

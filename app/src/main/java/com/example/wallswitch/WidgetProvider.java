@@ -109,6 +109,9 @@ public class WidgetProvider extends AppWidgetProvider {
 
     /** 渲染所有已放置的小组件（切换完成后由 Switcher 调用刷新缩略图）。 */
     public static void updateWidget(Context ctx) {
+        // 2×2 控制台先排上（它自己会判断桌面上有没有摆）：下面 1×1 一个没摆时要提前 return，
+        // 不能连带把控制台的刷新饿掉。控制台带解码，交给自己的后台线程，别把解码拽到调用方（可能是主线程）
+        WidgetConsoleProvider.scheduleUpdate(ctx);
         AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
         ComponentName component = new ComponentName(ctx, WidgetProvider.class);
         int[] ids = manager.getAppWidgetIds(component);

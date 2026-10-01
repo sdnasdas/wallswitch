@@ -9,6 +9,12 @@
     <color name="card_bg">#FFFFFF</color>
     <color name="text_primary">#1A1C1E</color>
     <color name="text_secondary">#5F6368</color>
+    <!-- 小组件前景专用固定墨色（图标 tint 与文字都用它）：widget_bg 是恒定的近白卡片（不随深浅色翻），
+         所以压在它上面的东西不能取 text_primary —— 那个值在 values-night 里是浅灰 #E6E7E9，
+         夜间会和白卡片糊成一片。这里只在 values/ 定义，values-night 不覆盖，两种模式都是同一个墨色。
+         对照：常驻通知的 notification_status 用 text_primary 是对的，它的胶囊底取 divider（有夜间变体），
+         整张卡是跟随深浅色的，和小组件这块"恒白"的卡片不是一回事。 -->
+    <color name="widget_ink">#1A1C1E</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
     <!-- 范围槽位卡片的初值（= 色相 30、浓淡 0 算出来的纸白）：实际显示色由 SlotTheme
