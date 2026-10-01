@@ -27,6 +27,8 @@
     <color name="widget_ink_night">#E6E7E9</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
+    <!-- 通知封面「切换中」那层毛玻璃 veil：浅色档压一层半透白，深色档压一层半透墨（各自都让转圈看得清） -->
+    <color name="notif_frost">#66FFFFFF</color>
     <!-- 常驻通知上那颗作用面角标的文字色：桌面用主色（上面已有 brand，含夜间变体），锁屏另给一色，
          两色在浅底深底上都够对比。刻意不复用 brand 的夜间值，免得两颗看起来是同一个意思。 -->
     <color name="notif_scope_lock">#7B52C9</color>

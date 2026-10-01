@@ -282,8 +282,8 @@ public class Switcher {
         } else {
             lastTitleLock = appliedTitle;
         }
-        // 设置成功后刷新小组件缩略图与常驻通知。两条通知（桌面/锁屏各一条）都要刷：
-        // 以前只在 forHome 时刷是因为那时只有桌面一条，现在锁屏切一张也得换掉它那条的封面与标题
+        // 成功后刷新小组件缩略图与常驻通知。v3.81 起只有一条通知，但桌面与锁屏切完都得刷它
+        //（以前只在 forHome 时刷，那时锁屏根本没有对应的状态可显示）
         if (applied) {
             WidgetProvider.updateWidget(ctx);
             StatusNotifier.update(ctx);

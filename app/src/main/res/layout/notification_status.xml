@@ -26,12 +26,40 @@
         android:paddingHorizontal="12dp"
         android:paddingTop="6dp">
 
-        <ImageView
-            android:id="@+id/notif_cover"
+        <!-- 封面 + 压在它身上的「切换中」转圈。转圈放这儿而不是文字行，是因为指针先落定、上屏才慢：
+             applyById 第一件事就是写 _current，锁屏那次 setBitmap 要几秒——所以切换中显示的标题/封面
+             本来就是"即将上屏的那一张"，转圈盖在封面上正好读成"这张正在应用"，不需要再加文字。
+             ProgressBar 自带 android:indeterminate，通知可见时 SystemUI 逐帧画它 -->
+        <FrameLayout
             android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:contentDescription="@string/notif_cover_desc"
-            android:scaleType="centerCrop" />
+            android:layout_height="40dp">
+
+            <ImageView
+                android:id="@+id/notif_cover"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:contentDescription="@string/notif_cover_desc"
+                android:scaleType="centerCrop" />
+
+            <!-- 毛玻璃那层veil：切换中盖在封面上，转圈再压在veil上。真高斯模糊在 RemoteViews 里做不到
+                 （SystemUI 不会给我们的子 view 加 RenderEffect），所以"毛"是靠代码把封面缩到 1/6 再拉回来
+                 近似出来的，这层半透 veil 负责"玻璃"——颜色跟随深浅色（见 @color/notif_frost） -->
+            <View
+                android:id="@+id/notif_cover_frost"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@color/notif_frost"
+                android:visibility="gone" />
+
+            <ProgressBar
+                android:id="@+id/notif_busy"
+                style="?android:attr/progressBarStyleSmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:indeterminate="true"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="0dp"
@@ -85,36 +113,6 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:visibility="gone" />
-
-                <!-- 切换中：锁屏那面走 setBitmap 要解码全图，几秒内没反馈会以为没按着。
-                     只在动作超过 400ms 时才亮起来（快的路径根本不画，免得闪一下），
-                     亮起时把库名/时间那一坨藏掉，整行高度不变 → 不会因此越过 146dp 的收起裁切线。
-                     ProgressBar 自己带 android:indeterminate，SystemUI 在通知可见时逐帧画它 -->
-                <LinearLayout
-                    android:id="@+id/notif_busy"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <ProgressBar
-                        android:id="@+id/notif_busy_bar"
-                        style="?android:attr/progressBarStyleSmall"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:indeterminate="true" />
-
-                    <TextView
-                        android:id="@+id/notif_busy_text"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:text="@string/notif_busy"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
-                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

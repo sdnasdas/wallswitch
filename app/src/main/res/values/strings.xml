@@ -297,7 +297,6 @@
     <string name="notif_action_prev">上一张</string>
     <string name="notif_action_next">下一张</string>
     <string name="notif_scope_desc">切换这三颗键作用在桌面还是锁屏</string>
-    <string name="notif_busy">切换中…</string>
     <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
     <!-- 预计下次切换时间（静态显示，不走秒：走秒每秒唤醒 SystemUI/桌面，真机实测是持续发热源）。

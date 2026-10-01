@@ -34,11 +34,15 @@ import java.util.concurrent.Executors;
  *
  * <h3>切换中（loading）</h3>
  * 锁屏那面走 {@code TakeoverManager.setLockFromFile} → 全图解码 + 系统写盘，真机要几秒；这期间通知上
- * 没有任何反馈，他会以为没按着。所以 {@link #showBusy} 把副标题那一坨换成「转圈 + 切换中…」、四颗键摘掉
- * 点击并把图标染成次级色（{@code setOnClickPendingIntent(id, null)} 在 AOSP 里就是 setClickable(false)）。
+ * 没有任何反馈，他会以为没按着。所以 {@link #showBusy} 把封面糊成毛玻璃（{@link #frost} 缩了再拉 + 一层
+ * 半透 veil）并在正中盖一颗转圈，不加文字（v3.82 第一版放在副标题行配「切换中…」文字，真机反馈
+ * "文字多余、缩略图倒是提前换了"；v3.83 先改成转圈盖封面，他再要了毛玻璃），
+ * 同时四颗键摘掉点击并把图标染成次级色（{@code setOnClickPendingIntent(id, null)} 在 AOSP 里就是
+ * setClickable(false)）。糊掉是说得通的：{@code applyById} 第一件事就写 {@code _current}，
+ * 慢的是后面的上屏，所以切换中显示的标题/封面本来就是"即将上屏那一张"——糊掉正好读成"这张还没落定"。
  * 快路径（桌面）不该闪一下 loading，所以由 {@link NotifActionReceiver} 用 400ms 门槛决定画不画：
  * 400ms 内跑完就一次都不画。跑完一定要落回正常态，那段收尾逻辑写在 NotifActionReceiver 里。
- * loading 只多占副标题那一行的高度，整张卡还是 128dp。
+ * 转圈与封面同框（40dp 里居中），整张卡高度不受影响，还是 128dp。
  *
  * <h3>为什么不用系统媒体卡片（MediaStyle + MediaSession）</h3>
  * MagicOS 通知栏同时只显示一张媒体卡片——带媒体会话的通知会把音乐 App 的卡挤掉，
@@ -90,6 +94,8 @@ public class StatusNotifier {
     private static final int REQ_NEXT = 2;
     private static final int REQ_PAUSE = 3;
     private static final int REQ_SCOPE = 4;
+    // 切换中那张封面糊完之后的长边像素：40dp 的显示尺寸用得上 96px 就够用
+    private static final int FROST_PX = 96;
 
     // 缩略图解码与通知构建收口到后台（仿 TimerScheduler.EXECUTOR），主线程调用也安全
     private static final Executor EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
@@ -223,12 +229,17 @@ public class StatusNotifier {
         views.setTextViewText(R.id.notif_title, title);
         views.setTextViewText(R.id.notif_lib, summaryLine(ctx, forHome, lib));
         if (cover != null) {
-            views.setImageViewBitmap(R.id.notif_cover, cover);
+            views.setImageViewBitmap(R.id.notif_cover, busy ? frost(cover) : cover);
             views.setViewVisibility(R.id.notif_cover, View.VISIBLE);
         } else {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
-        bindTimerLine(ctx, views, forHome, busy);
+        // 切换中：封面糊掉 + 盖一层半透 veil + 转圈，不加文字。封面此时显示的已经是"即将上屏那一张"——
+        // applyById 第一件事就是写 _current，慢的是后面的 setBitmap（真机反馈与代码一致），
+        // 糊掉正好读成"这张还没落定"，比在副标题行写「切换中…」更对得上事实
+        views.setViewVisibility(R.id.notif_busy, busy ? View.VISIBLE : View.GONE);
+        views.setViewVisibility(R.id.notif_cover_frost, busy && cover != null ? View.VISIBLE : View.GONE);
+        bindTimerLine(ctx, views, forHome);
         boolean paused = LibraryStore.slotPaused(ctx, forHome);
         views.setImageViewResource(R.id.notif_pause,
                 paused ? R.drawable.ic_play : R.drawable.ic_pause);
@@ -264,18 +275,8 @@ public class StatusNotifier {
                 + intervalText(LibraryStore.scopeIntervalSeconds(ctx, forHome));
     }
 
-    /** 时间那一行：切换中亮转圈，否则暂停中直说"已暂停"，再否则走秒倒计时或静态短句「下次 21:45」。 */
-    private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome, boolean busy) {
-        if (busy) {
-            // 只换这一行的内容，整行高度不变（小转圈 16dp 与 12sp 文字同高）→ 卡片还是 128dp
-            views.setViewVisibility(R.id.notif_lib, View.GONE);
-            views.setViewVisibility(R.id.notif_timer, View.GONE);
-            views.setViewVisibility(R.id.notif_waiting, View.GONE);
-            views.setViewVisibility(R.id.notif_busy, View.VISIBLE);
-            return;
-        }
-        views.setViewVisibility(R.id.notif_lib, View.VISIBLE);
-        views.setViewVisibility(R.id.notif_busy, View.GONE);
+    /** 时间那一行：暂停中直说"已暂停"，否则走秒倒计时或静态短句「下次 21:45」。 */
+    private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome) {
         long trigger = TimerScheduler.scopeTrigger(ctx, forHome);
         long now = System.currentTimeMillis();
         if (LibraryStore.slotPaused(ctx, forHome)) {
@@ -349,6 +350,24 @@ public class StatusNotifier {
             sp.edit().putBoolean(KEY_LEGACY_CHANNEL_CLEANED, true).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * 切换中封面的"毛"：先缩到 1/6 再双线性拉回来，等效一层高斯模糊——40dp 的图上看不出与真模糊的差别，
+     * 而 RemoteViews 里本来也拿不到 RenderEffect（SystemUI 不会给我们子 view 加特效）。
+     * 顺手把成品压到长边 96px（{@link #FROST_PX}）：正常封面是 384~768px，糊完这张只有 96px，
+     * 所以切换中那次跨进程反而比平时更小（Binder 单次事务约 1MB，见 WidgetConsoleProvider 顶部注释）。
+     */
+    private static Bitmap frost(Bitmap src) {
+        int longSide = Math.max(src.getWidth(), src.getHeight());
+        int w = Math.max(1, Math.round(src.getWidth() * FROST_PX / (float) longSide));
+        int h = Math.max(1, Math.round(src.getHeight() * FROST_PX / (float) longSide));
+        Bitmap small = Bitmap.createScaledBitmap(src, Math.max(1, w / 6), Math.max(1, h / 6), false);
+        Bitmap out = Bitmap.createScaledBitmap(small, w, h, true);
+        if (out != small && !small.isRecycled()) {
+            small.recycle();
+        }
+        return out;
     }
 
     private static SharedPreferences prefs(Context ctx) {

@@ -9,5 +9,6 @@
     <color name="text_secondary">#9AA0A6</color>
     <color name="divider">#33363B</color>
     <color name="danger">#FF6B60</color>
+    <color name="notif_frost">#8C14161A</color>
     <color name="notif_scope_lock">#B794F0</color>
 </resources>
