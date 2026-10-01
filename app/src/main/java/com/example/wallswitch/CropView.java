@@ -171,8 +171,8 @@ public class CropView extends View {
                         || Math.abs(event.getY() - downY) > touchSlop) {
                     tapMoved = true;
                 }
-                // 双指缩放进行中不做拖动
-                if (!scaleDetector.isInProgress()) {
+                // 拖动只在单指时做：多指那几帧 event.getX() 只代表 index 0，拿它当位移源会乱跳
+                if (!scaleDetector.isInProgress() && event.getPointerCount() == 1) {
                     float dx = event.getX() - lastX;
                     float dy = event.getY() - lastY;
                     matrix.postTranslate(dx, dy);
@@ -183,6 +183,35 @@ public class CropView extends View {
                 lastY = event.getY();
                 handled = true;
                 break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_POINTER_UP: {
+                // 多指进出时把拖动锚点重新钉到「下一帧仍然留在屏上的那根手指」。
+                // 抬起一根之后，剩下的那根会被系统重新编号成 index 0，而 lastX/lastY 还停在抬起前的
+                // index 0（也就是刚抬起那根）上；下一句单指 MOVE 的 dx = 另一根 - 抬起那根 = 两指间距
+                // （真机上 200~600 像素），整张图被一次性平移出去再由 clampTranslate 按到边界 ——
+                // 表现就是「放大倍率是对的，但一松手图就跳到别处，得自己挪回来」。
+                // 真机差分：只有先抬「最早落下那根手指」才跳，抬另一根不跳，与此机制一致。
+                int action = event.getActionMasked();
+                float anchorX;
+                float anchorY;
+                if (action == MotionEvent.ACTION_POINTER_UP && event.getPointerCount() == 2) {
+                    // 正好两根：抬起的是 actionIndex，另一根就是要留下的
+                    int keep = 1 - event.getActionIndex();
+                    anchorX = event.getX(keep);
+                    anchorY = event.getY(keep);
+                } else {
+                    // 三指以上或落指：交给 ScaleGestureDetector 的焦点，它就是当前手指群的中心
+                    anchorX = scaleDetector.getFocusX();
+                    anchorY = scaleDetector.getFocusY();
+                }
+                lastX = anchorX;
+                lastY = anchorY;
+                // 多指不算轻点：不重设的话「双指按下再直接抬起」（中间没有 MOVE）会被当成单击，
+                // 把桌面图标预览叠加切一下
+                tapMoved = true;
+                handled = true;
+                break;
+            }
             case MotionEvent.ACTION_UP:
                 // 轻点（没移动、没缩放、时间够短）→ 通知外层切换预览叠加
                 if (!tapMoved && !scaleDetector.isInProgress() && tapListener != null

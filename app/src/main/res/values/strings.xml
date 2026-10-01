@@ -109,12 +109,6 @@
     <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
 
-    <!-- 缩略图点击预览 -->
-    <string name="preview_title">预览</string>
-    <string name="preview_desc">壁纸全图预览</string>
-    <string name="preview_loading">加载中…</string>
-    <string name="preview_info">%1$d × %2$d 像素</string>
-    <string name="preview_failed">图片加载失败</string>
     <string name="close">关闭</string>
 
     <!-- 自动切换提示（系统通知：成功静音留痕、失败弹横幅） -->
@@ -135,6 +129,10 @@
     <string name="title_label">标题：%1$s</string>
     <string name="rename_title">改标题</string>
     <string name="rename_hint">壁纸标题（留空即未命名）</string>
+    <string name="rename_info">库里存的成品图 %1$d × %2$d 像素 · %3$s</string>
+    <string name="rename_info_missing">库里找不到这张的成品图文件 · %1$s</string>
+    <string name="rename_info_has_original">原图已留存</string>
+    <string name="rename_info_no_original">原图未关联（点格子进裁剪页可补）</string>
     <string name="notify_disabled_hint">通知权限未开启，自动切换提示无法显示（华为/荣耀关闭通知权限后连 Toast 也会失效）</string>
     <string name="notify_permission_denied">未授予通知权限，自动切换提示将无法显示</string>
 

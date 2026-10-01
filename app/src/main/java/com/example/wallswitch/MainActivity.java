@@ -89,8 +89,8 @@ import java.util.Set;
  *   <li>库列表页：☰ 开抽屉 + 固定标题 WallPaper；行 = 缩略图（该库当前壁纸）+ 库名
  *       （点按就地改名）+ N 张壁纸 + 启用开关 + 齿轮（范围/模式/间隔/立即切换）；
  *       长按行浮出红垃圾桶（删库二次确认）；右下角 ＋ 新建库。</li>
- *   <li>壁纸网格页：← 返回 + 库名；两列 1:1 正方形网格；点格预览，长按浮出
- *       铅笔（进裁剪编辑页）/ 红垃圾桶（直接删，不确认）；右下角 ＋ 添加壁纸；
+ *   <li>壁纸网格页：← 返回 + 库名；两列 1:1 正方形网格；点格直接进裁剪页重编，长按浮出
+ *       铅笔（改标题小窗）/ 红垃圾桶（直接删，不确认）；右下角 ＋ 添加壁纸；
  *       返回键/返回手势回库列表（在库列表页返回才退出 App）。</li>
  * </ul>
  * 左侧设置抽屉只留全局项：接管情况（一个总开关 + 桌面/锁屏两行状态）、自动切换
@@ -2030,7 +2030,7 @@ public class MainActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    /** 打开编辑页重新裁剪一张已入库壁纸（长按壁纸格的铅笔；确认后覆盖原图）。 */
+    /** 打开编辑页重新裁剪一张已入库壁纸（点壁纸格直接进入；确认后覆盖成品图，源是原图）。 */
     private void openEditItem(WallpaperStore.Item item) {
         Intent intent = new Intent(this, EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_ITEM_ID, item.id);
@@ -2661,70 +2661,52 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * 点击壁纸格：后台解码库内全图并弹窗预览。
-     * 预览按图片原始比例整张显示（不裁剪、不补黑边，超高可滚动），
-     * 下方显示「标题 + 该文件在库中的真实像素尺寸」——用于判断库里存的到底是一张完整图，
-     * 还是被裁过/比例不对（例如只有屏幕上那一块）的结果图。
-     * 弹窗里的标题可直接点击就地改名（通知会带上这个标题）。
+     * 长按浮出的铅笔 → 改标题小窗：一个输入框加一行现场信息，不显示图片。
+     * 看构图这件事已经归给「点格子进裁剪页」（那里看到的是原图 + 上次的取景框），这里只回答两个问题：
+     * 这张叫什么、库里存的到底是多大一张。尺寸只读图片文件头（inJustDecodeBounds），主线程就能拿到，
+     * 不再后台解整张图；原图留存情况决定进裁剪页时能不能复原上次取景框。
      */
-    private void showPreview(WallpaperStore.Item item) {
-        View content = LayoutInflater.from(this).inflate(R.layout.dialog_preview, null, false);
-        ImageView preview = content.findViewById(R.id.img_preview);
-        TextView info = content.findViewById(R.id.tv_preview_info);
-        final TextView titleView = content.findViewById(R.id.tv_preview_title);
-        final EditText titleInput = content.findViewById(R.id.et_preview_title);
-        titleView.setText(itemTitle(item));
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+    private void showRenameDialog(WallpaperStore.Item item) {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setText(item.title == null ? "" : item.title);
+        input.setSelection(input.getText().length());
+        TextView info = new TextView(this);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        info.setPadding(pad, 0, pad, 0);
+        info.setTextSize(13f);
+        info.setTextColor(getColor(R.color.text_secondary));
+        info.setText(renameInfoText(item));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.addView(wrapInput(input, R.string.rename_hint));
+        content.addView(info);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.rename_title)
                 .setView(content)
-                .setPositiveButton(R.string.close, null)
-                .create();
-        // 点标题（或铅笔）→ 与库行一致的就地改名：TextView 换成 EditText，回车或失焦提交
-        View.OnClickListener startRename = v -> {
-            titleView.setVisibility(View.GONE);
-            titleInput.setVisibility(View.VISIBLE);
-            titleInput.setText(item.title == null ? "" : item.title);
-            titleInput.setSelection(titleInput.getText().length());
-            titleInput.requestFocus();
-            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) {
-                imm.showSoftInput(titleInput, InputMethodManager.SHOW_IMPLICIT);
-            }
-        };
-        titleView.setOnClickListener(startRename);
-        content.findViewById(R.id.btn_preview_rename).setOnClickListener(startRename);
-        titleInput.setOnEditorActionListener((v, actionId, event) -> {
-            commitPreviewTitle(item, titleView, titleInput);
-            return true;
-        });
-        titleInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                commitPreviewTitle(item, titleView, titleInput);
-            }
-        });
-        dialog.show();
-        // 大图解码要几百毫秒，放后台线程，避免点一下卡住列表
-        new Thread(() -> {
-            File file = WallpaperStore.getFullFile(this, item.id);
-            // 只读图片头拿真实尺寸：预览图会被限制在 2048 内，不能代表库内实际保存的尺寸
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-            final int width = bounds.outWidth;
-            final int height = bounds.outHeight;
-            final Bitmap bitmap = WallpaperStore.decodeBounded(file, WallpaperStore.maxWallpaperDim(this));
-            runOnUiThread(() -> {
-                // 解码期间弹窗可能已被关闭，或页面已退出：不再回填
-                if (isFinishing() || isDestroyed() || !dialog.isShowing()) {
-                    return;
-                }
-                if (bitmap == null || width <= 0 || height <= 0) {
-                    info.setText(R.string.preview_failed);
-                    return;
-                }
-                preview.setImageBitmap(bitmap);
-                info.setText(getString(R.string.preview_info, width, height));
-            });
-        }, "thumb-preview").start();
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    // 标题会被自动切换的通知带上，用来确认「切到了哪张」；留空 = 未命名
+                    String title = input.getText().toString().trim();
+                    WallpaperStore.setTitle(this, item.id, title);
+                    item.title = title;
+                    refreshList();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 改标题小窗那行信息：库里成品图的真实像素尺寸 + 原图有没有留存。 */
+    private String renameInfoText(WallpaperStore.Item item) {
+        String original = getString(WallpaperStore.hasOriginal(this, item.id)
+                ? R.string.rename_info_has_original : R.string.rename_info_no_original);
+        File file = WallpaperStore.getFullFile(this, item.id);
+        if (!file.isFile()) {
+            return getString(R.string.rename_info_missing, original);
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+        return getString(R.string.rename_info, bounds.outWidth, bounds.outHeight, original);
     }
 
     /**
@@ -2767,29 +2749,6 @@ public class MainActivity extends AppCompatActivity {
     /** 壁纸显示名（未命名则用占位文案）。 */
     private String itemTitle(WallpaperStore.Item item) {
         return item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
-    }
-
-    /**
-     * 提交预览弹窗里的就地改名（通知里会带上这个标题，便于区分切到了哪张）。
-     * 留空 = 未命名；已在展示态时（可见性不是输入框）忽略重复回调，避免编辑器动作与失焦各提交一次。
-     */
-    private void commitPreviewTitle(WallpaperStore.Item item, TextView titleView, EditText input) {
-        if (input.getVisibility() != View.VISIBLE) {
-            return;
-        }
-        String newTitle = input.getText().toString().trim();
-        WallpaperStore.setTitle(this, item.id, newTitle);
-        // 本地快照同步，避免同一弹窗里再次改名时回填旧值
-        item.title = newTitle;
-        titleView.setText(itemTitle(item));
-        titleInputToTitle(titleView, input);
-        refreshList();
-    }
-
-    /** 改名输入框收回展示态（EditText 隐藏后输入法会自动收起）。 */
-    private void titleInputToTitle(TextView titleView, EditText input) {
-        input.setVisibility(View.GONE);
-        titleView.setVisibility(View.VISIBLE);
     }
 
     /** 弹窗输入框统一套一层 TextInputLayout（M3 描边 + 浮动提示），返回可直接 setView 的容器。 */
@@ -3179,7 +3138,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * 壁纸网格适配器（两列正方形）：点格预览；长按浮出铅笔（进裁剪编辑页）/ 红垃圾桶
+     * 壁纸网格适配器（两列正方形）：点格直接进裁剪页重编；长按浮出铅笔（改标题小窗）/ 红垃圾桶
      * （直接删，不确认）两个圆形图标，点空白处或返回手势收起。
      */
     private class WallpaperAdapter extends RecyclerView.Adapter<WpHolder> {
@@ -3246,7 +3205,7 @@ public class MainActivity extends AppCompatActivity {
             // 格子下方显示壁纸标题（未命名则用占位文案）
             holder.tvTitle.setText(itemTitle(item));
             holder.actions.setVisibility(position == revealed ? View.VISIBLE : View.GONE);
-            // 点格：有浮出图标时先收起（相当于取消），否则进预览
+            // 点格：有浮出图标时先收起（相当于取消），否则直接进裁剪页重编（源是原图，并复原上次取景框）
             holder.itemView.setOnClickListener(v -> {
                 if (holder.press.dragged()) {
                     return;
@@ -3254,9 +3213,9 @@ public class MainActivity extends AppCompatActivity {
                 if (hideRevealed()) {
                     return;
                 }
-                showPreview(item);
+                openEditItem(item);
             });
-            // 长按浮出编辑/删除图标
+            // 长按浮出预览/删除图标
             holder.itemView.setOnLongClickListener(v -> {
                 int old = revealed;
                 revealed = position;
@@ -3266,10 +3225,10 @@ public class MainActivity extends AppCompatActivity {
                 notifyItemChanged(position);
                 return true;
             });
-            // 铅笔 → 进裁剪编辑页（重编模式：确认后覆盖原图）
+            // 铅笔 → 改标题小窗（大图不显示：看构图归点格子进裁剪页，这里只给输入框和一行现场信息）
             holder.btnEdit.setOnClickListener(v -> {
                 hideRevealed();
-                openEditItem(item);
+                showRenameDialog(item);
             });
             // 房子 → 把这张直接设为桌面（首页）壁纸
             holder.btnSetHome.setOnClickListener(v -> {

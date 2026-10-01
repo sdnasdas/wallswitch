@@ -359,7 +359,7 @@ public class WallpaperStore {
 
     /**
      * 用裁剪结果覆盖一张已入库壁纸的全图与缩略图（保留 id、标题与归属库）。
-     * 长按壁纸格的「编辑铅笔」重新裁剪后调用；缩略图一并重生成，列表下次刷新显示新图。
+     * 点壁纸格重新裁剪后调用；缩略图一并重生成，列表下次刷新显示新图。
      */
     public static void overwrite(Context context, String id, Bitmap bitmap) throws IOException {
         if (bitmap == null) {

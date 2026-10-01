@@ -25,8 +25,10 @@ import java.util.List;
  * <ul>
  *   <li><b>导入模式</b>（{@link #EXTRA_INBOX_ID}）：添加时从收件箱取源图，确认后按当前手势导出并入库，
  *       取消则丢弃收件箱文件。</li>
- *   <li><b>重编模式</b>（{@link #EXTRA_ITEM_ID}）：长按壁纸格的「编辑铅笔」进入，
- *       源图 = 库内已存的全图，确认后覆盖原图（保留 id/标题/归属库），取消不动任何文件。</li>
+ *   <li><b>重编模式</b>（{@link #EXTRA_ITEM_ID}）：点壁纸格直接进入（v3.86 起，原来是长按浮出铅笔），
+ *       源图 = 库内留存的原图（v3.85 起；缺原图的存量壁纸退回成品图，并给一次性的「关联原图」入口），
+ *       打开时按 library.json 里的裁剪矩形复原上次取景框；确认后覆盖成品图（保留 id/标题/归属库），
+ *       取消不动任何文件。</li>
  * </ul>
  *
  * <ul>
@@ -36,13 +38,15 @@ import java.util.List;
  *   <li>v3.9 起<b>单击取景区</b>切换「桌面图标预览」叠加，不再用右上角按钮。</li>
  *   <li>v3.9 起导出改成<b>区域解码</b>：拿着当前取景框的矩形回原图文件取那一块，
  *       所以放大多少倍都能导出满屏幕分辨率，不再依赖事先猜测的放大余量。</li>
+ *   <li>v3.85 起重编的源从成品图换成原图，并新增 {@link CropView#restoreSourceRect} 复原取景框 ——
+ *       「裁上加裁」从这一刻结束，微调是在原生像素上重导而不是在旧成品图上再裁一刀。</li>
  * </ul>
  */
 public class EditActivity extends AppCompatActivity {
 
     // 收件箱 id 的 Intent extra key（导入模式）
     public static final String EXTRA_INBOX_ID = "inbox_id";
-    // 已入库壁纸 id 的 Intent extra key（重编模式：长按壁纸格的编辑铅笔）
+    // 已入库壁纸 id 的 Intent extra key（重编模式：点壁纸格进入）
     public static final String EXTRA_ITEM_ID = "item_id";
     // 目标壁纸库 id 的 Intent extra key（仅导入模式用）
     public static final String EXTRA_LIB_ID = "lib_id";
@@ -351,7 +355,7 @@ public class EditActivity extends AppCompatActivity {
             } else {
                 WallpaperStore.confirmImport(this, inboxId, result, libId);
             }
-            // 记下这次的可见矩形，下次点铅笔就落回这里。必须排在入库/覆盖之后：
+            // 记下这次的可见矩形，下次点格子进来就落回这里。必须排在入库/覆盖之后：
             // 导入模式的条目是 confirmImport 刚建的那一条，提前写会找不到条目
             saveCropRectIfNeeded(itemId != null ? itemId : inboxId);
         } catch (Exception e) {
