@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 控制台小组件格子的深色档底：半透白（深卡片上要亮一档才读得出"那是个键"）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_cell_night" />
+    <corners android:radius="12dp" />
+</shape>

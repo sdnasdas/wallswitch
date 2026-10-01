@@ -421,12 +421,21 @@ public class WallpaperStore {
      * 超了不抛异常，表现是小组件静默不更新。一格 60~70dp，192px 已经够清楚。
      */
     public static Bitmap getWidgetThumb(Context context, String id, int maxSide) {
-        Bitmap thumb = decodeBounded(getThumbFile(context, id), maxSide);
-        if (thumb != null) {
-            return thumb;
+        Bitmap src = decodeBounded(getThumbFile(context, id), maxSide);
+        if (src == null) {
+            File full = getFullFile(context, id);
+            src = full != null && full.exists() ? decodeBounded(full, maxSide) : null;
         }
-        File full = getFullFile(context, id);
-        return full != null && full.exists() ? decodeBounded(full, maxSide) : null;
+        if (src == null) {
+            return null;
+        }
+        // 一律交正方形出去：现成的 thumbs/ 本来就是中心方图，但缺图退回全图时解出来是竖长条，
+        // 小组件那一格是正方形 —— 非方图要么被 fitCenter 留出上下白条，要么被 centerCrop 砍头尾
+        Bitmap square = centerSquare(src);
+        if (square != src && !src.isRecycled()) {
+            src.recycle();
+        }
+        return square;
     }
 
     /**

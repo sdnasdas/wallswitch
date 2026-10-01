@@ -8,6 +8,7 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -83,6 +84,12 @@ public class WallSwitchService extends GLWallpaperService {
 
     /** 活着的引擎实例（系统可能同时存在预览引擎与正式引擎，通知时全部刷新）。 */
     private static final List<WallEngine> ENGINES = new CopyOnWriteArrayList<>();
+
+    /**
+     * 上一次看到的深浅色档（进程内共享，多个 Engine 也只刷一次）。
+     * 用途见 {@link WallEngine#onConfigurationChanged}：深浅色翻档时重发小组件与常驻通知。
+     */
+    private static int lastNightMode = -1;
     /** 解码 + 纹理上传调度共用的后台线程，避免阻塞系统壁纸回调线程。 */
     private static final ExecutorService DRAW_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "engine-draw");
@@ -137,6 +144,8 @@ public class WallSwitchService extends GLWallpaperService {
     @Override
     public void onCreate() {
         super.onCreate();
+        // 记下当前深浅色档：之后只有真的翻档才重发小组件与通知（见 WallEngine#onConfigurationChanged）
+        lastNightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"
         // 没有取证就无法定位（用户不用 adb）
         try {
@@ -150,6 +159,29 @@ public class WallSwitchService extends GLWallpaperService {
             });
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * 深浅色翻档时把小组件与常驻通知重发一次。
+     *
+     * <p>为什么要有这一钩：两档颜色都是我们在自己进程里算好递过去的（见 WidgetConsoleProvider#isNight），
+     * 不重发就会一直停在旧档；而"桌面在深浅色切换时会不会自己重画已摆着的小组件"各家不保证。
+     * 挂在 Service 上（Engine 没有 onConfigurationChanged，只有 Service 那份 ComponentCallbacks 有）
+     * 是因为本服务作为动态壁纸常驻，翻档必然收到这个回调，比等用户打开 App 才纠正要主动。
+     *
+     * <p>发热账：只在 uiMode 的深浅色位真的变了时才跑，一次是"两回小 JPEG 解码 + 两次递交"，
+     * 属于用户动作那一级（和手动切一张同量级），不是持续负载。
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        int night = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        if (night == lastNightMode) {
+            return;
+        }
+        lastNightMode = night;
+        WidgetProvider.updateWidget(this);
+        StatusNotifier.update(this);
     }
 
     @Override

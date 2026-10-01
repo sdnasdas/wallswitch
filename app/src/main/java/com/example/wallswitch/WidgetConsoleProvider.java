@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -23,13 +24,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 2×2 控制台小组件：四格、不带文字 —— 左上 = 当前壁纸缩略图（点按开选库页）、
- * 右上 = 暂停/继续（只换图标）、左下 = 上一张、右下 = 下一张。
+ * 桌面控制台小组件：2 列 × 3 行、共五格 —— 左上 = 当前壁纸缩略图（点按开选库页）、
+ * 右上 = 暂停/继续（只换图标）、左下 = 上一张、右下 = 下一张、第三行一整条 = 进入 App。
  *
  * <h3>与 1×1 那格的分工</h3>
  * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台<b>只作用桌面这一面</b>（锁屏仍回 App 里设）。
  * 动作语义与常驻通知的上一张/下一张同一套（{@link Switcher#prev}/{@link Switcher#next}
  * + 切完 {@code restartScope}），守卫也在 Switcher 里收口，这里不另立规矩。
+ *
+ * <h3>为什么"进入 App"要占一整格</h3>
+ * RemoteViews <b>没有长按 API</b>（android-34 的 android.jar 里只有 setOnClickPendingIntent /
+ * setPendingIntentTemplate / setOnClickFillInIntent，长按只有集合控件那套
+ * setOnItemLongClickPendingIntent，得配 RemoteViewsService 的列表）。所以"长按=开 App"这条路不成立，
+ * 只能给一个实位的格子。
  *
  * <h3>为什么渲染要挪到后台线程</h3>
  * {@code onUpdate}/{@code onReceive} 跑在广播主线程上（Receiver 有 10 秒上限），而缩略图要读文件解码。
@@ -39,7 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <h3>发热账</h3>
  * {@code updatePeriodMillis=0}：不接 1×1 那个"30 分钟刷一次"的补切时机，免得同一刻补切跑两遍；
  * 不放 Chronometer（走秒会每秒驱动桌面重绘，真机实测是发热来源之一）；
- * 解码只发生在切换/暂停/换库/放置/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
+ * 解码只发生在切换/暂停/换库/放置/深浅色翻档/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
  * 且带一个 {@code QUEUED} 闸门把连发并成一次渲染（代价换确定性：见 {@code homeThumb} 为什么不缓存）。
  */
 public class WidgetConsoleProvider extends AppWidgetProvider {
@@ -51,17 +58,19 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     /** 暂停 / 继续桌面的自动切换。 */
     public static final String ACTION_PAUSE = "com.example.wallswitch.CONSOLE_PAUSE";
 
-    // PendingIntent requestCode：四格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
-    // 后建的那条把前一条的 Intent 覆盖掉，四格按下去变成同一个动作
+    // PendingIntent requestCode：五格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
+    // 后建的那条把前一条的 Intent 覆盖掉，五格按下去变成同一个动作
     private static final int REQ_LIB = 11;
     private static final int REQ_PAUSE = 12;
     private static final int REQ_PREV = 13;
     private static final int REQ_NEXT = 14;
+    // 第三行那条「进入 App」
+    private static final int REQ_OPEN_APP = 15;
 
-    // 缩略图边长：按一格的实际显示宽度取，再硬夹上限。
+    // 缩略图边长：布局里格子写死 62dp（≈ 荣耀桌面图标大小），这里按同一档取像素并硬夹上限。
     // 不能直接用 WallpaperStore.getThumb() 的结果 —— 那是 384~768px 正方形（解码出来 0.6~2.3MB），
     // 而 RemoteViews 经 Binder 递交、单次事务约 1MB，超了的表现是小组件静默不更新（不报错）
-    private static final int THUMB_CELL_DP = 72;
+    private static final int THUMB_CELL_DP = 62;
     private static final int THUMB_MIN_PX = 96;
     private static final int THUMB_MAX_PX = 192;
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）
@@ -157,17 +166,37 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         manager.updateAppWidget(component, buildViews(ctx));
     }
 
-    /** 构建四格视图：图标态 + 缩略图 + 四个点击目标。 */
+    /** 构建五格视图：两档外观 + 图标态 + 缩略图 + 各格的点按目标。 */
     private static RemoteViews buildViews(Context ctx) {
-        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console_2x2);
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console);
+        boolean night = isNight(ctx);
+        // 底色按档显式挑，不靠 values-night 自动翻（原因见 colors.xml 那段）
+        int cardBg = night ? R.drawable.widget_bg_night : R.drawable.widget_bg;
+        int cellBg = night ? R.drawable.widget_cell_bg_night : R.drawable.widget_cell_bg;
+        views.setInt(R.id.widget_card, "setBackgroundResource", cardBg);
+        views.setInt(R.id.widget_cell_lib, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_pause, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_prev, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_next, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_open, "setBackgroundResource", cellBg);
         views.setImageViewResource(R.id.widget_pause,
                 LibraryStore.slotPaused(ctx, true) ? R.drawable.ic_play : R.drawable.ic_pause);
+        // 图标本体是黑色 vector，颜色用 setColorFilter 现挑；文字同理走 setTextColor。
+        // 刻意不在布局里写 android:tint：两者都作用在同一个 Drawable 上、互相覆盖，行为不透明
+        //（常驻通知那三个图标也是这么处理的）
+        int ink = ctx.getColor(night ? R.color.widget_ink_night : R.color.widget_ink);
+        views.setInt(R.id.widget_pause, "setColorFilter", ink);
+        views.setInt(R.id.widget_prev, "setColorFilter", ink);
+        views.setInt(R.id.widget_next, "setColorFilter", ink);
+        views.setInt(R.id.widget_open_ic, "setColorFilter", ink);
+        views.setTextColor(R.id.widget_open_label, ink);
         Bitmap thumb = homeThumb(ctx);
         if (thumb != null) {
             views.setImageViewBitmap(R.id.widget_thumb, thumb);
         } else {
             // 没库 / 库里没图：灰色方块（点它照样能去选库）
-            views.setImageViewResource(R.id.widget_thumb, R.drawable.widget_thumb_empty);
+            views.setImageViewResource(R.id.widget_thumb,
+                    night ? R.drawable.widget_thumb_empty_night : R.drawable.widget_thumb_empty);
         }
         // 缩略图那格开选库页：小组件里弹不出列表（RemoteViews 没有下拉、也不认触摸），
         // 只能借一个只弹窗、没有界面的 Activity —— 见 LibPickerActivity
@@ -183,7 +212,20 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
                 actionIntent(ctx, REQ_PREV, ACTION_PREV));
         views.setOnClickPendingIntent(R.id.widget_cell_next,
                 actionIntent(ctx, REQ_NEXT, ACTION_NEXT));
+        // 第三行：进 App。与 1×1 那格"没配库时点按打开应用"同一条 intent（不加 flag，走已验证过的路径）
+        views.setOnClickPendingIntent(R.id.widget_cell_open, PendingIntent.getActivity(ctx,
+                REQ_OPEN_APP, new Intent(ctx, MainActivity.class), piFlags()));
         return views;
+    }
+
+    /**
+     * 系统当前是否深色模式：读本进程的 {@code uiMode}。
+     * 本 App 没有应用内深浅色开关（全项目无 setDefaultNightMode），所以这个值就等于系统设置；
+     * 且它是在**我们自己进程**里解析的，与桌面重画小组件时用的是哪一档配置无关。
+     */
+    static boolean isNight(Context ctx) {
+        int night = ctx.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return night == Configuration.UI_MODE_NIGHT_YES;
     }
 
     /** 一个动作对应一条广播 PendingIntent（组件写死本类，不依赖 intent-filter 匹配）。 */

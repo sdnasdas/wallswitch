@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2×2 控制台小组件。
-     尺寸按官方换算式 70n + (n−1)×10 − 30：1 格 = 40dp（与 1×1 那个对得上），2 格 = 120dp。
+<!-- 桌面控制台小组件：宽 2 格 × 高 3 格（上两行四格动作，第三行一条「进入 App」）。
+     尺寸按官方换算式 70n + (n−1)×10 − 30：宽 2 格 = 120dp，高 3 格 = 200dp（1 格 = 40dp，与 1×1 那个对得上）。
+     内容不由这两个值决定 —— 卡片在布局里按固定 dp 自排并居中，桌面给的槽位再竖长，
+     多出来的部分也是透明的（否则每格被拉成长方形，缩略图会被裁成竖条）。
      updatePeriodMillis=0 是刻意的：1×1 那格把"桌面每 30 分钟刷一次小组件"当成补切时机（见 widget_info.xml），
      这里若也按 30 分钟排，同一时刻就会跑两遍补切 —— 多一次唤醒对发热没有好处。
-     控制台的刷新全部挂在已有的 WidgetProvider.updateWidget 调用点上（切换/暂停/换库/开机恢复）。
-     resizeMode=none：四格是按 2×2 排的，拉成 2×1 或 3×2 只会把格子拧歪。 -->
+     控制台的刷新全部挂在已有的 WidgetProvider.updateWidget 调用点上（切换/暂停/换库/深浅色翻档/开机恢复）。
+     resizeMode=none：格位是按 2×3 排的，拉成别的形状只会把格子拧歪。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:description="@string/widget_console_desc"
-    android:initialLayout="@layout/widget_console_2x2"
+    android:initialLayout="@layout/widget_console"
     android:minWidth="120dp"
-    android:minHeight="120dp"
+    android:minHeight="200dp"
     android:previewImage="@drawable/ic_widget_switch"
-    android:previewLayout="@layout/widget_console_2x2"
+    android:previewLayout="@layout/widget_console"
     android:resizeMode="none"
     android:targetCellWidth="2"
-    android:targetCellHeight="2"
+    android:targetCellHeight="3"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
     tools:targetApi="31" />

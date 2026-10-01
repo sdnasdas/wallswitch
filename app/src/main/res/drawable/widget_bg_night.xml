@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件卡片背景（深色档）：与 App 夜间卡片同色相的半透深墨。
+     颜色取 widget_card_night（固定值，不随深浅色翻），由代码在深色模式下显式换上。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_card_night" />
+    <corners android:radius="16dp" />
+</shape>

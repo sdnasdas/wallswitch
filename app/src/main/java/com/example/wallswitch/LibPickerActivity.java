@@ -13,7 +13,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.List;
 
 /**
- * 桌面 2×2 控制台「缩略图那格」拉起来的选库页。
+ * 桌面 控制台小组件「缩略图那格」拉起来的选库页。
  *
  * <p>为什么要有这个 Activity：小组件自己弹不出列表 —— RemoteViews 只认点击，没有下拉控件、
  * 也拿不到触摸流，能做的只有"点一下发生一件事"。所以借一个没有内容视图、只弹一个单选框的

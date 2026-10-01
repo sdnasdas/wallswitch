@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 缩略图那格的空态：桌面范围没库、或库里没图时显示的灰色方块（点它照样能去选库）。
-     比 widget_cell_bg 深一档，一眼分得出"这里该有一张图，只是现在没有"。 -->
+<!-- 缩略图那格的空态（浅色档）：桌面范围没库、或库里没图时显示的灰色方块（点它照样能去选库）。
+     比 widget_cell 深一档，一眼分得出"这里该有一张图，只是现在没有"。
+     它挂在 ImageView 的 src 上，所以深色档由代码 setImageViewResource 换 widget_thumb_empty_night。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#24000000" />
+    <solid android:color="@color/widget_empty" />
     <corners android:radius="10dp" />
 </shape>

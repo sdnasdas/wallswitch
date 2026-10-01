@@ -109,7 +109,7 @@ public class WidgetProvider extends AppWidgetProvider {
 
     /** 渲染所有已放置的小组件（切换完成后由 Switcher 调用刷新缩略图）。 */
     public static void updateWidget(Context ctx) {
-        // 2×2 控制台先排上（它自己会判断桌面上有没有摆）：下面 1×1 一个没摆时要提前 return，
+        // 控制台小组件先排上（它自己会判断桌面上有没有摆）：下面 1×1 一个没摆时要提前 return，
         // 不能连带把控制台的刷新饿掉。控制台带解码，交给自己的后台线程，别把解码拽到调用方（可能是主线程）
         WidgetConsoleProvider.scheduleUpdate(ctx);
         AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
@@ -125,6 +125,17 @@ public class WidgetProvider extends AppWidgetProvider {
     /** 构建小组件视图：1x1 切换图标卡片 + 下次切换倒计时，点按切换（未启用桌面库时点按打开应用）。 */
     private static RemoteViews buildViews(Context ctx) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_layout);
+        // 深浅色两档显式挑（与 控制台小组件同一口径，原因见 colors.xml）：卡片底换 drawable、
+        // 两行文字换墨色。布局里那两处仍指向浅色档，只兜住首帧与小组件列表里的预览图。
+        boolean night = WidgetConsoleProvider.isNight(ctx);
+        views.setInt(R.id.widget_root, "setBackgroundResource",
+                night ? R.drawable.widget_bg_night : R.drawable.widget_bg);
+        int ink = ctx.getColor(night ? R.color.widget_ink_night : R.color.widget_ink);
+        views.setTextColor(R.id.widget_timer, ink);
+        views.setTextColor(R.id.widget_waiting, ink);
+        // 切换图标是品牌蓝填充：@color/brand 本身有 values-night 变体（夜间提亮成 #90CAF9），
+        // 这里在我们进程里取一次现值再染，深色卡片上才不会是"深蓝压深底"
+        views.setInt(R.id.widget_icon, "setColorFilter", ctx.getColor(R.color.brand));
         // 倒计时：取 WorkManager 给出的「最早可运行时间」（定时关闭或未排定则隐藏）；
         // 该时间已过但任务仍在排队（Doze/省电延后）时，倒计时会变负数，改显示「待切换」
         Long trigger = TimerScheduler.nextTrigger(ctx);

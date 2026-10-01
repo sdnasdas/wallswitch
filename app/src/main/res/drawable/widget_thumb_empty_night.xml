@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 缩略图空态的深色档：半透白方块（深卡片上要亮一档才看得见"这里空着"）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_empty_night" />
+    <corners android:radius="10dp" />
+</shape>

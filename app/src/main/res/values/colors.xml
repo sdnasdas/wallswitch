@@ -9,12 +9,22 @@
     <color name="card_bg">#FFFFFF</color>
     <color name="text_primary">#1A1C1E</color>
     <color name="text_secondary">#5F6368</color>
-    <!-- 小组件前景专用固定墨色（图标 tint 与文字都用它）：widget_bg 是恒定的近白卡片（不随深浅色翻），
-         所以压在它上面的东西不能取 text_primary —— 那个值在 values-night 里是浅灰 #E6E7E9，
-         夜间会和白卡片糊成一片。这里只在 values/ 定义，values-night 不覆盖，两种模式都是同一个墨色。
-         对照：常驻通知的 notification_status 用 text_primary 是对的，它的胶囊底取 divider（有夜间变体），
-         整张卡是跟随深浅色的，和小组件这块"恒白"的卡片不是一回事。 -->
+    <!-- 小组件配色：浅色 / 深色两档都在这一份里定死，**刻意不做 values-night 变体**。
+         原因：深浅色切换时桌面会不会重画已摆着的小组件、重画时按哪一档配置解析，各家 ROM 不保证，
+         光靠资源自动翻有停在旧档的风险。改成由代码按我们自己进程读到的 uiMode 挑一次
+         （浅色挑无后缀那组、深色挑 _night 那组，见 WidgetConsoleProvider#isNight），
+         与桌面配不配合无关。深色档对齐 App 夜间层级（card_bg #1E2024 / text_primary #E6E7E9）；
+         格子与空态在深底上要"亮一档"（半透白）才看得出那是个键。
+         对照：常驻通知里用 text_primary 是对的——通知整张卡跟随深浅色，且它的 RemoteViews 每次都由
+         我们进程重算重发，不存在"停在旧档"这个问题。 -->
+    <color name="widget_card">#F2FFFFFF</color>
+    <color name="widget_card_night">#F21E2024</color>
+    <color name="widget_cell">#0A000000</color>
+    <color name="widget_cell_night">#1AFFFFFF</color>
+    <color name="widget_empty">#24000000</color>
+    <color name="widget_empty_night">#33FFFFFF</color>
     <color name="widget_ink">#1A1C1E</color>
+    <color name="widget_ink_night">#E6E7E9</color>
     <color name="divider">#E8EAED</color>
     <color name="danger">#D93025</color>
     <!-- 范围槽位卡片的初值（= 色相 30、浓淡 0 算出来的纸白）：实际显示色由 SlotTheme
