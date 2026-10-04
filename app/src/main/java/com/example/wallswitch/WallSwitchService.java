@@ -15,8 +15,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.MediaStore;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
+import com.example.wallswitch.gl.MotionSource;
 import com.example.wallswitch.gl.WallpaperRenderer;
 
 import net.rbgrn.android.glwallpaperservice.GLWallpaperService;
@@ -81,6 +83,16 @@ public class WallSwitchService extends GLWallpaperService {
     public static final String TRANSITION_BLUR = "blur";
     /** 切换动画：无，立即切换 */
     public static final String TRANSITION_OFF = "off";
+    /**
+     * 实况（动态照片）的触发方式设置 key：{@link #MOTION_HOLD} / {@link #MOTION_LOOP}。
+     * 只有两档、没有「关闭」档：默认按住播放，不主动按就等于不播，
+     * 再开一个关闭开关只会让设置页多一行没人点的东西。
+     */
+    public static final String KEY_MOTION_MODE = "motion_mode";
+    /** 按住桌面才播（默认）：只在按住那几秒抽帧，发热属于「用户动作」那一级。 */
+    public static final String MOTION_HOLD = "hold";
+    /** 桌面可见期间循环播：代价是可见时 60 帧/秒常驻 + 硬解常驻，用户显式选才给。 */
+    public static final String MOTION_LOOP = "loop";
 
     /** 活着的引擎实例（系统可能同时存在预览引擎与正式引擎，通知时全部刷新）。 */
     private static final List<WallEngine> ENGINES = new CopyOnWriteArrayList<>();
@@ -102,6 +114,17 @@ public class WallSwitchService extends GLWallpaperService {
     public static final AtomicLong perfFrames = new AtomicLong();
     /** 纹理上传次数（应 ≈ 切换次数 + 灭屏亮屏/回桌面/Surface 重建的恢复次数）。 */
     public static final AtomicLong perfUploads = new AtomicLong();
+    /** 实况起播次数（一次按住 = 一次起播；循环档每次进桌面一次）。 */
+    public static final AtomicLong perfMotionStarts = new AtomicLong();
+    /** 实况绘制帧数：除以起播次数≈每次播了多少帧，用来看播放是否卡或抽风。 */
+    public static final AtomicLong perfMotionFrames = new AtomicLong();
+    /**
+     * 引擎收到过多少次壁纸触摸事件 —— 这是判断「荣耀桌面到不到底把触摸转给壁纸引擎」的唯一手段
+     * （用户不用 adb）。一直是 0 就说明「按住播放」这条路在这台机器上走不通。
+     */
+    public static final AtomicLong perfTouchEvents = new AtomicLong();
+    /** 最近一次实况失败的具体原因（随性能自记落盘；null = 没出过问题）。 */
+    public static volatile String lastMotionDiag;
     private static long perfCacheHits = 0;
     private static long perfDecodes = 0;
     private static long perfDecodeMs = 0;
@@ -139,6 +162,12 @@ public class WallSwitchService extends GLWallpaperService {
     public static String transitionEffect(Context ctx) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_TRANSITION, TRANSITION_FADE);
+    }
+
+    /** 读实况触发方式设置（缺省按住播放）。 */
+    public static String motionMode(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_MOTION_MODE, MOTION_HOLD);
     }
 
     @Override
@@ -202,6 +231,15 @@ public class WallSwitchService extends GLWallpaperService {
         private volatile String uploadedKey;
         /** 引擎自动推进指针却仍读不到文件的连续次数（防打转，成功解析到文件即清零）。 */
         private int autoAdvanceFails;
+        /** 当前实况区间对应哪张壁纸 id。 */
+        private String motionRangeId;
+        /** 上次给这张壁纸算出的实况段区间（null = 已知没有）。 */
+        private long[] motionRange;
+        /** 上面那个区间是对着文件的哪个版本算的（长度:修改时间）—— 覆盖重导后要重算。 */
+        private String motionRangeStamp;
+        private File motionFile;
+        /** 归一化取景框（v 从顶部起算），null = 整帧。 */
+        private float[] motionRect;
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -216,6 +254,108 @@ public class WallSwitchService extends GLWallpaperService {
             setRenderer(renderer);
             setRenderMode(RENDERMODE_WHEN_DIRTY);
             requestRender();
+            // 「按住播放」需要桌面上的按下事件。壁纸引擎默认收不到触摸，必须显式开；
+            // 开了之后事件走公开的 onTouchEvent（框架内部那个 onSurfaceEvent 不是可覆写的钩子，
+            // 本地 android.jar 里查过：Engine 只暴露 onTouchEvent / onOffsetsChanged）
+            setTouchEventsEnabled(true);
+        }
+
+        /**
+         * 桌面按在壁纸上时：按住档起播、松手停。
+         *
+         * <p>计数无条件先加 —— 万一「按住播放」在这台机器上没反应，
+         * {@code engine_stats.txt} 里这一项是不是 0 就是唯一能区分
+         * 「桌面没转发触摸」与「我们收到了但没播开」的证据。
+         */
+        @Override
+        public void onTouchEvent(MotionEvent event) {
+            perfTouchEvents.incrementAndGet();
+            if (!MOTION_HOLD.equals(motionMode(WallSwitchService.this))) {
+                return;
+            }
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                startMotionForCurrent(false);
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                stopMotion();
+            }
+        }
+
+        /** 查「这张壁纸有没有实况段、取景框多大」，查到就丢给 GL 起播（后台线程做 IO）。 */
+        private void startMotionForCurrent(boolean loop) {
+            DRAW_EXECUTOR.execute(() -> prepareAndStartMotion(loop));
+        }
+
+        private void prepareAndStartMotion(boolean loop) {
+            Context ctx = WallSwitchService.this;
+            try {
+                LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
+                if (lib == null) {
+                    return;
+                }
+                String id = Switcher.getCurrent(ctx, lib.id, true);
+                if (id == null) {
+                    return;
+                }
+                File original = WallpaperStore.getOriginalFile(ctx, id);
+                String stamp = original.isFile()
+                        ? original.length() + ":" + original.lastModified() : "";
+                if (!id.equals(motionRangeId) || !stamp.equals(motionRangeStamp)) {
+                    motionRangeId = id;
+                    motionRangeStamp = stamp;
+                    motionRange = MotionSource.locate(original);
+                    motionFile = motionRange != null ? original : null;
+                    motionRect = motionRange != null ? cropRectOf(ctx, lib.id, id) : null;
+                }
+                if (motionRange == null || motionFile == null) {
+                    return;
+                }
+                final File f = motionFile;
+                final long offset = motionRange[0];
+                final long length = motionRange[1];
+                final float[] rect = motionRect;
+                // 引擎可能在这一步的 IO 期间被销毁：renderer 为空就别往 GL 线程丢闭包，
+                // 那里没人兜 NPE，会把 GLThread 带崩
+                final WallpaperRenderer r = renderer;
+                if (r != null) {
+                    queueEvent(() -> r.startMotion(f, offset, length, rect, loop));
+                }
+            } catch (Throwable t) {
+                recordEngineCrash(ctx, t);
+            }
+        }
+
+        /**
+         * 取景框：原图像素坐标 → 归一化比例。
+         *
+         * <p>项目里裁剪矩形一律存原图像素坐标，只有这一处例外：实况帧的分辨率和封面帧
+         * 不是一个数（真样本 1080x1440 vs 1440x1920），像素矩形直接搬过去会错位。
+         */
+        private static float[] cropRectOf(Context ctx, String libId, String id) {
+            try {
+                for (WallpaperStore.Item item : WallpaperStore.loadByLib(ctx, libId)) {
+                    if (!id.equals(item.id)) {
+                        continue;
+                    }
+                    // 没有构图参数 = 当初整帧导出的，实况也整帧
+                    if (!item.hasCropRect()) {
+                        return null;
+                    }
+                    return MotionSource.normalizedRect(new float[]{
+                            item.cropLeft, item.cropTop, item.cropRight, item.cropBottom},
+                            item.srcWidth, item.srcHeight);
+                }
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
+
+        /** 停播（任意线程可调，真正的释放由 GL 线程在下一帧里做）。 */
+        private void stopMotion() {
+            WallpaperRenderer r = renderer;
+            if (r != null) {
+                queueEvent(r::stopMotion);
+            }
         }
 
         @Override
@@ -246,6 +386,8 @@ public class WallSwitchService extends GLWallpaperService {
         @Override
         public void onSurfaceDestroyed(SurfaceHolder holder) {
             surfaceReady = false;
+            // 表面没了，实况的解码器留着也没人画：先停，释放等 GL 线程收尾
+            stopMotion();
             super.onSurfaceDestroyed(holder);
         }
 
@@ -259,6 +401,10 @@ public class WallSwitchService extends GLWallpaperService {
             }
             if (visible) {
                 scheduleDraw(false);
+            } else {
+                // 不可见 = 人不在桌面（进 App / 灭屏）。实况必须立刻停：
+                // 这是「循环播放」那档不把发热变成常驻负载的关键一道
+                stopMotion();
             }
         }
 
@@ -282,6 +428,11 @@ public class WallSwitchService extends GLWallpaperService {
                 drawCurrent(afterSwitch);
             } catch (Throwable t) {
                 recordEngineCrash(WallSwitchService.this, t);
+            }
+            // 循环档：每次重绘（进桌面 / 切完图 / Surface 重建）都确认一遍该不该在播。
+            // renderer.startMotion 对「同一区间且还在播」直接返回，所以这样反复调不会重开解码器
+            if (MOTION_LOOP.equals(motionMode(WallSwitchService.this)) && lastFaultDiag == null) {
+                startMotionForCurrent(true);
             }
         }
 
@@ -575,6 +726,12 @@ public class WallSwitchService extends GLWallpaperService {
                     + "（应≈切换次数 + 灭屏亮屏/回桌面/Surface 重建的恢复次数）\n"
                     + "缓存命中(零解码): " + perfCacheHits + " 次\n"
                     + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
+                    + "壁纸触摸事件: " + perfTouchEvents.get() + " 次"
+                    + "（一直是 0 = 桌面没把触摸转给壁纸引擎，「按住播放」在这台机器上走不通）\n"
+                    + "实况起播: " + perfMotionStarts.get() + " 次, 实况绘制帧: "
+                    + perfMotionFrames.get() + " 帧"
+                    + "（每次约 162 帧 = 完整播完一条 2.7 秒的实况）\n"
+                    + "实况诊断: " + (lastMotionDiag != null ? lastMotionDiag : "无") + "\n"
                     + "故障诊断: " + (lastFaultDiag != null ? lastFaultDiag : "无（当前正常显示中）") + "\n"
                     + (lastFaultDiag != null
                     ? "判读: 引擎读不到当前壁纸或 GL 渲染异常（异常态）\n"

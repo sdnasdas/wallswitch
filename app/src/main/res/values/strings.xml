@@ -316,6 +316,11 @@
     <string name="transition_blur">模糊过渡</string>
     <string name="transition_off">无动画</string>
 
+    <!-- 实况（动态照片）：桌面壁纸怎么个动法。只有两档，默认按住播放 -->
+    <string name="motion_mode_title">实况播放</string>
+    <string name="motion_hold">按住播放</string>
+    <string name="motion_loop">循环播放</string>
+
     <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选；下载与安装入口都在 App 内 -->
     <string name="update_check_title">检查更新</string>
     <string name="update_source_title">更新源</string>

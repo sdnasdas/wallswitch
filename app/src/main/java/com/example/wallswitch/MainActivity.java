@@ -215,6 +215,7 @@ public class MainActivity extends AppCompatActivity {
         setupNotifySwitch();
         setupStatusNotifySwitch();
         setupTransitionEffect();
+        setupMotionMode();
         setupTickingSwitch();
         setupUpdateSource();
         setupUpdateCheck();
@@ -1030,6 +1031,45 @@ public class MainActivity extends AppCompatActivity {
                     .setTitle(R.string.transition_effect_title)
                     .setSingleChoiceItems(labels, checked, (d, which) -> {
                         prefs.edit().putString(WallSwitchService.KEY_TRANSITION, values[which]).apply();
+                        refresh.run();
+                        d.dismiss();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+    }
+
+    /**
+     * 实况播放方式：桌面那张动态照片怎么个动法（按住 / 循环），点行弹出单选。
+     *
+     * <p>值存 settings（与引擎共用 {@link WallSwitchService#KEY_MOTION_MODE}），改档即时生效：
+     * 引擎每次事件都重读，不用重启壁纸进程。默认按住播放 —— 循环档是可见期间 60 帧/秒常驻，
+     * 得用户自己显式选。
+     */
+    private void setupMotionMode() {
+        LinearLayout row = findViewById(R.id.row_motion);
+        TextView tv = findViewById(R.id.tv_motion_mode);
+        String[] values = {
+                WallSwitchService.MOTION_HOLD,
+                WallSwitchService.MOTION_LOOP
+        };
+        String[] labels = {
+                getString(R.string.motion_hold),
+                getString(R.string.motion_loop)
+        };
+        Runnable refresh = () -> {
+            String cur = WallSwitchService.motionMode(this);
+            tv.setText(WallSwitchService.MOTION_LOOP.equals(cur)
+                    ? labels[1] : labels[0]);
+        };
+        refresh.run();
+        row.setOnClickListener(v -> {
+            int checked = WallSwitchService.MOTION_LOOP.equals(WallSwitchService.motionMode(this))
+                    ? 1 : 0;
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.motion_mode_title)
+                    .setSingleChoiceItems(labels, checked, (d, which) -> {
+                        prefs.edit().putString(WallSwitchService.KEY_MOTION_MODE, values[which]).apply();
                         refresh.run();
                         d.dismiss();
                     })

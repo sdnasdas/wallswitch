@@ -390,6 +390,32 @@
                                 android:textSize="14sp" />
                         </LinearLayout>
 
+                        <!-- 实况播放：桌面那张动态照片怎么个动法（按住/循环），点击弹出选择 -->
+                        <LinearLayout
+                            android:id="@+id/row_motion"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:gravity="center_vertical"
+                            android:minHeight="44dp"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/motion_mode_title"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/tv_motion_mode"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="14sp" />
+                        </LinearLayout>
+
                         <!-- 走秒倒计时：通知与小组件的时间显示样式（静态/走秒），一个开关同时管两处 -->
                         <LinearLayout
                             android:layout_width="match_parent"
