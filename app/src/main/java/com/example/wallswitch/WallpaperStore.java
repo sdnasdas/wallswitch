@@ -329,17 +329,9 @@ public class WallpaperStore {
         item.title = pendingTitle(context, inboxId);
         items.add(item);
         saveLibrary(context, items);
-        // 顺手导出一份到用户选定的导出目录（未设置直接跳过；失败不影响入库）。
-        // 放后台线程：导出是纯 IO，不该拖慢确认按钮。
-        final File exportSource = fullFile;
-        final String exportTitle = item.title;
-        final String exportId = id;
-        new Thread(() -> {
-            try {
-                WallpaperExporter.exportFile(context, exportSource, exportTitle, exportId);
-            } catch (Exception ignored) {
-            }
-        }, "wallpaper-export").start();
+        // 这里以前会「顺手导出一份到导出目录」，v3.89 起删掉：导出目录改成只有两个手动入口
+        // （设置页「立即导出全部壁纸」与「备份整库」）。自动导出会让用户在自己没动手的情况下
+        // 往那个目录里塞图，而且重编过的壁纸并不会更新那一份，只会叠副本。
         // 原图搬进 originals/ 长期留存（重复调整的源）：用移动而不是复制，省一次全量 IO，
         // 也不会让收件箱留下已经入库的孤儿文件。搬不走（极少数 ROM 的权限限制）就退回原来的
         // 删除语义 —— 元数据与成品图此时都已落盘，这一步失败不该让调用方误报「保存失败」。

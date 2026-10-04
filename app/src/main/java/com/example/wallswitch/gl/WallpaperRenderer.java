@@ -108,6 +108,12 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     private final Runnable requestRenderHook;
     /** 纹理全部失效后由引擎按当前 key 重放上传。 */
     private final Runnable replayHook;
+    /**
+     * 一轮实况**自然播完**时回调（在 GL 线程上调用，引擎自己切回主线程排下一轮）。
+     * 渲染器不管间隔多久、也不管该不该再来一轮 —— 那是引擎的事，
+     * 因为停播/离开桌面/改设置都要能取消还没到的那一轮。
+     */
+    private final Runnable motionCycleHook;
 
     private int program;
     private int aCornerLoc;
@@ -168,10 +174,12 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     /** 本次已在播的「文件#区间」，用来挡住重复的起播请求（按住时手指抖动会连发 DOWN）。 */
     private String motionKey;
 
-    public WallpaperRenderer(Context appContext, Runnable requestRenderHook, Runnable replayHook) {
+    public WallpaperRenderer(Context appContext, Runnable requestRenderHook, Runnable replayHook,
+                             Runnable motionCycleHook) {
         this.appContext = appContext;
         this.requestRenderHook = requestRenderHook;
         this.replayHook = replayHook;
+        this.motionCycleHook = motionCycleHook;
         quadBuf = ByteBuffer.allocateDirect(4 * 2 * 4)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer();
@@ -465,9 +473,10 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             if (!player.isAlive()) {
                 // 解码线程已收尾（播完 / 被停 / 出错）：先收资源
                 boolean showedFrames = player.framesShown() > 0;
+                boolean natural = player.endedAtEos();
                 finishMotion();
-                if (motionLoopWanted && visible) {
-                    // 循环档：重开一轮。一轮都出一帧没出就是坏在起播上，
+                if (motionLoopWanted && visible && natural) {
+                    // 循环档：一轮连一帧都没出就是坏在起播上，
                     // 连着三次还这样别再试了，免得在这儿无限打转
                     motionZeroCycles = showedFrames ? 0 : motionZeroCycles + 1;
                     if (motionZeroCycles > 2) {
@@ -476,10 +485,12 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
                         motionZeroCycles = 0;
                         WallSwitchService.lastMotionDiag = "连续 3 轮一帧都没出，已停止循环重播";
                     } else {
-                        beginMotion();
+                        // 「下一轮什么时候来」归引擎（要按间隔排，停播/离开桌面还得能撤），
+                        // 渲染器只报告「这一轮自然播完了」
+                        motionCycleHook.run();
                     }
                 }
-                // 新一轮的第一帧还没到，下面这行先把静态图（= 封面帧）画着，画面不留空
+                // 间隔期间、以及新一轮第一帧到位之前，下面这行一直画静态图（= 封面帧），画面不留空
             } else if (player.consumeNewFrameFlag()) {
                 drawMotion();
                 motionExclusive = true;

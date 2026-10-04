@@ -53,6 +53,8 @@ public final class MotionPlayer {
     private final AtomicBoolean newFrame = new AtomicBoolean();
     private volatile boolean stopRequested;
     private volatile boolean finished = true;
+    /** 收尾是因为「播到结尾」而不是「被停/出错」—— 只有前者才该排下一轮。 */
+    private volatile boolean endedAtEos;
     private volatile String lastError;
     private volatile Runnable finishCallback;
     /** 解码出来的帧实际尺寸：取景框要按它算 centerCrop，0 表示还没拿到 format。 */
@@ -107,6 +109,11 @@ public final class MotionPlayer {
 
     public boolean isAlive() {
         return !finished;
+    }
+
+    /** 播到结尾自然收尾（对照「被停/出错」）；只在 {@link #isAlive()} 为 false 后有意义。 */
+    public boolean endedAtEos() {
+        return endedAtEos;
     }
 
     public long framesShown() {
@@ -166,6 +173,7 @@ public final class MotionPlayer {
         this.finishCallback = onFinished;
         stopRequested = false;
         finished = false;
+        endedAtEos = false;
         lastError = null;
         frameWidth = 0;
         frameHeight = 0;
@@ -276,6 +284,7 @@ public final class MotionPlayer {
                         // 在收到收尾通知后重开一轮，走「全新 extractor + 全新 codec」
                         // 这条已经被证明能用的路。
                         codec.releaseOutputBuffer(outIndex, false);
+                        endedAtEos = true;
                         break;
                     }
                     // 节奏必须自己等：SurfaceTexture 没有显示时钟，缓冲区一入队就立刻

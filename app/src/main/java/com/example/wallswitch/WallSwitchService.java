@@ -13,10 +13,13 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
+import android.view.ViewConfiguration;
 
 import com.example.wallswitch.gl.MotionSource;
 import com.example.wallswitch.gl.WallpaperRenderer;
@@ -93,6 +96,14 @@ public class WallSwitchService extends GLWallpaperService {
     public static final String MOTION_HOLD = "hold";
     /** 桌面可见期间循环播：代价是可见时 60 帧/秒常驻 + 硬解常驻，用户显式选才给。 */
     public static final String MOTION_LOOP = "loop";
+    /**
+     * 循环档每轮之间的间隔（毫秒），默认 {@link #MOTION_LOOP_GAP_DEFAULT_MS}。
+     * 间隔期间屏幕上画的是静态封面帧，不占解码器也不抽帧 —— 所以这一档的发热基本就是
+     * 「间隔越短越接近连续播放」。
+     */
+    public static final String KEY_MOTION_LOOP_GAP = "motion_loop_gap_ms";
+    /** 默认间隔 1 秒。 */
+    public static final long MOTION_LOOP_GAP_DEFAULT_MS = 1000L;
 
     /** 活着的引擎实例（系统可能同时存在预览引擎与正式引擎，通知时全部刷新）。 */
     private static final List<WallEngine> ENGINES = new CopyOnWriteArrayList<>();
@@ -123,6 +134,12 @@ public class WallSwitchService extends GLWallpaperService {
      * （用户不用 adb）。一直是 0 就说明「按住播放」这条路在这台机器上走不通。
      */
     public static final AtomicLong perfTouchEvents = new AtomicLong();
+    /**
+     * 被「手指移出长按判定范围」取消掉的次数。
+     * 用途是判别一件事：滑动翻页时到底有没有 MOVE 事件送到壁纸引擎。
+     * 起播次数随滑动一直涨、这一项却是 0，说明 MOVE 根本没送到，那 slop 判定就无从生效。
+     */
+    public static final AtomicLong perfTouchCancelled = new AtomicLong();
     /** 最近一次实况失败的具体原因（随性能自记落盘；null = 没出过问题）。 */
     public static volatile String lastMotionDiag;
     private static long perfCacheHits = 0;
@@ -181,6 +198,13 @@ public class WallSwitchService extends GLWallpaperService {
     public static String motionMode(Context ctx) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_MOTION_MODE, MOTION_HOLD);
+    }
+
+    /** 读循环档的每轮间隔（负数按 0 处理，缺省 1 秒）。 */
+    public static long motionLoopGapMs(Context ctx) {
+        long gap = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_MOTION_LOOP_GAP, MOTION_LOOP_GAP_DEFAULT_MS);
+        return gap < 0 ? 0 : gap;
     }
 
     @Override
@@ -253,6 +277,30 @@ public class WallSwitchService extends GLWallpaperService {
         private File motionFile;
         /** 归一化取景框（v 从顶部起算），null = 整帧。 */
         private float[] motionRect;
+        /**
+         * 「按住」判定的现场。触摸回调与 Handler 都在主线程，所以只有 `holdPlaying` 标了
+         * volatile（离开桌面/改设置那两路的停播不在主线程，也要抹它）。
+         *
+         * <p>为什么要判定：v3.87 是「按下就播」，于是桌面左右滑动翻页也会被当成按住 ——
+         * 手指都移出去了大半屏，壁纸照样动起来。现在改成跟系统长按一致：
+         * 按下后等 {@code holdTimeoutMs}，期间手指移出 {@code touchSlopPx} 或提前松手就取消。
+         */
+        private final Handler mainHandler = new Handler(Looper.getMainLooper());
+        private final float[] downPoint = new float[2];
+        private boolean holdPending;
+        /** 这个要跨线程：离开桌面、改设置那两路的 `stopMotion()` 不在主线程，也得把它抹掉。 */
+        private volatile boolean holdPlaying;
+        /** 长按判定时长与滑动容差：都取系统值（500ms / 8~12dp），不自造数字。 */
+        private long holdTimeoutMs;
+        private float touchSlopPx;
+        /** 长按到点：到这一步才真起播。 */
+        private final Runnable holdFired = () -> {
+            holdPending = false;
+            holdPlaying = true;
+            startMotionForCurrent(false);
+        };
+        /** 循环档排下来的「下一轮」。任何停播动作都必须先把它从队列里撤掉。 */
+        private final Runnable loopTick = () -> startMotionForCurrent(true);
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -261,7 +309,7 @@ public class WallSwitchService extends GLWallpaperService {
             // EGL 配置照抄 Muzei：alpha=0（不透明表面）是它不发热的关键，务必勿改；
             // RENDERMODE_WHEN_DIRTY 只在脏时画帧，静止时零渲染
             renderer = new WallpaperRenderer(getApplicationContext(),
-                    this::requestRender, this::replayCurrentImage);
+                    this::requestRender, this::replayCurrentImage, this::onMotionCycleEnded);
             setEGLContextClientVersion(2);
             setEGLConfigChooser(8, 8, 8, 0, 0, 0);
             setRenderer(renderer);
@@ -271,10 +319,13 @@ public class WallSwitchService extends GLWallpaperService {
             // 开了之后事件走公开的 onTouchEvent（框架内部那个 onSurfaceEvent 不是可覆写的钩子，
             // 本地 android.jar 里查过：Engine 只暴露 onTouchEvent / onOffsetsChanged）
             setTouchEventsEnabled(true);
+            ViewConfiguration vc = ViewConfiguration.get(getApplicationContext());
+            holdTimeoutMs = ViewConfiguration.getLongPressTimeout();
+            touchSlopPx = vc.getScaledTouchSlop();
         }
 
         /**
-         * 桌面按在壁纸上时：按住档起播、松手停。
+         * 桌面触摸：按住到点才起播、松手或滑动超容差就停。
          *
          * <p>计数无条件先加 —— 万一「按住播放」在这台机器上没反应，
          * {@code engine_stats.txt} 里这一项是不是 0 就是唯一能区分
@@ -288,10 +339,43 @@ public class WallSwitchService extends GLWallpaperService {
             }
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
-                startMotionForCurrent(false);
-            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                stopMotion();
+                downPoint[0] = event.getX();
+                downPoint[1] = event.getY();
+                holdPending = true;
+                mainHandler.removeCallbacks(holdFired);
+                mainHandler.postDelayed(holdFired, holdTimeoutMs);
+                return;
             }
+            boolean movedAway = false;
+            if (action == MotionEvent.ACTION_MOVE
+                    || action == MotionEvent.ACTION_POINTER_DOWN
+                    || action == MotionEvent.ACTION_POINTER_UP) {
+                // getX/getY 取的是主指针，多指时也按它比，够判「手有没有挪开」
+                float dx = event.getX() - downPoint[0];
+                float dy = event.getY() - downPoint[1];
+                movedAway = dx * dx + dy * dy > touchSlopPx * touchSlopPx;
+                if (movedAway) {
+                    perfTouchCancelled.incrementAndGet();
+                }
+            }
+            if (movedAway || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                // 既没排队等长按、也没在播，就别去碰 GL 线程：一次滑动几十个 MOVE，
+                // 每个都 queueEvent 等于白让 GL 线程空跑几十趟
+                if (holdPending) {
+                    holdPending = false;
+                    mainHandler.removeCallbacks(holdFired);
+                }
+                if (holdPlaying) {
+                    holdPlaying = false;
+                    stopMotion();
+                }
+            }
+        }
+
+        /** 一轮实况自然播完（GL 线程调过来）：循环档按设置的间隔排下一轮。 */
+        void onMotionCycleEnded() {
+            mainHandler.removeCallbacks(loopTick);
+            mainHandler.postDelayed(loopTick, motionLoopGapMs(WallSwitchService.this));
         }
 
         /** 查「这张壁纸有没有实况段、取景框多大」，查到就丢给 GL 起播（后台线程做 IO）。 */
@@ -301,6 +385,7 @@ public class WallSwitchService extends GLWallpaperService {
 
         /** 按当前这一档接上或断开实况（设置页改完立刻调，不用等下一次重绘）。 */
         void applyMotionMode() {
+            mainHandler.removeCallbacks(loopTick);
             if (MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
                 startMotionForCurrent(true);
             } else {
@@ -374,6 +459,9 @@ public class WallSwitchService extends GLWallpaperService {
 
         /** 停播（任意线程可调，真正的释放由 GL 线程在下一帧里做）。 */
         private void stopMotion() {
+            // 排着却没到的那一轮也必须撤掉，否则「已经离开桌面了，2 秒后又自己播起来」
+            mainHandler.removeCallbacks(loopTick);
+            holdPlaying = false;
             WallpaperRenderer r = renderer;
             if (r != null) {
                 queueEvent(r::stopMotion);
@@ -383,6 +471,8 @@ public class WallSwitchService extends GLWallpaperService {
         @Override
         public void onDestroy() {
             ENGINES.remove(this);
+            mainHandler.removeCallbacks(holdFired);
+            mainHandler.removeCallbacks(loopTick);
             if (renderer != null) {
                 queueEvent(renderer::release);
             }
@@ -750,6 +840,8 @@ public class WallSwitchService extends GLWallpaperService {
                     + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
                     + "壁纸触摸事件: " + perfTouchEvents.get() + " 次"
                     + "（一直是 0 = 桌面没把触摸转给壁纸引擎，「按住播放」在这台机器上走不通）\n"
+                    + "滑动取消长按: " + perfTouchCancelled.get() + " 次"
+                    + "（起播次数随滑动一直涨而这项是 0 = 滑动时 MOVE 没送到引擎，容差判定无从生效）\n"
                     + "实况起播: " + perfMotionStarts.get() + " 次, 实况绘制帧: "
                     + perfMotionFrames.get() + " 帧"
                     + "（每次约 162 帧 = 完整播完一条 2.7 秒的实况）\n"

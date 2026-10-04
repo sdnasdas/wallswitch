@@ -1,7 +1,8 @@
 # 实况壁纸（桌面 GL 引擎播实况段）实施方案
 
-> 状态：**已施工完毕，待装机验证**（`check.cmd` PASSED，`check/motion.cmd` 35 条断言全过）。范围：只做桌面，锁屏不碰。
+> 状态：**已装机验收通过**（`check.cmd` PASSED，`check/motion.cmd` 35 条断言全过）。范围：只做桌面，锁屏不碰。
 > 施工中发现本文两处写错的地方，已在下文就地订正：① 触摸回调是公开的 `onTouchEvent` 不是 `onSurfaceEvent`；② 实况段定位不需要往 `library.json` 加字段。
+> 装机后又订正两处（见 §5）：③ `releaseOutputBuffer(idx, timestampNs)` 对 `SurfaceTexture` **不起 pacing 作用**，必须解码线程自己 sleep；④ 循环不在 codec 层 `flush()+seekTo(0)`，改成「一轮一个 player，播完由引擎按间隔重排下一次起播」。
 > 术语新增：**实况段** —— 它不是第四份图片文件，而是 `originals/<id>` 尾部的一段字节（MP4）。
 > 上屏时它和成品图画的是同一块构图，所以「原图 / 成品图 / 缩略图」三样都不因这个功能改变语义。
 
@@ -72,10 +73,16 @@
 1. 构造在 **GL 线程**（`SurfaceTexture` 必须绑到已生成的 OES 纹理名上）。
 2. `MediaExtractor.setDataSource(fd, offset, length)`，只挑 `video/*` 的那一条轨（**音轨直接不选**）。
 3. `MediaCodec.createDecoderByType(mime)` → `configure(format, new Surface(surfaceTexture), null, 0)` → `start()`。
-4. 喂帧：`queueInputBuffer` / `releaseOutputBuffer(idx, info.presentationTimeUs)`，按时间戳渲染，**不 sleep、不起 Timer**。
+4. 喂帧：`queueInputBuffer` / `releaseOutputBuffer(idx, info.presentationTimeUs)`。
+   **订正 ③**：本文原先断言"按时间戳渲染、不 sleep"，装机后被证伪 —— 实测速度快到看不清。
+   `releaseOutputBuffer(index, timestampNs)` 的节拍只对 **SurfaceView 那块硬件绑定表面**生效，
+   `SurfaceTexture` 没有 display clock，时间戳直接被忽略。改成解码线程按
+   `startNs + presentationTimeUs*1000` 自己 `Thread.sleep` 到点再放帧（锚点取第一帧，避免起播 burst）。
 5. `setOnFrameAvailableListener`（默认主线程 Handler 即可）里**只做两件事**：置一个 volatile 标志 + 调 `requestRenderHook.run()`。`updateTexImage()` 只在 `onDrawFrame` 里调。
-6. 循环模式：读到 EOS → `extractor.seekTo(0, SEEK_TO_PREVIOUS_SYNC)` + `codec.flush()` + `codec.start()` 再来一轮。
-   注：样本只有 1 个关键帧且就是第 0 帧，所以 seek 到 0 必然命中同步帧，这条对样本是安全的。
+6. 循环模式：**订正 ④** 原设计的 codec 层 `flush()+seekTo(0)+start()` 在 MagicOS 上没跑起来（只播一轮）。
+   改成「一轮一个 player」：解码到 EOS 就正常收尾，渲染器发现 `endedAtEos()` 且仍要循环时回调引擎，
+   由引擎 `postDelayed(间隔)` 重新起播。附带两个好处：间隔时长可以按用户设置插进去（v3.89），
+   以及连续 3 轮一帧都没出就自动停掉重播，不会打转。
 7. `stop()`：停 codec、`release()`  extractor/codec、`SurfaceTexture.release()`，但**OES 纹理由渲染器持有和删除**，本类不碰 `glDeleteTextures`。
 8. 任何异常一律吞掉前先回调一个 `onFailure(String reason)`，由引擎写进 `engine_stats.txt`（他不用 adb，只能靠落盘取证）。
 
@@ -100,7 +107,11 @@
 ### 步骤 4：改 `WallSwitchService.java`
 
 1. `WallEngine.onCreate`（:207-219）里加 `setTouchEventsEnabled(true)`，并覆写 **`onTouchEvent(MotionEvent)`**（**订正**：本文原先写的 `onSurfaceEvent` 是框架内部方法，不可覆写 —— 本地 android-34 的 `javap 'android.service.wallpaper.WallpaperService$Engine'` 查过，Engine 对外只暴露 `onTouchEvent` 与 `onOffsetsChanged`；全项目此前零处调用过 `setTouchEventsEnabled`，是全新的）。
-   `ACTION_DOWN` → 按当前设置决定是否起播；`ACTION_UP`/`ACTION_CANCEL` → 停播。
+   v3.89 定的手势判定（装机反馈"左右滑也会被判定成长按"后改的）：
+   - `ACTION_DOWN` 只记下按下点 + `postDelayed(holdFired, ViewConfiguration.getLongPressTimeout())`（实测 500ms），**不起播**；
+   - `ACTION_MOVE`/`POINTER_*` 与按下点比距离，超过 `getScaledTouchSlop()` 即撤掉那条延时任务，并记一次「滑动取消长按」计数；
+   - 到点才 `startMotionForCurrent(false)`，`ACTION_UP`/`ACTION_CANCEL` 停播；
+   - 没排队也没在播时**一个 `queueEvent` 都不发**（一次滑动几十个 MOVE，全丢给 GL 线程等于白跑几十趟）。
 2. 设置读取照 `transitionEffect(ctx)`（:139-142）的写法加一个 `motionMode(ctx)`，常量与 key 加在 :77-83 那一区。
 3. 生命周期收口，三处必须停：
    - `onVisibilityChanged(false)`（:253）→ 停播 + release；
@@ -120,6 +131,9 @@
 3. `WallSwitchService.java:77-83` 加 key 与两个取值常量（字符串枚举，不用 boolean）。
 4. `WallSwitchService.java:139-142` 旁边加 reader，默认值 = `按住播放`。
 5. `MainActivity.java:1001-1039` 的 `setupTransitionEffect()` 旁边加 `setupMotionMode()`（`AlertDialog.setSingleChoiceItems`），并在 :217 那一带注册调用。
+6. **v3.89 追加**：选「循环播放」后紧接着弹一次间隔选择（0 / 0.5 / 1 / 2 / 3 / 5 / 10 秒，默认 1 秒），
+   取消或返回 = 整件事不生效（档也不切，回到原来那一档），免得留下「切到循环但从来没设过间隔」的半套状态。
+   间隔存在 `motion_loop_gap_ms`，行文案把间隔一起显示出来（`循环播放 · 间隔 1 秒`），只写「循环播放」的话改完看不出有没有生效。
 
 ### 步骤 6：`check/` 夹具
 
@@ -140,8 +154,8 @@
 
 ### 步骤 7：AGENTS.md 与提交
 
-1. 术语表加一行「实况段」（存在哪、什么性质、进不进备份包 —— 答案：随原图字节进，无需新增条目）。**待做**
-2. `app/build.gradle` 版本号 +1、`versionName` 次版本 +1。**待做（按「攒改动再提交」的约定，留到最后统一升）**
+1. 术语表加一行「实况段」（存在哪、什么性质、进不进备份包 —— 答案：随原图字节进，无需新增条目）。**已完成（v3.87）**
+2. `app/build.gradle` 版本号 +1、`versionName` 次版本 +1。**v3.87=94 / v3.88=95 已推；v3.89=96 本轮待确认后统一升**
 3. 改完跑 `.\check\check.cmd`，期望 `== Java type check PASSED ==`。**已过**
 4. **以 diff 展示给用户确认后才 commit**，push 前再确认一次。**待做**
 
@@ -155,7 +169,8 @@
 | 灭屏 / 离开桌面 | 零帧 | 零帧，且解码器已 release（不是暂停而是拆掉） |
 | 一次切图过渡 | 500/700ms 抽帧 | 不变；播放中遇切换则先停播再过渡 |
 
-要点：`RENDERMODE_WHEN_DIRTY` 和 `setEGLConfigChooser(8,8,8,0,0,0)` 这两条发热基座**一行都不改**；抽帧全部由 `onFrameAvailable` 驱动，不引入定时器、不改成 CONTINUOUSLY。
+要点：`RENDERMODE_WHEN_DIRTY` 和 `setEGLConfigChooser(8,8,8,0,0,0)` 这两条发热基座**一行都不改**；抽帧全部由 `onFrameAvailable` 驱动，**不改 CONTINUOUSLY**。
+（订正：v3.88 起解码线程要按时间戳 sleep 才不掉速，v3.89 起循环档有一个 `postDelayed` 排下一轮 —— 两者都只在**正在播**那几秒里存在。按住档静止停在桌面仍是零帧、零解码线程；循环档在两轮之间的间隔里解码器已经 release，同样不画帧。）
 
 ## 4. 未验证项（装机后才能定，按风险排序）
 
@@ -166,7 +181,21 @@
 3. **观感**：实况段只有 1080×1440，屏幕 1264×2800，播放那 2.7 秒会比静帧**糊一档**（约 1.3 倍上采样）。这是内容本身的分辨率，代码补不了，先有预期。
 4. **微博来源到底带不带尾部**（步骤 0）。
 
-## 5. 明确不做
+## 5. 装机后的三轮反馈（v3.88 / v3.89）
+
+| 反馈 | 真因 | 处理 |
+| :- | :--- | :--- |
+| 「能播但速度特别快」 | `releaseOutputBuffer(idx, timestampNs)` 对 `SurfaceTexture` 不节流（没有 display clock，时间戳被忽略） | 解码线程自己按 `presentationTimeUs` sleep 到点再放帧（订正 ③） |
+| 「从任何 App 回桌面闪一下锁屏壁纸，约 1 秒自己好」 | 起了播但第一帧没到之前 `drawFrame` 直接 return，表面空着 → 合成器露出系统静态壁纸，而系统里那份只有 `setBitmap(FLAG_LOCK)` 写的锁屏图 | 加 `motionExclusive`：第一帧之前照常画静态图。差分证据是用户那句「普通壁纸好像不闪」。**没碰**共用的绘制收口 |
+| 「循环档不循环，只有回桌面播一下」 | ①档位只在重绘/触摸时读，选完没反馈；②codec 层 `flush()+seekTo(0)` 在这台机器上没跑起来 | 改成一轮一个 player + 引擎重排（订正 ④）；设置页改完调 `notifyMotionModeChanged()` 立刻接上/断开 |
+| 「左右滑还是被判定成长按」 | `ACTION_DOWN` 立即起播 | 长按到点才起播 + 超 touchSlop 撤（见步骤 4） |
+| 循环档想歇一口气 | —— | v3.89 新增每轮间隔（0/0.5/1/2/3/5/10 秒，默认 1 秒），选「循环播放」时紧接着弹窗问；这一步取消 = 整件事不生效（档也不切） |
+
+顺带在本轮改动里做掉的两件（与本功能无关，同一批提交）：
+导出目录取消导入自动导出（只留两个手动入口，同名覆盖而非叠 `(1)` 副本），以及日志镜像的 URI 按文件名分键
+—— 之前桌面日志与锁屏日志共用一个已存 URI，导出目录里那份会被后写的顶掉（私有目录里两份都全，只有镜像串）。
+
+## 6. 明确不做
 
 - 不做锁屏实况（无 API，`setBitmap` 递出去的就是静态位图）。
 - 不做视差（`onOffsetsChanged` 仍不实现）。

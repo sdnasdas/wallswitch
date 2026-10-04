@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -1053,32 +1054,90 @@ public class MainActivity extends AppCompatActivity {
                 WallSwitchService.MOTION_HOLD,
                 WallSwitchService.MOTION_LOOP
         };
-        String[] labels = {
-                getString(R.string.motion_hold),
-                getString(R.string.motion_loop)
-        };
+        String[] labels = {getString(R.string.motion_hold), getString(R.string.motion_loop)};
         Runnable refresh = () -> {
             String cur = WallSwitchService.motionMode(this);
-            tv.setText(WallSwitchService.MOTION_LOOP.equals(cur)
-                    ? labels[1] : labels[0]);
+            if (!WallSwitchService.MOTION_LOOP.equals(cur)) {
+                tv.setText(R.string.motion_hold);
+                return;
+            }
+            // 循环档把间隔一起显示出来：只写「循环播放」的话，改完间隔界面看不出有没有生效
+            long gap = WallSwitchService.motionLoopGapMs(this);
+            tv.setText(gap <= 0 ? getString(R.string.motion_loop_no_gap)
+                    : getString(R.string.motion_loop_with_gap, gapLabel(gap)));
         };
         refresh.run();
         row.setOnClickListener(v -> {
-            int checked = WallSwitchService.MOTION_LOOP.equals(WallSwitchService.motionMode(this))
-                    ? 1 : 0;
+            String before = WallSwitchService.motionMode(this);
             new AlertDialog.Builder(this)
                     .setTitle(R.string.motion_mode_title)
-                    .setSingleChoiceItems(labels, checked, (d, which) -> {
-                        prefs.edit().putString(WallSwitchService.KEY_MOTION_MODE, values[which]).apply();
-                        refresh.run();
-                        // 立刻通知引擎：这一档不像别的设置那样可以等下一次重绘，
-                        // 不通知就会出现「选了循环却没动静」
-                        WallSwitchService.notifyMotionModeChanged();
-                        d.dismiss();
-                    })
+                    .setSingleChoiceItems(labels,
+                            WallSwitchService.MOTION_LOOP.equals(before) ? 1 : 0,
+                            (d, which) -> {
+                                d.dismiss();
+                                if (!WallSwitchService.MOTION_LOOP.equals(values[which])) {
+                                    applyMotionMode(values[which]);
+                                    return;
+                                }
+                                // 选了循环就紧接着问间隔；这一步取消则整件事不生效（档也不切），
+                                // 免得留下「切到循环但从来没设过间隔」的半套状态
+                                askMotionLoopGap(before);
+                            })
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
         });
+    }
+
+    /** 循环档的每轮间隔选择框。取消或返回 = 保持原来那一档，不切到循环。 */
+    private void askMotionLoopGap(String beforeMode) {
+        final long[] gaps = {0L, 500L, 1000L, 2000L, 3000L, 5000L, 10000L};
+        long current = WallSwitchService.motionLoopGapMs(this);
+        int checked = 2;   // 默认落在 1 秒那一档
+        for (int i = 0; i < gaps.length; i++) {
+            if (gaps[i] == current) {
+                checked = i;
+                break;
+            }
+        }
+        String[] labels = new String[gaps.length];
+        labels[0] = getString(R.string.motion_gap_none);
+        for (int i = 1; i < gaps.length; i++) {
+            labels[i] = getString(R.string.motion_gap_seconds, gapLabel(gaps[i]));
+        }
+        DialogInterface.OnCancelListener backToBefore = d -> applyMotionMode(beforeMode);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.motion_gap_title)
+                .setMessage(R.string.motion_gap_desc)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    d.dismiss();
+                    prefs.edit().putLong(WallSwitchService.KEY_MOTION_LOOP_GAP, gaps[which]).apply();
+                    applyMotionMode(WallSwitchService.MOTION_LOOP);
+                })
+                .setOnCancelListener(backToBefore)
+                .setNegativeButton(R.string.cancel, (d, which) -> applyMotionMode(beforeMode))
+                .show();
+    }
+
+    /** 写档 + 刷界面 + 立刻通知引擎（三处入口共用，别各写一遍）。 */
+    private void applyMotionMode(String mode) {
+        prefs.edit().putString(WallSwitchService.KEY_MOTION_MODE, mode).apply();
+        TextView tv = findViewById(R.id.tv_motion_mode);
+        if (WallSwitchService.MOTION_LOOP.equals(mode)) {
+            long gap = WallSwitchService.motionLoopGapMs(this);
+            tv.setText(gap <= 0 ? getString(R.string.motion_loop_no_gap)
+                    : getString(R.string.motion_loop_with_gap, gapLabel(gap)));
+        } else {
+            tv.setText(R.string.motion_hold);
+        }
+        WallSwitchService.notifyMotionModeChanged();
+    }
+
+    /** 毫秒说成人话：整秒不带小数，半秒带；0 由调用方单独处理。 */
+    private String gapLabel(long ms) {
+        if (ms % 1000L == 0) {
+            return String.valueOf(ms / 1000L);
+        }
+        return String.valueOf(ms / 1000f);
     }
 
     /**

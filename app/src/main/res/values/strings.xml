@@ -320,6 +320,13 @@
     <string name="motion_mode_title">实况播放</string>
     <string name="motion_hold">按住播放</string>
     <string name="motion_loop">循环播放</string>
+    <!-- 循环档的每轮间隔：选了循环紧接着问，取消则连档都不切 -->
+    <string name="motion_gap_title">循环间隔</string>
+    <string name="motion_gap_desc">每播完一轮，歇这么久再开始下一轮</string>
+    <string name="motion_gap_none">不间隔</string>
+    <string name="motion_gap_seconds">%s 秒</string>
+    <string name="motion_loop_with_gap">循环播放 · 间隔 %s</string>
+    <string name="motion_loop_no_gap">循环播放 · 不间隔</string>
 
     <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选；下载与安装入口都在 App 内 -->
     <string name="update_check_title">检查更新</string>
