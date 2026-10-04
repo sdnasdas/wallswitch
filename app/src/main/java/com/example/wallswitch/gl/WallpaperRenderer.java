@@ -132,6 +132,20 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     // ---- 实况通道：以下字段只在 GL 线程读写（入口一律经 queueEvent 进来） ----------------
     /** 正在播的实况；null = 没在播。 */
     private MotionPlayer motionPlayer;
+    /**
+     * 画面是否已归实况独占 —— 只在**画成第一帧视频之后**才置真。
+     * 没置真之前静态图必须继续画，否则起播到第一帧到手那 100~200ms 里表面是空的，
+     * 会露出底下的系统静态壁纸（详见 {@link #drawFrame()}）。
+     */
+    private boolean motionExclusive;
+    /** 循环档要重开一轮用的那段区间（{@code finishMotion} 不清它，{@code stopMotion} 清）。 */
+    private File motionFile;
+    private long motionOffset;
+    private long motionLength;
+    /** 用户要循环：每播完一轮就重开一轮。停播/不可见即置假。 */
+    private boolean motionLoopWanted;
+    /** 连续「一帧都没出」的轮数：挡住起播就失败时的无限重开打转。 */
+    private int motionZeroCycles;
     private int motionProgram;
     private int motionACornerLoc;
     private int motionUTexMatrixLoc;
@@ -219,6 +233,7 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
      * 起播某张壁纸的实况段（**GL 线程**，由引擎经 {@code queueEvent} 送进来）。
      *
      * @param rectNorm 归一化取景框（v 从顶部起算），来自原图坐标的裁剪矩形；null = 整帧
+     * @param loop     true = 播完一遍自动重开一轮（循环档）
      * @return 是否已在播；同一区间重复请求算「已在播」，不重开解码器
      */
     public boolean startMotion(File file, long offset, long length,
@@ -234,17 +249,34 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             return false;
         }
         stopMotion();
+        motionRect = rectNorm;
+        motionCrop = null;
+        motionCropRectRef = null;
+        motionFile = file;
+        motionOffset = offset;
+        motionLength = length;
+        motionLoopWanted = loop;
+        motionZeroCycles = 0;
+        return beginMotion();
+    }
+
+    /**
+     * 真的开一轮：新建播放器（= 全新 extractor + 全新 codec）。
+     * 循环档的「下一轮」也走这里，所以循环只有一种机制、一条已验过的路。
+     */
+    private boolean beginMotion() {
+        File file = motionFile;
+        if (file == null || !visible) {
+            return false;
+        }
         if (motionProgram == 0 && !buildMotionProgram()) {
             return false;
         }
         MotionPlayer player = new MotionPlayer();
-        motionRect = rectNorm;
-        motionCrop = null;
-        motionCropRectRef = null;
-        motionKey = key;
-        boolean started = player.start(file, offset, length, loop,
-                requestRenderHook, this::requestRenderAgain);
-        if (!started) {
+        motionExclusive = false;
+        motionKey = file.getName() + '#' + motionOffset + '#' + motionLength;
+        if (!player.start(file, motionOffset, motionLength,
+                requestRenderHook, this::requestRenderAgain)) {
             player.release();
             motionKey = null;
             WallSwitchService.lastMotionDiag = "起播被拒: " + player.lastError();
@@ -263,6 +295,12 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
      */
     public void stopMotion() {
         motionKey = null;
+        // 立刻把画面交还静态图，不等解码线程真的退出来 —— 它最多多睡一帧（16.7ms）才收尾
+        motionExclusive = false;
+        // 停播 = 循环的意图也一并取消，否则收尾那一帧会立刻把下一轮开起来
+        motionLoopWanted = false;
+        motionFile = null;
+        motionZeroCycles = 0;
         if (motionPlayer == null) {
             return;
         }
@@ -289,6 +327,7 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         motionKey = null;
         motionCrop = null;
         motionCropRectRef = null;
+        motionExclusive = false;
     }
 
     /** 上下文失效/销毁时用：连播放器带它自己的外部纹理一起拆掉。 */
@@ -302,6 +341,10 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         motionRect = null;
         motionCrop = null;
         motionCropRectRef = null;
+        motionExclusive = false;
+        motionLoopWanted = false;
+        motionFile = null;
+        motionZeroCycles = 0;
     }
 
     /** 实况那套 program 懒建：没播过实况的设备不必为它花这一次编译。 */
@@ -417,16 +460,39 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
 
     private void drawFrame() {
         WallSwitchService.perfFrames.incrementAndGet();
-        if (motionPlayer != null) {
-            if (motionPlayer.isAlive()) {
-                // 有新帧才画；没新帧直接返回（不清屏也不重画），静止时仍是零渲染
-                if (motionPlayer.consumeNewFrameFlag()) {
-                    drawMotion();
+        MotionPlayer player = motionPlayer;
+        if (player != null) {
+            if (!player.isAlive()) {
+                // 解码线程已收尾（播完 / 被停 / 出错）：先收资源
+                boolean showedFrames = player.framesShown() > 0;
+                finishMotion();
+                if (motionLoopWanted && visible) {
+                    // 循环档：重开一轮。一轮都出一帧没出就是坏在起播上，
+                    // 连着三次还这样别再试了，免得在这儿无限打转
+                    motionZeroCycles = showedFrames ? 0 : motionZeroCycles + 1;
+                    if (motionZeroCycles > 2) {
+                        motionLoopWanted = false;
+                        motionFile = null;
+                        motionZeroCycles = 0;
+                        WallSwitchService.lastMotionDiag = "连续 3 轮一帧都没出，已停止循环重播";
+                    } else {
+                        beginMotion();
+                    }
                 }
+                // 新一轮的第一帧还没到，下面这行先把静态图（= 封面帧）画着，画面不留空
+            } else if (player.consumeNewFrameFlag()) {
+                drawMotion();
+                motionExclusive = true;
+                return;
+            } else if (motionExclusive) {
+                // 已经在放：没新帧就保持上一帧画面，不清屏也不重画
                 return;
             }
-            // 解码线程已收尾（播完 / 被停 / 出错）：收资源，下面回到静态纹理
-            finishMotion();
+            // 起了播但第一帧还没到 → 往下继续画静态图。
+            // 这里以前是直接 return，等于把画面空着 100~200ms（解码器出第一帧的延迟）：
+            // 表面没内容时合成器会露出底下的系统静态壁纸，而系统里那份只有
+            // setBitmap(FLAG_LOCK) 写的**锁屏**图（桌面的静态兜底已按要求删掉），
+            // 于是真机上表现为「从任何 App 回桌面，闪一下锁屏壁纸，约 1 秒后自己好」。
         }
         drawStatic();
     }

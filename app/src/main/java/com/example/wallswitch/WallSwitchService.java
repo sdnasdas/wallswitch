@@ -149,6 +149,19 @@ public class WallSwitchService extends GLWallpaperService {
         }
     }
 
+    /**
+     * 设置页改完「实况播放」这一档后调用，让活引擎立刻按新档接上或断开。
+     *
+     * <p>为什么要有这一钩：这一档原本只在「重绘」和「按下」两个时机才被读，光改设置
+     * 引擎不会有任何反应 —— 用户切成循环档会看到「没动静，进别的 App 再回来才播一下」，
+     * 等于设置页在骗人。
+     */
+    public static void notifyMotionModeChanged() {
+        for (WallEngine engine : ENGINES) {
+            engine.applyMotionMode();
+        }
+    }
+
     /** 打开系统动态壁纸选择器并预选本引擎，引导用户激活引擎模式。 */
     public static void openActivator(Activity activity) {
         Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
@@ -284,6 +297,15 @@ public class WallSwitchService extends GLWallpaperService {
         /** 查「这张壁纸有没有实况段、取景框多大」，查到就丢给 GL 起播（后台线程做 IO）。 */
         private void startMotionForCurrent(boolean loop) {
             DRAW_EXECUTOR.execute(() -> prepareAndStartMotion(loop));
+        }
+
+        /** 按当前这一档接上或断开实况（设置页改完立刻调，不用等下一次重绘）。 */
+        void applyMotionMode() {
+            if (MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
+                startMotionForCurrent(true);
+            } else {
+                stopMotion();
+            }
         }
 
         private void prepareAndStartMotion(boolean loop) {

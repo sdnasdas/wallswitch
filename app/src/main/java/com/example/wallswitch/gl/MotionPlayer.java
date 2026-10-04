@@ -144,18 +144,21 @@ public final class MotionPlayer {
     }
 
     /**
-     * 起播。重复调用（已经在播）直接返回 false。
+     * 起播一段实况，**播完一遍就收尾**（已经在播时重复调用直接返回 false）。
+     *
+     * <p>本类不管循环：循环由 {@code WallpaperRenderer} 在收到 {@code onFinished} 后
+     * 重开一个新播放器来实现。别在这儿加回「EOS → flush → seekTo(0) → start()」那套 ——
+     * 真机上它只播一遍就停，原因见 {@link #decodeLoop} 里 EOS 分支那段注释。
      *
      * @param file             原图文件
      * @param offset           实况段起点（{@link MotionSource#locate} 给的）
      * @param length           实况段长度
-     * @param loop             true = 播完从头再来；false = 播完自己收尾
      * @param onFrameAvailable 来帧回调（投递在主线程，只做标脏）
      * @param onFinished       解码线程彻底退出后的通知（同样投到主线程）。
-     *                         没有它会出现「停播后不再有来帧、于是再也没人标脏」的死局：
+     *                         没有它会出现「播完后不再有来帧、于是再也没人标脏」的死局：
      *                         画面会永远停在最后一帧视频上，回不到静帧。
      */
-    public boolean start(File file, long offset, long length, boolean loop,
+    public boolean start(File file, long offset, long length,
                          Runnable onFrameAvailable, Runnable onFinished) {
         if (file == null || offset < 0 || length <= 0 || !finished) {
             return false;
@@ -173,7 +176,7 @@ public final class MotionPlayer {
                 onFrameAvailable.run();
             }
         });
-        worker = new Thread(() -> decodeLoop(file, offset, length, loop), "engine-motion");
+        worker = new Thread(() -> decodeLoop(file, offset, length), "engine-motion");
         worker.setDaemon(true);
         worker.start();
         return true;
@@ -209,7 +212,7 @@ public final class MotionPlayer {
 
     // ---- 解码线程 ------------------------------------------------------------------------
 
-    private void decodeLoop(File file, long offset, long length, boolean loop) {
+    private void decodeLoop(File file, long offset, long length) {
         MediaExtractor extractor = null;
         MediaCodec codec = null;
         RandomAccessFile raf = null;
@@ -241,7 +244,12 @@ public final class MotionPlayer {
             codec.start();
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-            long startNs = System.nanoTime();
+            /**
+             * 起播锚点：第一帧真正到手的那一刻。
+             * 不能拿「线程启动」当锚 —— 解码器出第一帧本身要 100ms 量级，
+             * 用启动时刻的话开头那十几帧的应显示时间全已过期，会先 burst 一下再进正常速度。
+             */
+            long startNs = 0L;
             boolean inputDone = false;
             while (!stopRequested) {
                 if (!inputDone) {
@@ -263,21 +271,26 @@ public final class MotionPlayer {
                 int outIndex = codec.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US);
                 if (outIndex >= 0) {
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        // 播完一遍就收。循环不在这里做（不 flush + seekTo 回头）——
+                        // 真机上那半截不生效，表现是「循环档只播一遍」。改由 GL 线程
+                        // 在收到收尾通知后重开一轮，走「全新 extractor + 全新 codec」
+                        // 这条已经被证明能用的路。
                         codec.releaseOutputBuffer(outIndex, false);
-                        if (!loop || stopRequested) {
-                            break;
-                        }
-                        // 只有 1 个关键帧、且它就是第 0 帧（真样本实测），从头 seek 必然命中同步帧
-                        codec.flush();
-                        codec.start();
-                        extractor.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
-                        inputDone = false;
-                        startNs = System.nanoTime();
-                        continue;
+                        break;
                     }
-                    // 按时间戳渲染：不减去 startNs 的话所有时间戳都在过去，162 帧会瞬间喷完
-                    long renderAtNs = startNs + info.presentationTimeUs * 1000L;
-                    codec.releaseOutputBuffer(outIndex, renderAtNs);
+                    // 节奏必须自己等：SurfaceTexture 没有显示时钟，缓冲区一入队就立刻
+                    // onFrameAvailable，releaseOutputBuffer 传时间戳对它**不起作用**
+                    // （只有绑在显示硬件上的 SurfaceView Surface 才认）。不等的话 162 帧
+                    // 会在半秒内喷完 —— 真机上就是用户说的「速度特别快」。
+                    // 这一睡还会把上游 dequeueInputBuffer 反压住，解码不会一路狂跑。
+                    if (startNs == 0L) {
+                        startNs = System.nanoTime();
+                    }
+                    long waitNs = startNs + info.presentationTimeUs * 1000L - System.nanoTime();
+                    if (waitNs > 0 && !sleepUntil(waitNs)) {
+                        break;
+                    }
+                    codec.releaseOutputBuffer(outIndex, true);
                     framesShown.incrementAndGet();
                 } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     MediaFormat fresh = codec.getOutputFormat();
@@ -324,6 +337,24 @@ public final class MotionPlayer {
                 mainHandler.post(done);
             }
         }
+    }
+
+    /**
+     * 睡到该帧的应显示时刻。睡完发现已被要求停播就返回 false，让上层立刻收尾 ——
+     * 一帧的间隔只有 16.7ms，停播最多多等这一格，不会拖住释放。
+     *
+     * <p>这条线程是本类自己起的解码线程，睡它不碰 GL 线程也不碰主线程。
+     */
+    private boolean sleepUntil(long nanos) {
+        try {
+            Thread.sleep(nanos / 1_000_000L, (int) (nanos % 1_000_000L));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return !stopRequested;   // 纳秒参数越界（理论到不去），当作没睡
+        }
+        return !stopRequested;
     }
 
     private static int pickVideoTrack(MediaExtractor extractor) {

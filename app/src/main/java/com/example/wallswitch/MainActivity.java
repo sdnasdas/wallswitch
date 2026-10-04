@@ -1071,6 +1071,9 @@ public class MainActivity extends AppCompatActivity {
                     .setSingleChoiceItems(labels, checked, (d, which) -> {
                         prefs.edit().putString(WallSwitchService.KEY_MOTION_MODE, values[which]).apply();
                         refresh.run();
+                        // 立刻通知引擎：这一档不像别的设置那样可以等下一次重绘，
+                        // 不通知就会出现「选了循环却没动静」
+                        WallSwitchService.notifyMotionModeChanged();
                         d.dismiss();
                     })
                     .setNegativeButton(android.R.string.cancel, null)
