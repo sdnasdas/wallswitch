@@ -4,7 +4,6 @@ import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -1028,7 +1027,7 @@ public class MainActivity extends AppCompatActivity {
             String cur = WallSwitchService.transitionEffect(this);
             int checked = WallSwitchService.TRANSITION_OFF.equals(cur) ? 2
                     : WallSwitchService.TRANSITION_BLUR.equals(cur) ? 1 : 0;
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.transition_effect_title)
                     .setSingleChoiceItems(labels, checked, (d, which) -> {
                         prefs.edit().putString(WallSwitchService.KEY_TRANSITION, values[which]).apply();
@@ -1069,7 +1068,7 @@ public class MainActivity extends AppCompatActivity {
         refresh.run();
         row.setOnClickListener(v -> {
             String before = WallSwitchService.motionMode(this);
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.motion_mode_title)
                     .setSingleChoiceItems(labels,
                             WallSwitchService.MOTION_LOOP.equals(before) ? 1 : 0,
@@ -1088,33 +1087,40 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 循环档的每轮间隔选择框。取消或返回 = 保持原来那一档，不切到循环。 */
+    /**
+     * 循环档的每轮间隔：0~30 秒滚轮，样式照「自动切换间隔」那个滚轮（同一个 {@link #wheelColumn}）。
+     * 取消或返回 = 保持原来那一档，不切到循环。
+     *
+     * <p>为什么不是单选列表：v3.89 第一版是「标题 + 一行说明 + 七个单选项」，装机实测**选项整块没了**
+     * —— appcompat 的弹窗在有 message 时把列表塞进 customPanel，量出来是零高（本仓库另外五个
+     * 单选框都只带标题不带说明，唯一带说明的就是这个坏的）。滚轮这条路是这仓库里验证过的样式，
+     * 而且「秒数」本来就该是个数，不是七个档位。
+     */
     private void askMotionLoopGap(String beforeMode) {
-        final long[] gaps = {0L, 500L, 1000L, 2000L, 3000L, 5000L, 10000L};
-        long current = WallSwitchService.motionLoopGapMs(this);
-        int checked = 2;   // 默认落在 1 秒那一档
-        for (int i = 0; i < gaps.length; i++) {
-            if (gaps[i] == current) {
-                checked = i;
-                break;
-            }
-        }
-        String[] labels = new String[gaps.length];
-        labels[0] = getString(R.string.motion_gap_none);
-        for (int i = 1; i < gaps.length; i++) {
-            labels[i] = getString(R.string.motion_gap_seconds, gapLabel(gaps[i]));
-        }
-        DialogInterface.OnCancelListener backToBefore = d -> applyMotionMode(beforeMode);
-        new AlertDialog.Builder(this)
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(pad, pad / 2, pad, 0);
+        // 只认整秒：老值（比如 500ms）落回 0~30 的整数格，下一次确定时就归成整秒
+        int current = (int) Math.min(30L, Math.max(0L,
+                WallSwitchService.motionLoopGapMs(this) / 1000L));
+        final NumberPicker picker = new NumberPicker(this);
+        picker.setMinValue(0);
+        picker.setMaxValue(30);
+        picker.setWrapSelectorWheel(false);
+        picker.setValue(current);
+        row.addView(wheelColumn(picker, getString(R.string.motion_gap_unit)));
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.motion_gap_title)
-                .setMessage(R.string.motion_gap_desc)
-                .setSingleChoiceItems(labels, checked, (d, which) -> {
-                    d.dismiss();
-                    prefs.edit().putLong(WallSwitchService.KEY_MOTION_LOOP_GAP, gaps[which]).apply();
+                .setView(row)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    prefs.edit().putLong(WallSwitchService.KEY_MOTION_LOOP_GAP,
+                            picker.getValue() * 1000L).apply();
                     applyMotionMode(WallSwitchService.MOTION_LOOP);
                 })
-                .setOnCancelListener(backToBefore)
                 .setNegativeButton(R.string.cancel, (d, which) -> applyMotionMode(beforeMode))
+                .setOnCancelListener(d -> applyMotionMode(beforeMode))
                 .show();
     }
 
@@ -1160,7 +1166,7 @@ public class MainActivity extends AppCompatActivity {
             String[] values = {UpdateChecker.SRC_GITEE, UpdateChecker.SRC_GITHUB};
             String[] labels = {getString(R.string.update_source_gitee),
                     getString(R.string.update_source_github)};
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.update_source_title)
                     .setSingleChoiceItems(labels,
                             UpdateChecker.SRC_GITHUB.equals(cur) ? 1 : 0,
@@ -1243,7 +1249,7 @@ public class MainActivity extends AppCompatActivity {
         if (version == null) {
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.update_done_title)
                 .setMessage(getString(R.string.update_done_msg, version))
                 .setPositiveButton(R.string.update_install_now,
@@ -1284,7 +1290,7 @@ public class MainActivity extends AppCompatActivity {
         String ready = UpdateDownloader.readyVersion(this);
         // 本机包不比远端那一版旧才走安装，免得文案写 v3.75、装进去的是旧的 v3.74
         boolean installFirst = ready != null && !UpdateChecker.isNewer(info.version, ready);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.update_new_title)
                 .setMessage(getString(installFirst
                                 ? R.string.update_new_ready_msg : R.string.update_new_msg,

@@ -25,6 +25,9 @@
 5. 遵守现有代码风格与约定；不引入未在项目中使用的新依赖（除非用户同意）。
 6. **push 成功即任务收尾**：不需要轮询/监听 CI 结果，也不要为等 CI 而阻塞——
    用户会自己去 GitHub Actions 下载构建好的 APK。
+7. **弹窗一律 `MaterialAlertDialogBuilder`**（主题是 Material3，裸 `AlertDialog` 出来是旧样式，
+   他会当成"没和之前统一"）。**数值设置用滚轮**（`setView` + 现成的 `MainActivity.wheelColumn()`，
+   照「自动切换间隔」那个）；**别给单选项弹窗配 `setMessage`** —— 列表会被量成零高，真机实测选项整块消失。
 
 ## 术语约定（三份图，绝不混用）
 
