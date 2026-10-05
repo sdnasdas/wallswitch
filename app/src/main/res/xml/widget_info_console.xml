@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 桌面控制台小组件：宽 2 格 × 高 2 格（六格：上两行四格动作 + 第三行选库与范围翻面）。
-     尺寸按官方换算式 70n + (n−1)×10 − 30：宽 2 格 = 120dp，高 2 格 = 120dp；
-     这里 minHeight 给到 160dp 而不是 120dp，是为了让"按 minHeight 折算行数"的桌面也至少给 2 行
-     （卡片自己排出来约 136×170dp，见 widget_console.xml 顶部：v3.92 把两列间距从 6dp 拉到 18dp，
-     因为真机照片量下来槽位约 142dp 宽、124dp 的卡片右边白一圈、两列挤着看着像被拉窄）。
-     v3.79 第一版声明的是 2×3（minHeight 200dp）：真机上 MagicOS 只给了约 2 行高，
-     底部那条「进入 App」被切掉一截 —— 改成卡片缩到 170dp 高、按 2 行要位，2 行 3 行都放得下。
-     内容不由这两个值决定：卡片在布局里按固定 dp 自排并居中，槽位再高也只是多露透明边。
+<!-- 桌面控制台小组件：宽 2 格 × <b>高 3 格</b>（内部六格 = 2 列 × 3 行：上两行四格动作 + 第三行选库与范围翻面）。
+     <b>桌面列表里那个"几×几"是按官方换算式 round((dp+30)/70) 从下面两个 min 值推出来的，
+     targetCellWidth/Height 它根本没看</b> —— 真机实测：minWidth 120dp → 2.14 → 显示 2 列；
+     minHeight 160dp → 2.71 → 显示 3 行。
+     要落回 2 行只需把 minHeight 压到 145dp 以下，但<b>这一档就是要 3 行</b>，别照着"整体 2×2"去改这里：
+     反推 v3.79 那次真机结果（那版按 2×3 要位、卡片 214dp 被切掉一截，v3.80 缩到 170dp 就完整），
+     MagicOS 的 3 行槽位在 170~214dp 之间、一行约 57~71dp，<b>两行只有约 114~142dp</b>；
+     而内部六格要排三行，格子压到 44dp（已经比桌面图标小一圈，v3.80 定过"按钮大小对齐桌面图标"）
+     也得 3×50+8 = 158dp 才排得下。所以"占位 2×2"与"六格且格子不小于桌面图标"这两个约束在这台机器上
+     不能同时满足，这里选的是后者。卡片上下那点空档不是布局错，是 3 行槽位比卡片高 ——
+     要吃掉它靠挑大档（见 WidgetConsoleProvider#fitsLarge），不是靠压 min 值。
+     内容不由这两个值决定：卡片在布局里按固定 dp 自排并居中，槽位再大也只是多露透明边。
+     两档卡片尺寸见 widget_console.xml（紧凑 136×170dp）与 widget_console_large.xml（大档 144×194dp），
+     上大档要桌面报的槽位 ≥150×200dp（大档尺寸再多 6dp 余量），报不到就用紧凑档。
      updatePeriodMillis=0 是刻意的：1×1 那格把"桌面每 30 分钟刷一次小组件"当成补切时机（见 widget_info.xml），
      这里若也按 30 分钟排，同一时刻就会跑两遍补切 —— 多一次唤醒对发热没有好处。
      控制台的刷新全部挂在已有的 WidgetProvider.updateWidget 调用点上（切换/暂停/换库/翻面/深浅色翻档/开机恢复）。
-     resizeMode=none：格位是按 2×2 排的，拉成别的形状只会把格子拧歪。 -->
+     resizeMode=none：格位是按 2×3 排的，拉成别的形状只会把格子拧歪。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:description="@string/widget_console_desc"
@@ -21,7 +27,7 @@
     android:previewLayout="@layout/widget_console"
     android:resizeMode="none"
     android:targetCellWidth="2"
-    android:targetCellHeight="2"
+    android:targetCellHeight="3"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
     tools:targetApi="31" />
