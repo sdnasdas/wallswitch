@@ -24,19 +24,27 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 桌面控制台小组件：2 列 × 3 行、共五格 —— 左上 = 当前壁纸缩略图（点按开选库页）、
- * 右上 = 暂停/继续（只换图标）、左下 = 上一张、右下 = 下一张、第三行一整条 = 进入 App。
+ * 桌面控制台小组件：2 列 × 3 行、共六格 —— 左上 = 当前范围那一面的缩略图（点按打开 App）、
+ * 右上 = 暂停/继续（只换图标）、左下 = 上一张、右下 = 下一张、
+ * 第三行左 = 选库（弹 {@link LibPickerActivity}）、第三行右 = 范围翻面（桌面 ⇄ 锁屏）。
+ *
+ * <h3>作用范围</h3>
+ * 暂停/上一张/下一张/选库这四格都作用在<b>当前范围</b>这一面，翻面键一按整卡换一面
+ * （范围态在 {@link LibraryStore#widgetScopeHome}，默认桌面，缩略图跟着翻）。
+ * v3.91 及之前这四格只认桌面。代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，
+ * 六格塞不下双套；桌面的自动切换照旧在跑，只是手动干预得把范围翻回来。
  *
  * <h3>与 1×1 那格的分工</h3>
- * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台<b>只作用桌面这一面</b>（锁屏仍回 App 里设）。
+ * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台是"盯着一面手动操作"。
  * 动作语义与常驻通知的上一张/下一张同一套（{@link Switcher#prev}/{@link Switcher#next}
- * + 切完 {@code restartScope}），守卫也在 Switcher 里收口，这里不另立规矩。
+ * + 切完 {@code restartScope}），守卫也在 Switcher 里收口，这里不另立规矩 ——
+ * 锁屏那一面同样走得通：1×1 那格早就在广播里调 {@code Switcher.next(app, lock.id, false)}。
  *
- * <h3>为什么"进入 App"要占一整格</h3>
+ * <h3>为什么"进入 App"占左上那一格</h3>
  * RemoteViews <b>没有长按 API</b>（android-34 的 android.jar 里只有 setOnClickPendingIntent /
  * setPendingIntentTemplate / setOnClickFillInIntent，长按只有集合控件那套
  * setOnItemLongClickPendingIntent，得配 RemoteViewsService 的列表）。所以"长按=开 App"这条路不成立，
- * 只能给一个实位的格子。
+ * 只能占一格实位；v3.92 起这一格就是缩略图本身（原来第三行那条横键腾出来给了选库与翻面两格）。
  *
  * <h3>为什么渲染要挪到后台线程</h3>
  * {@code onUpdate}/{@code onReceive} 跑在广播主线程上（Receiver 有 10 秒上限），而缩略图要读文件解码。
@@ -46,26 +54,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <h3>发热账</h3>
  * {@code updatePeriodMillis=0}：不接 1×1 那个"30 分钟刷一次"的补切时机，免得同一刻补切跑两遍；
  * 不放 Chronometer（走秒会每秒驱动桌面重绘，真机实测是发热来源之一）；
- * 解码只发生在切换/暂停/换库/放置/深浅色翻档/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
- * 且带一个 {@code QUEUED} 闸门把连发并成一次渲染（代价换确定性：见 {@code homeThumb} 为什么不缓存）。
+ * 解码只发生在切换/暂停/换库/翻面/深浅色翻档/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
+ * 且带一个 {@code QUEUED} 闸门把连发并成一次渲染（代价换确定性：见 {@code scopeThumb} 为什么不缓存）。
+ * 范围停在锁屏时每一张要全尺寸解成品图 + {@code setBitmap}，与通知那三颗键、1×1 那格同价，
+ * 不是新增的开销类型；翻面本身只多一次 192px 解码。
  */
 public class WidgetConsoleProvider extends AppWidgetProvider {
 
-    /** 下一张（桌面范围）。 */
+    /** 下一张（当前范围）。 */
     public static final String ACTION_NEXT = "com.example.wallswitch.CONSOLE_NEXT";
-    /** 上一张（桌面范围）。 */
+    /** 上一张（当前范围）。 */
     public static final String ACTION_PREV = "com.example.wallswitch.CONSOLE_PREV";
-    /** 暂停 / 继续桌面的自动切换。 */
+    /** 暂停 / 继续当前范围的自动切换。 */
     public static final String ACTION_PAUSE = "com.example.wallswitch.CONSOLE_PAUSE";
+    /** 翻面：整卡的作用范围在桌面 ⇄ 锁屏之间换。 */
+    public static final String ACTION_SCOPE = "com.example.wallswitch.CONSOLE_SCOPE";
 
-    // PendingIntent requestCode：五格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
-    // 后建的那条把前一条的 Intent 覆盖掉，五格按下去变成同一个动作
-    private static final int REQ_LIB = 11;
+    // PendingIntent requestCode：六格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
+    // 后建的那条把前一条的 Intent 覆盖掉，两格按下去变成同一个动作
+    // 左上缩略图 = 打开 App（v3.91 之前这一格是选库入口）
+    private static final int REQ_OPEN_APP = 11;
     private static final int REQ_PAUSE = 12;
     private static final int REQ_PREV = 13;
     private static final int REQ_NEXT = 14;
-    // 第三行那条「进入 App」
-    private static final int REQ_OPEN_APP = 15;
+    // 第三行两格：选库、范围翻面
+    private static final int REQ_LIB = 15;
+    private static final int REQ_SCOPE = 16;
 
     // 缩略图边长：与布局里写死的格子同宽（52dp，见 widget_console.xml 顶部：62dp 那版在真机上
     // 被 2 行高的槽位切掉了底部那条，整卡缩到 130×170dp）。再硬夹上限。
@@ -91,8 +105,10 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        if (ACTION_NEXT.equals(action) || ACTION_PREV.equals(action) || ACTION_PAUSE.equals(action)) {
+        if (ACTION_NEXT.equals(action) || ACTION_PREV.equals(action) || ACTION_PAUSE.equals(action)
+                || ACTION_SCOPE.equals(action)) {
             // 切换含大图解码与引擎标脏，不能放广播主线程：仿 1×1 那格用 goAsync 起后台线程
+            //（翻面虽只写一个 key + 重画一次，也走这条路：重画要解码缩略图，同样不能留在主线程）
             final PendingResult pending = goAsync();
             final Context app = context.getApplicationContext();
             final String act = action;
@@ -126,25 +142,33 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         }
     }
 
-    /** 点按动作（后台线程执行）：只作用桌面范围，语义与常驻通知按钮 / 1×1 那格一致。 */
+    /** 点按动作（后台线程执行）：除翻面外都作用在当前范围，语义与常驻通知按钮 / 1×1 那格一致。 */
     private static void handleAction(Context app, String action) {
-        if (ACTION_PAUSE.equals(action)) {
-            // 暂停/继续整面：撤任务或重新起算、日志、刷小组件与常驻通知都在 setPaused 里收口
-            TimerScheduler.setPaused(app, true, !LibraryStore.slotPaused(app, true));
+        if (ACTION_SCOPE.equals(action)) {
+            // 翻面只改一个显示态：不碰槽位、不碰定时、不上屏，重画一次整卡即可
+            //（四格的动作与缩略图都在 buildViews 里按范围现读）
+            LibraryStore.setWidgetScopeHome(app, !LibraryStore.widgetScopeHome(app));
+            scheduleUpdate(app);
             return;
         }
-        LibraryStore.Library lib = LibraryStore.slotLib(app, true);
+        boolean forHome = LibraryStore.widgetScopeHome(app);
+        if (ACTION_PAUSE.equals(action)) {
+            // 暂停/继续整面：撤任务或重新起算、日志、刷小组件与常驻通知都在 setPaused 里收口
+            TimerScheduler.setPaused(app, forHome, !LibraryStore.slotPaused(app, forHome));
+            return;
+        }
+        LibraryStore.Library lib = LibraryStore.slotLib(app, forHome);
         if (lib == null) {
-            // 桌面范围没库：上一张/下一张没有可切的对象。空着不提示是刻意的 ——
-            // 想配库就去点缩略图那一格（那里是选库入口）
+            // 这一面没库：上一张/下一张没有可切的对象。空着不提示是刻意的（两面同口径）——
+            // 想配库就去点第三行左边那一格（那里是选库入口）
             return;
         }
         boolean ok = ACTION_NEXT.equals(action)
-                ? Switcher.next(app, lib.id, true)
-                : Switcher.prev(app, lib.id, true);
+                ? Switcher.next(app, lib.id, forHome)
+                : Switcher.prev(app, lib.id, forHome);
         if (ok) {
             // 手动切了一张 = 这一轮从此刻重新起算（与卡片双击、通知按钮、小组件点按同一口径）
-            TimerScheduler.restartScope(app, true);
+            TimerScheduler.restartScope(app, forHome);
             return;
         }
         String reason = Switcher.lastError();
@@ -167,21 +191,25 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         manager.updateAppWidget(component, buildViews(ctx));
     }
 
-    /** 构建五格视图：两档外观 + 图标态 + 缩略图 + 各格的点按目标。 */
+    /** 构建六格视图：两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标。 */
     private static RemoteViews buildViews(Context ctx) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console);
         boolean night = isNight(ctx);
+        // 整卡读同一个范围：暂停图标与缩略图必须和四格动作指的是同一面，
+        // 分头现读会出现"图标显示锁屏暂停中、按下去切的是桌面"这种自相矛盾
+        boolean forHome = LibraryStore.widgetScopeHome(ctx);
         // 底色按档显式挑，不靠 values-night 自动翻（原因见 colors.xml 那段）
         int cardBg = night ? R.drawable.widget_bg_night : R.drawable.widget_bg;
         int cellBg = night ? R.drawable.widget_cell_bg_night : R.drawable.widget_cell_bg;
         views.setInt(R.id.widget_card, "setBackgroundResource", cardBg);
-        views.setInt(R.id.widget_cell_lib, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_thumb, "setBackgroundResource", cellBg);
         views.setInt(R.id.widget_cell_pause, "setBackgroundResource", cellBg);
         views.setInt(R.id.widget_cell_prev, "setBackgroundResource", cellBg);
         views.setInt(R.id.widget_cell_next, "setBackgroundResource", cellBg);
-        views.setInt(R.id.widget_cell_open, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_lib, "setBackgroundResource", cellBg);
+        views.setInt(R.id.widget_cell_scope, "setBackgroundResource", cellBg);
         views.setImageViewResource(R.id.widget_pause,
-                LibraryStore.slotPaused(ctx, true) ? R.drawable.ic_play : R.drawable.ic_pause);
+                LibraryStore.slotPaused(ctx, forHome) ? R.drawable.ic_play : R.drawable.ic_pause);
         // 图标本体是黑色 vector，颜色用 setColorFilter 现挑；文字同理走 setTextColor。
         // 刻意不在布局里写 android:tint：两者都作用在同一个 Drawable 上、互相覆盖，行为不透明
         //（常驻通知那三个图标也是这么处理的）
@@ -189,19 +217,32 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         views.setInt(R.id.widget_pause, "setColorFilter", ink);
         views.setInt(R.id.widget_prev, "setColorFilter", ink);
         views.setInt(R.id.widget_next, "setColorFilter", ink);
-        views.setInt(R.id.widget_open_ic, "setColorFilter", ink);
-        views.setTextColor(R.id.widget_open_label, ink);
-        Bitmap thumb = homeThumb(ctx);
+        views.setInt(R.id.widget_lib_ic, "setColorFilter", ink);
+        // 翻面那一格：图标 + 两字，两样都跟着范围换（光给图标分不出谁是桌面谁是锁屏）
+        views.setImageViewResource(R.id.widget_scope_ic,
+                forHome ? R.drawable.ic_home : R.drawable.ic_lock);
+        views.setInt(R.id.widget_scope_ic, "setColorFilter", ink);
+        views.setTextViewText(R.id.widget_scope_label,
+                ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock));
+        views.setTextColor(R.id.widget_scope_label, ink);
+        Bitmap thumb = scopeThumb(ctx, forHome);
         if (thumb != null) {
             views.setImageViewBitmap(R.id.widget_thumb, thumb);
         } else {
-            // 没库 / 库里没图：灰色方块（点它照样能去选库）
+            // 这一面没库 / 库里没图：灰色方块（点它照样进 App，选库去第三行那一格）
             views.setImageViewResource(R.id.widget_thumb,
                     night ? R.drawable.widget_thumb_empty_night : R.drawable.widget_thumb_empty);
         }
-        // 缩略图那格开选库页：小组件里弹不出列表（RemoteViews 没有下拉、也不认触摸），
-        // 只能借一个只弹窗、没有界面的 Activity —— 见 LibPickerActivity
-        Intent picker = new Intent(ctx, LibPickerActivity.class);
+        // 左上缩略图 = 打开 App。与 1×1 那格"没配库时点按打开应用"同一条 intent
+        //（不加 flag，走已验证过的路径）
+        views.setOnClickPendingIntent(R.id.widget_cell_thumb, PendingIntent.getActivity(ctx,
+                REQ_OPEN_APP, new Intent(ctx, MainActivity.class), piFlags()));
+        // 第三行左格开选库页：小组件里弹不出列表（RemoteViews 没有下拉、也不认触摸），
+        // 只能借一个只弹窗、没有界面的 Activity —— 见 LibPickerActivity。
+        // 范围写进 extra：这一页要知道自己是给哪一面挑库（RemoteViews 弹不出带参列表，
+        // 参数只能在建 PendingIntent 时钉死，而每次翻档都会重建这一条）
+        Intent picker = new Intent(ctx, LibPickerActivity.class)
+                .putExtra(LibPickerActivity.EXTRA_FOR_HOME, forHome);
         // 独立 taskAffinity 要配 NEW_TASK 才生效：不加的话这一页会被并进 App 已有的任务，
         // 「不把 MainActivity 顶上来」就白写了（manifest 里那条 taskAffinity="" 就是为它准备的）
         picker.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -213,9 +254,8 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
                 actionIntent(ctx, REQ_PREV, ACTION_PREV));
         views.setOnClickPendingIntent(R.id.widget_cell_next,
                 actionIntent(ctx, REQ_NEXT, ACTION_NEXT));
-        // 第三行：进 App。与 1×1 那格"没配库时点按打开应用"同一条 intent（不加 flag，走已验证过的路径）
-        views.setOnClickPendingIntent(R.id.widget_cell_open, PendingIntent.getActivity(ctx,
-                REQ_OPEN_APP, new Intent(ctx, MainActivity.class), piFlags()));
+        views.setOnClickPendingIntent(R.id.widget_cell_scope,
+                actionIntent(ctx, REQ_SCOPE, ACTION_SCOPE));
         return views;
     }
 
@@ -242,16 +282,16 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     }
 
     /**
-     * 屏上该显示哪张：桌面槽当前指针；指针还没落地（新占槽的库第一次被选）就退回库里第一张。
+     * 屏上该显示哪张：该范围槽位的当前指针；指针还没落地（新占槽的库第一次被选）就退回库里第一张。
      * <b>纯读</b> —— 引擎自己那套"推进指针自愈"（WallSwitchService.drawCurrent）是有副作用的，
      * 小组件渲染不能替用户切一张。
      */
-    private static String homeThumbId(Context ctx) {
-        LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
+    private static String scopeThumbId(Context ctx, boolean forHome) {
+        LibraryStore.Library lib = LibraryStore.slotLib(ctx, forHome);
         if (lib == null) {
             return null;
         }
-        String current = Switcher.getCurrent(ctx, lib.id, true);
+        String current = Switcher.getCurrent(ctx, lib.id, forHome);
         if (current != null) {
             return current;
         }
@@ -264,9 +304,10 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
      * <b>刻意不做缓存</b>：按壁纸 id 缓存会在「覆盖当前这张」后停在旧图上
      * （id 没变、文件变了，缓存永远命中）。一次 192px 的小 JPEG 解码是几毫秒且在后台线程，
      * 而带 QUEUED 闸门的渲染本来就把连发事件并成一次 —— 省这一点不值得换一个错画面。
+     * 翻面也走这条路（多解一次），为的是缩略图与四格动作指的是同一面。
      */
-    private static Bitmap homeThumb(Context ctx) {
-        String id = homeThumbId(ctx);
+    private static Bitmap scopeThumb(Context ctx, boolean forHome) {
+        String id = scopeThumbId(ctx, forHome);
         if (id == null) {
             return null;
         }

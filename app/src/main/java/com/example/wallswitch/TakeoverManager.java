@@ -141,6 +141,19 @@ public final class TakeoverManager {
     }
 
     /**
+     * 只同步锁屏这一面（控制台小组件选「锁屏库」时用）。
+     * <b>为什么不走 {@link #apply}</b>：apply() 开头先查桌面 —— 桌面有库而引擎没激活时直接
+     * {@code return RESULT_NEED_ACTIVATION}，锁屏那一段根本执行不到。刚选了锁屏库却因为是桌面
+     * 引擎的事而没上屏，这一格就变成"按了没反应"，所以给一条只碰锁屏的入口。
+     * App 内选库仍走 apply()，行为不动。幂等判断与"没有指针就推进一张"都在 applyLock 里；
+     * 含解码与系统调用，调用方放后台线程。
+     */
+    static boolean applyLockOnly(Context ctx) {
+        LibraryStore.Library lockLib = LibraryStore.slotLib(ctx, false);
+        return lockLib != null && applyLock(ctx, lockLib);
+    }
+
+    /**
      * 抽屉「保存当前壁纸」（智能选源，纯 IO，调用方放后台线程）：
      * <ul>
      *   <li>接管中：导出引擎正在显示的那张（库文件已是无损 PNG，直接复制进相册，必定拿得到）</li>

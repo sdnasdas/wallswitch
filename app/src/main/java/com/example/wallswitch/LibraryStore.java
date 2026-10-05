@@ -34,6 +34,8 @@ public class LibraryStore {
     private static final String KEY_SCOPE_MIGRATED = "scope_slots_v359";
     // 当前选中库 id 的 key
     public static final String KEY_CURRENT_LIB = "current_lib";
+    // 控制台小组件当前操控哪一面（缺省 = 桌面）。纯显示态：翻档不碰槽位、不碰定时、不上屏
+    private static final String KEY_WIDGET_SCOPE_HOME = "widget_scope_home";
     // 切换模式取值
     public static final String MODE_ORDER = "order";
     public static final String MODE_RANDOM = "random";
@@ -352,6 +354,31 @@ public class LibraryStore {
             editor.remove(slotKey(forHome) + "_paused");
         }
         editor.apply();
+    }
+
+    /**
+     * 控制台小组件当前操控哪一面（true = 桌面）。
+     * 与槽位是两回事：这里只是那张卡的四格动作和缩略图"对着哪一面"，默认桌面（v3.92 之前只有桌面）。
+     * 存在同一份 settings 里，所以它会跟着备份包一起走 —— 是个偏好，跟着回去正合适。
+     *
+     * <p><b>为什么不照常驻通知那颗角标的规矩</b>（{@code StatusNotifier.currentScope} 会自愈、
+     * {@code toggleScope} 在另一面没库时拒绝翻）：通知上没有配库入口，翻不过去是"不做假动作"；
+     * 而这一格翻过去正是为了用第三行的选库格给那一面配库 —— 一翻就弹回来，那面就永远配不上库了。
+     * 所以这里既不自愈也不设闸：翻到哪面就是哪面，那面没库时上一张/下一张静默不动（与桌面档同口径）。
+     *
+     * <p>也刻意不与通知共用一个 key：那是两个独立界面，共号会变成"点通知上的角标顺手把小组件四格
+     * 也翻了面"这种看不见的联动。两边各自显示自己的范围（通知那颗角标、小组件这一格），
+     * 所以状态不一致是摆在明面上的，不是暗地里的。
+     */
+    public static boolean widgetScopeHome(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_WIDGET_SCOPE_HOME, true);
+    }
+
+    /** 翻面（只写这一个 key，刷小组件由调用方做）。 */
+    public static void setWidgetScopeHome(Context ctx, boolean forHome) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_WIDGET_SCOPE_HOME, forHome).apply();
     }
 
     /**

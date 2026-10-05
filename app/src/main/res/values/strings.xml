@@ -47,13 +47,15 @@
     <string name="widget_label">切换 1×1</string>
     <!-- 名字里不带尺寸：格位随观感调过两回（2×2 → 2×3 → 缩回 2×2），写进名字迟早对不上 -->
     <string name="widget_console_label">控制台</string>
-    <string name="widget_console_desc">换库 · 暂停 · 上一张 · 下一张 · 进入 App（只作用桌面这一面）</string>
-    <string name="widget_console_thumb_desc">当前壁纸，点按选择壁纸库</string>
-    <string name="widget_console_pause_desc">暂停或继续桌面的自动切换</string>
-    <string name="widget_console_open_app">进入 App</string>
+    <string name="widget_console_desc">暂停 · 上一张 · 下一张 · 换库 · 桌面/锁屏翻面（缩略图进 App）</string>
+    <string name="widget_console_thumb_desc">当前范围这一面的壁纸，点按打开 App</string>
+    <string name="widget_console_pause_desc">暂停或继续当前范围的自动切换</string>
+    <string name="widget_console_lib_desc">为当前范围选择壁纸库</string>
+    <string name="widget_console_scope_desc">切换作用范围：桌面 / 锁屏</string>
     <string name="widget_console_no_engine">桌面壁纸库已换，但本应用还不是当前动态壁纸：去系统选择器确认启用</string>
-    <!-- 选库页只动桌面这一面，所以这一档把范围写明白（App 内那条「清空本范围」是两面通用的） -->
+    <!-- 选库页跟着小组件的范围翻面走，所以两档各写明白（App 内那条「清空本范围」是两面通用的） -->
     <string name="widget_console_lib_none">不切换（桌面停止自动切换）</string>
+    <string name="widget_console_lib_none_lock">不切换（锁屏停止自动切换）</string>
     <string name="timer_enabled">定时切换</string>
     <string name="delete_confirm_title">删除壁纸</string>
     <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->

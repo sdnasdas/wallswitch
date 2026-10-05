@@ -60,8 +60,10 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
-        <!-- 控制台小组件：上两行四格 = 换库（缩略图）/ 暂停 / 上一张 / 下一张，第三行一条 = 进入 App，
-             动作只作用桌面这一面。与 1×1 是两个独立入口（各一份 widget_info），1×1 的行为一点没动 -->
+        <!-- 控制台小组件：六格 = 缩略图（点开 App）/ 暂停 / 上一张 / 下一张 / 选库 / 范围翻面，
+             动作作用在翻面键选中的那一面（默认桌面）。与 1×1 是两个独立入口（各一份 widget_info），
+             1×1 的行为一点没动。
+             这里只声明 APPWIDGET_UPDATE 就够：四格的动作广播都把组件写死在 Intent 上（显式广播不过 filter） -->
         <receiver
             android:name=".WidgetConsoleProvider"
             android:exported="false"
@@ -74,7 +76,8 @@
                 android:resource="@xml/widget_info_console" />
         </receiver>
 
-        <!-- 控制台「缩略图那格」的选库页：透明主题只弹一列带缩略图的库（行布局与 App 内选库共用），背景仍是桌面。
+        <!-- 控制台第三行「选库」那格的选库页：透明主题只弹一列带缩略图的库（行布局与 App 内选库共用），
+             背景仍是桌面；给哪一面挑库由小组件用 extra 带进来。
              taskAffinity 留空 = 另起一个任务，不会把 App 主界面顶到前台；excludeFromRecents = 不进最近任务 -->
         <activity
             android:name=".LibPickerActivity"

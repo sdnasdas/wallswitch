@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 桌面控制台小组件：2 列 × 3 行。
-     上两行是四格（左上=当前壁纸缩略图，点开选库；右上=暂停/继续；左下=上一张；右下=下一张），
-     第三行是一整条横键 = 进入 App。四格只作用「桌面」这一面（锁屏仍回 App 里设），
-     与 1×1 那格"点一下桌面+锁屏各自切"是有意的差别。
+<!-- 桌面控制台小组件：2 列 × 3 行、共六格。
+     第一行 = 当前范围那一面的缩略图（点按打开 App）+ 暂停/继续；
+     第二行 = 上一张 + 下一张；
+     第三行 = 选库（弹 LibPickerActivity，带当前范围）+ 范围翻面（桌面 ⇄ 锁屏）。
+     暂停/上一张/下一张/选库这四格都作用在「当前范围」这一面（v3.92 起；之前四格只认桌面，
+     翻面键一按就换一面，范围态存在 settings 的 widget_scope_home，默认桌面）。
 
      尺寸为什么全部写死 dp、根层还透明：桌面给的槽位高宽比不归我们控制（一格高 > 宽），
      用 weight 平铺会把每格都拉成长方形 —— 缩略图被裁成竖条、按钮像两块大灰砖。
      所以卡片自己按固定 dp 排、在槽位里居中，多出来的高度透明露出壁纸。
 
-     为什么是 52dp 格 + 40dp 条（v3.79 第一版是 62+62）：真机上 MagicOS 只给了约 2 行高（≈200dp），
-     62dp 那版整张卡 214dp 高，底部「进入 App」被切掉一截。现在卡片约 130×170dp，
-     2 行还是 3 行的槽位都放得下。不做"读尺寸自适应"：RemoteViews 拿不到也改不了 LayoutParams，
-     真要按高度换档只能整份换布局文件，为这一个变量多养一份布局不值得。
+     为什么是 52dp 格 + 18dp 列间距（v3.91 及之前是 6dp）：真机照片量下来 MagicOS 给的 2 列槽位
+     约 142dp 宽，而卡片只有 124dp，右边白一圈、两列挤在一起看着像被拉窄了。所以只把两列之间的
+     间距从 6dp 拉到 18dp（每格朝内侧多让 9dp），整卡 136dp，仍在槽位内留约 6dp 余量。
+     格子的宽高不动：动格宽会把缩略图那一格拉歪，动间距不改形状。
 
-     点击目标挂在格子（FrameLayout/LinearLayout）上而不是图标上：图标四周留白也算触控区。
-     这里刻意不写任何颜色（背景、android:tint 都不写）：深浅色两档全部由 WidgetConsoleProvider#buildViews
-     按我们自己读到的 uiMode 显式挑资源，布局里再写 android:tint 会和 setColorFilter 互相覆盖、看不出谁生效。
+     为什么第三行两格高 40dp 而不是跟上面两行一样的 52dp：整卡高度是有硬约束的那一维 ——
+     v3.79 那版 214dp 高，真机上 MagicOS 只给约 2 行（≈200dp），底部整条被切掉一截。
+     第三行竖切成两格后如果也做 52dp，整卡会长到 182dp，为 12dp 去冒这个风险不值，
+     所以两格沿用原来那条横键的 40dp 高，整卡仍是 136×170dp。
+
+     点击目标挂在格子上而不是图标上：图标四周留白也算触控区。
+     这里刻意不写任何颜色（背景、android:tint、textColor 都不写）：深浅色两档全部由
+     WidgetConsoleProvider#buildViews 按我们自己读到的 uiMode 显式挑资源，布局里再写会和
+     setColorFilter / setTextColor 互相覆盖、看不出谁生效。
      缩略图的圆角也是代码里画进位图的（RemoteViews 不会替 ImageView 裁剪位图）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_console_root"
@@ -31,17 +39,18 @@
         android:orientation="vertical"
         android:padding="4dp">
 
-        <!-- 第一行：缩略图（点=选库）+ 暂停/继续 -->
+        <!-- 第一行：缩略图（点=打开 App）+ 暂停/继续 -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
 
             <FrameLayout
-                android:id="@+id/widget_cell_lib"
+                android:id="@+id/widget_cell_thumb"
                 android:layout_width="52dp"
                 android:layout_height="52dp"
                 android:layout_margin="3dp"
+                android:layout_marginEnd="9dp"
                 android:background="@drawable/widget_cell_bg">
 
                 <!-- fitCenter 而不是 centerCrop：位图已在代码里强制裁方，
@@ -60,6 +69,7 @@
                 android:layout_width="52dp"
                 android:layout_height="52dp"
                 android:layout_margin="3dp"
+                android:layout_marginStart="9dp"
                 android:background="@drawable/widget_cell_bg">
 
                 <!-- 暂停中换成 ic_play（代码里 setImageViewResource），不加文字、不另开一行 -->
@@ -85,6 +95,7 @@
                 android:layout_width="52dp"
                 android:layout_height="52dp"
                 android:layout_margin="3dp"
+                android:layout_marginEnd="9dp"
                 android:background="@drawable/widget_cell_bg">
 
                 <ImageView
@@ -102,6 +113,7 @@
                 android:layout_width="52dp"
                 android:layout_height="52dp"
                 android:layout_margin="3dp"
+                android:layout_marginStart="9dp"
                 android:background="@drawable/widget_cell_bg">
 
                 <ImageView
@@ -115,32 +127,60 @@
             </FrameLayout>
         </LinearLayout>
 
-        <!-- 第三行：一整条「进入 App」。RemoteViews 没有长按 API，所以这个入口只能占一格实位 -->
+        <!-- 第三行：选库 + 范围翻面。原来这里是一整条「进入 App」，
+             RemoteViews 没有长按 API 才占了一格实位；现在进 App 挪到左上缩略图，
+             这一条腾出来竖切成两格。 -->
         <LinearLayout
-            android:id="@+id/widget_cell_open"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_margin="3dp"
-            android:background="@drawable/widget_cell_bg"
-            android:gravity="center"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:orientation="horizontal">
 
-            <ImageView
-                android:id="@+id/widget_open_ic"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_marginEnd="6dp"
-                android:contentDescription="@string/widget_console_open_app"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_home" />
+            <FrameLayout
+                android:id="@+id/widget_cell_lib"
+                android:layout_width="52dp"
+                android:layout_height="40dp"
+                android:layout_margin="3dp"
+                android:layout_marginEnd="9dp"
+                android:background="@drawable/widget_cell_bg">
 
-            <TextView
-                android:id="@+id/widget_open_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/widget_console_open_app"
-                android:textColor="@color/widget_ink"
-                android:textSize="12sp" />
+                <ImageView
+                    android:id="@+id/widget_lib_ic"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@string/widget_console_lib_desc"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_tab_wallpaper" />
+            </FrameLayout>
+
+            <!-- 这一格必须有文字：两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏。
+                 图标 + 两字竖排在 52×40 里（15dp 图标 + 11sp 文字，合计约 32dp 高）。 -->
+            <LinearLayout
+                android:id="@+id/widget_cell_scope"
+                android:layout_width="52dp"
+                android:layout_height="40dp"
+                android:layout_margin="3dp"
+                android:layout_marginStart="9dp"
+                android:background="@drawable/widget_cell_bg"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/widget_scope_ic"
+                    android:layout_width="15dp"
+                    android:layout_height="15dp"
+                    android:contentDescription="@string/widget_console_scope_desc"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_home" />
+
+                <TextView
+                    android:id="@+id/widget_scope_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:text="@string/scope_home"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

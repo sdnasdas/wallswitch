@@ -38,16 +38,21 @@ import java.util.Map;
  * 缩略图 LruCache，共用就得连缓存一起搬出来 —— 为省几十行去动已验收的路径不值得。
  * 会漂的只有"取哪张图、副标题文案"这几行，行布局 XML 两边共用，外观漂不了。
  *
- * <p>与 App 内选库（MainActivity#confirmSlotLib）的两处有意差别：
+ * <p>与 App 内选库（MainActivity#confirmSlotLib）的三处有意差别：
  * <ul>
  *   <li>不弹二次确认 —— 小组件的前提就是"一次点按办一件事"；</li>
- *   <li>只改桌面范围，锁屏那面不动，因此也不去重设锁屏位图（省一次大图解码）。</li>
+ *   <li>范围由小组件带进来（{@link #EXTRA_FOR_HOME}）：这一页只改进来的那一面，另一面不动；</li>
+ *   <li>桌面那面靠 {@code notifyWallpaperChanged()} 让引擎重画，锁屏那面走
+ *       {@link TakeoverManager#applyLockOnly}（不进 {@code TakeoverManager.apply}：它开头先查桌面，
+ *       桌面有库而引擎没激活时直接 return，锁屏根本轮不到）。</li>
  * </ul>
- * 刻意保持一致的一点：换完都主动 {@code notifyWallpaperChanged()} 让桌面立刻换图（App 内那条在
- * MainActivity#applySlotLib 里）。原先两条路径都只写槽位，要等下次亮屏引擎重放才换成新库那张，
- * 刚选完看不出动，像没生效。
+ * 刻意保持一致的一点：换完都主动刷这一面，别等下次亮屏引擎重放才换成新库那张 ——
+ * 刚选完看不出动，像没生效（App 内那条在 MainActivity#applySlotLib 里）。
  */
 public class LibPickerActivity extends AppCompatActivity {
+
+    /** 小组件把它当前的作用范围带进来（true = 桌面）。缺省按桌面，与 v3.91 之前的行为一致。 */
+    public static final String EXTRA_FOR_HOME = "console_for_home";
 
     /**
      * 行内缩略图边长（像素）。行布局里那个位子是 44dp，折成物理像素约 116，144 已够铺满。
@@ -81,8 +86,9 @@ public class LibPickerActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        final boolean forHome = getIntent().getBooleanExtra(EXTRA_FOR_HOME, true);
         final List<LibraryStore.Library> libs = LibraryStore.load(this);
-        final String liveId = LibraryStore.slotLibId(this, true);
+        final String liveId = LibraryStore.slotLibId(this, forHome);
         // 张数与库内第一张一次算完：WallpaperStore.loadByLib 内部是「整份 library.json 读一遍再筛」，
         // 按库循环调用就是 N 个库 × 整份解析。真机样本（check/work/real/library.json）是 49 张 / 5.6KB、
         // 7 个库，眼下没感觉，库涨起来这笔是 N×M —— 一次遍历就够，没必要摊成 N 次
@@ -100,19 +106,20 @@ public class LibPickerActivity extends AppCompatActivity {
             }
         }
         // 「不切换」占第 0 行（与 App 内选库列表同一档序），其余依次是各个库（顺序 = 首页拖拽排序）。
-        // 这一档的文案用本页专用的一条：App 内那条写的是「清空本范围」，而这里只有桌面一面可选，
-        // 照抄会让人以为按下去锁屏也一起停了
+        // 这一档的文案按范围各写一条：只说正在改的那一面，别让人以为按下去两面都停了
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row(getString(R.string.widget_console_lib_none),
+        rows.add(new Row(getString(forHome
+                        ? R.string.widget_console_lib_none : R.string.widget_console_lib_none_lock),
                 getString(R.string.slot_none_sub), null, null));
         for (LibraryStore.Library lib : libs) {
             Integer count = counts.get(lib.id);
             rows.add(new Row(lib.name,
                     getString(R.string.lib_count, count == null ? 0 : count), lib.id,
-                    libThumb(lib.id, firstId.get(lib.id))));
+                    libThumb(lib.id, firstId.get(lib.id), forHome)));
         }
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.slot_pick_lib_title)
+                // 标题直接写是哪一面的库：这一页只改带进来的那一面，另一面不动
+                .setTitle(forHome ? R.string.slot_home_title : R.string.slot_lock_title)
                 .setAdapter(new PickerAdapter(rows, liveId), (dialog, which) -> {
                     String newId = rows.get(which).libId;
                     dialog.dismiss();
@@ -120,7 +127,7 @@ public class LibPickerActivity extends AppCompatActivity {
                         // 点的就是当前那一档：什么都不做（dismiss 已经把页面收掉了）
                         return;
                     }
-                    applyToHome(newId);
+                    apply(newId, forHome);
                 })
                 // 行点选、点外面、返回键三种收场都走这里：页面本身没有存在的价值，关掉就完
                 .setOnDismissListener(dialog -> finish())
@@ -128,14 +135,14 @@ public class LibPickerActivity extends AppCompatActivity {
     }
 
     /**
-     * 该库的代表图：桌面这一面在屏的那张优先，其次锁屏那面（同一张图两边都在用时最准），
+     * 该库的代表图：这一面在屏的那张优先，其次另一面（同一张图两边都在用时最准），
      * 再次库内第一张（{@code fallbackId}，由调用方一次遍历时备好）；空库返回 null，
      * 由 {@link PickerAdapter} 画成占位图标。取档顺序与 App 内 {@code MainActivity#slotThumbId} 一致。
      */
-    private Bitmap libThumb(String libId, String fallbackId) {
-        String id = Switcher.getCurrent(this, libId, true);
+    private Bitmap libThumb(String libId, String fallbackId, boolean forHome) {
+        String id = Switcher.getCurrent(this, libId, forHome);
         if (id == null) {
-            id = Switcher.getCurrent(this, libId, false);
+            id = Switcher.getCurrent(this, libId, !forHome);
         }
         if (id == null) {
             id = fallbackId;
@@ -188,8 +195,8 @@ public class LibPickerActivity extends AppCompatActivity {
             name.setText(data.name);
             sub.setText(data.sub);
             bindThumb(thumb, data.thumb);
-            // 勾 = 当前桌面槽占位库。直接用 isSameSlot：第 0 行（libId 为 null）在「槽里本来就没库」时
-            // 也要打勾，照 App 内那样只比库 id 的话，空槽状态下整列会一个勾都没有
+            // 勾 = 当前范围槽里的占位库。直接用 isSameSlot：第 0 行（libId 为 null）在「这一面本来就没库」
+            // 时也要打勾，照 App 内那样只比库 id 的话，空槽状态下整列会一个勾都没有
             check.setVisibility(isSameSlot(data.libId, liveId) ? View.VISIBLE : View.INVISIBLE);
             return row;
         }
@@ -214,21 +221,28 @@ public class LibPickerActivity extends AppCompatActivity {
     }
 
     /**
-     * 把桌面槽指向新库并当场见效。文件读写（libraries.json）+ WorkManager 往返都在 setSlotLib 里，
+     * 把该范围的槽指向新库并当场见效。文件读写（libraries.json）+ WorkManager 往返都在 setSlotLib 里，
      * 不能放主线程；引擎标脏只是排队等一帧，代价极小。
      * 刷小组件与常驻通知不用在这里做：setSlotLib → restartScope/cancelScope 内部已经刷过。
      */
-    private void applyToHome(final String newId) {
+    private void apply(final String newId, final boolean forHome) {
         final Context app = getApplicationContext();
         new Thread(() -> {
             boolean needActivate = false;
             try {
-                LibraryStore.setSlotLib(app, true, newId);
-                // 桌面这一面由引擎在画：槽位换了要主动标脏，否则要等下次亮屏才换成新库那张。
-                // 选「不切换」（newId=null）时同样标脏，让它立刻落回"没有启用库"的纯色态。
-                WallSwitchService.notifyWallpaperChanged();
-                // 引擎没被系统选中时上面那声标脏没人接得住：如实说一句，别让人以为已经换上了
-                needActivate = newId != null && !WallSwitchService.isActive(app);
+                LibraryStore.setSlotLib(app, forHome, newId);
+                if (forHome) {
+                    // 桌面这一面由引擎在画：槽位换了要主动标脏，否则要等下次亮屏才换成新库那张。
+                    // 选「不切换」（newId=null）时同样标脏，让它立刻落回"没有启用库"的纯色态。
+                    WallSwitchService.notifyWallpaperChanged();
+                    // 引擎没被系统选中时上面那声标脏没人接得住：如实说一句，别让人以为已经换上了。
+                    // 这一句只在桌面档说 —— 锁屏走 setBitmap，跟引擎活没活无关
+                    needActivate = newId != null && !WallSwitchService.isActive(app);
+                } else {
+                    // 锁屏这一面由 setBitmap 在画。不走 TakeoverManager.apply()：它开头先查桌面，
+                    // 桌面有库而引擎没激活时直接返回，刚选的锁屏库就上不了屏（"按了没反应"）
+                    TakeoverManager.applyLockOnly(app);
+                }
             } catch (Exception ignored) {
             }
             if (needActivate) {
