@@ -1,35 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 控制台小组件的<b>紧凑档</b>布局：整卡 136×170dp，六格 = 2 列 × 3 行（第三行两格是 40dp 矮格）。
-     另有一份大档 widget_console_large.xml（144×194dp、六格齐高 56dp 正方），
-     由 WidgetConsoleProvider#fitsLarge 按桌面申报的槽位尺寸挑用 ——
-     <b>两份的 view id 必须一模一样</b>，buildViews 一份代码喂两份，改结构要两份同步。
+<!-- 控制台小组件的<b>大档</b>布局：整卡 144×194dp，六格齐高、都是 56dp 正方格。
+     与 widget_console.xml（紧凑档 136×170dp）的唯一差别就是格子边长与行高 ——
+     <b>view id 必须两边一模一样</b>，WidgetConsoleProvider#buildViews 是一份代码喂两份布局，
+     改任何一格的结构 / 图标 / id 都要两份同步改，漏一份的表现是换了档才看出来。
 
-     第一行 = 当前范围那一面的缩略图（点按打开 App）+ 暂停/继续；
-     第二行 = 上一张 + 下一张；
-     第三行 = 选库（弹 LibPickerActivity，带当前范围）+ 范围翻面（桌面 ⇄ 锁屏）。
-     暂停/上一张/下一张/选库这四格都作用在「当前范围」这一面（v3.92 起；之前四格只认桌面，
-     翻面键一按就换一面，范围态存在 settings 的 widget_scope_home，默认桌面）。
+     什么时候用这一档：WidgetConsoleProvider#fitsLarge 读桌面申报的槽位尺寸
+     （AppWidgetManager#getAppWidgetOptions），宽高压根都够（含 6dp 余量）才挑它，
+     否则用紧凑档。所以这一档"看不看得到"取决于 MagicOS 报不报真数 —— 报的是 widget_info
+     里声明的 120×160 时，永远走紧凑档，与 v3.92 之前的表现一致，不会更差。
 
-     尺寸为什么全部写死 dp、根层还透明：桌面给的槽位高宽比不归我们控制（一格高 > 宽），
-     用 weight 平铺会把每格都拉成长方形 —— 缩略图被裁成竖条、按钮像两块大灰砖。
-     所以卡片自己按固定 dp 排、在槽位里居中，多出来的高度透明露出壁纸。
-     RemoteViews 也没有 setLayoutParams / 权重接口（android-34、35 的 jar 都 javap 过），
-     想按槽位连续缩放只能靠 setMinimumWidth/Height 撑格子，代价是 wrap_content 父 +
-     match_parent 子的测量坑 —— 所以这里是"挑档"不是"缩放"。
-
-     为什么紧凑档是 52dp 格 + 18dp 列间距（v3.91 及之前是 6dp）：真机照片量下来卡片摆在槽位里
-     右边白一圈、两列挤在一起看着像被拉窄，所以把两列之间的间距从 6dp 拉到 18dp（每格朝内侧多让
-     9dp）。格子的宽高不动：动格宽会把缩略图那一格拉歪，动间距不改形状。
-
-     为什么第三行两格高 40dp 而不是跟上面两行一样的 52dp：整卡高度是有硬约束的那一维 ——
-     v3.79 那版 214dp 高，真机上 MagicOS 只给约 2 行（≈200dp），底部整条被切掉一截。
-     紧凑档要的是"任何桌面都给得下"，所以三行合计压在 170dp；要给六格都齐高的是大档。
-
-     点击目标挂在格子上而不是图标上：图标四周留白也算触控区。
-     这里刻意不写任何颜色（背景、android:tint、textColor 都不写）：深浅色两档全部由
-     WidgetConsoleProvider#buildViews 按我们自己读到的 uiMode 显式挑资源，布局里再写会和
-     setColorFilter / setTextColor 互相覆盖、看不出谁生效。
-     缩略图的圆角也是代码里画进位图的（RemoteViews 不会替 ImageView 裁剪位图）。 -->
+     为什么六格要齐高（紧凑档第三行是 40dp 矮格）：这一档的目标就是把槽位纵向用满，
+     194dp 高正好是三行 56dp + 间距；再矮一行就又在卡里留一条空。
+     为什么仍然全写死 dp、不用 weight：见 widget_console.xml 顶部那段（v3.78 的教训）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_console_root"
     android:layout_width="match_parent"
@@ -52,8 +34,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_thumb"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginEnd="9dp"
                 android:background="@drawable/widget_cell_bg">
@@ -71,8 +53,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_pause"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginStart="9dp"
                 android:background="@drawable/widget_cell_bg">
@@ -82,7 +64,7 @@
                     android:id="@+id/widget_pause"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="12dp"
+                    android:layout_margin="13dp"
                     android:contentDescription="@string/widget_console_pause_desc"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_pause" />
@@ -97,8 +79,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_prev"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginEnd="9dp"
                 android:background="@drawable/widget_cell_bg">
@@ -107,7 +89,7 @@
                     android:id="@+id/widget_prev"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="12dp"
+                    android:layout_margin="13dp"
                     android:contentDescription="@string/notif_action_prev"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_notif_prev" />
@@ -115,8 +97,8 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_next"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginStart="9dp"
                 android:background="@drawable/widget_cell_bg">
@@ -125,16 +107,14 @@
                     android:id="@+id/widget_next"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_margin="12dp"
+                    android:layout_margin="13dp"
                     android:contentDescription="@string/notif_action_next"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_notif_next" />
             </FrameLayout>
         </LinearLayout>
 
-        <!-- 第三行：选库 + 范围翻面。原来这里是一整条「进入 App」，
-             RemoteViews 没有长按 API 才占了一格实位；现在进 App 挪到左上缩略图，
-             这一条腾出来竖切成两格。 -->
+        <!-- 第三行：选库 + 范围翻面（这一档里它们也是 56dp 正方格，与上面两行齐平） -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -142,28 +122,27 @@
 
             <FrameLayout
                 android:id="@+id/widget_cell_lib"
-                android:layout_width="52dp"
-                android:layout_height="40dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginEnd="9dp"
                 android:background="@drawable/widget_cell_bg">
 
                 <ImageView
                     android:id="@+id/widget_lib_ic"
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
                     android:layout_gravity="center"
                     android:contentDescription="@string/widget_console_lib_desc"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_tab_wallpaper" />
             </FrameLayout>
 
-            <!-- 这一格必须有文字：两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏。
-                 图标 + 两字竖排在 52×40 里（15dp 图标 + 11sp 文字，合计约 32dp 高）。 -->
+            <!-- 这一格必须有文字：两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏 -->
             <LinearLayout
                 android:id="@+id/widget_cell_scope"
-                android:layout_width="52dp"
-                android:layout_height="40dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_margin="3dp"
                 android:layout_marginStart="9dp"
                 android:background="@drawable/widget_cell_bg"
@@ -172,8 +151,8 @@
 
                 <ImageView
                     android:id="@+id/widget_scope_ic"
-                    android:layout_width="15dp"
-                    android:layout_height="15dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:contentDescription="@string/widget_console_scope_desc"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_home" />
@@ -182,9 +161,9 @@
                     android:id="@+id/widget_scope_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginTop="2dp"
                     android:text="@string/scope_home"
-                    android:textSize="11sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

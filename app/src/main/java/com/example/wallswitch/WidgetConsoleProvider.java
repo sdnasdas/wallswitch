@@ -12,6 +12,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -33,6 +34,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * （范围态在 {@link LibraryStore#widgetScopeHome}，默认桌面，缩略图跟着翻）。
  * v3.91 及之前这四格只认桌面。代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，
  * 六格塞不下双套；桌面的自动切换照旧在跑，只是手动干预得把范围翻回来。
+ *
+ * <h3>两档尺寸（v3.93 起）</h3>
+ * 紧凑档 136×170dp（{@code widget_console.xml}，第三行是 40dp 矮格）/ 大档 144×194dp
+ * （{@code widget_console_large.xml}，六格齐高 56dp 正方）。挑哪档看桌面<b>申报</b>的槽位尺寸
+ * （{@link #fitsLarge} 读 {@code getAppWidgetOptions}，要多出 6dp 余量才敢上大档），读不到就用紧凑档。
+ * 为什么是"挑档"而不是"按尺寸连续缩放"：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
+ * （android-34 与 android-35 的 android.jar 都 javap 过），只能靠 {@code setMinimumWidth/Height}
+ * 把格子撑大，而那要把格子改成 wrap_content、踩「wrap_content 父 + match_parent 子量成 0」那个坑。
+ * 代价如实说：多一份布局，改格子结构要两份同步。
  *
  * <h3>与 1×1 那格的分工</h3>
  * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台是"盯着一面手动操作"。
@@ -91,6 +101,14 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）
     private static final float THUMB_CORNER_DP = 10f;
 
+    // ===== 两档布局：按桌面申报的槽位尺寸挑一份用 =====
+    // 大档整卡 144×194dp（widget_console_large.xml，六格齐高 56dp 正方），
+    // 紧凑档 136×170dp（widget_console.xml，第三行是 40dp 矮格）。
+    // 阈值取"大档尺寸再多 6dp"才敢上：getAppWidgetOptions 报的是桌面**申报**的数，
+    // 申报与真给能差一截 —— v3.79 那版按 214dp 要位、真机只给约 200dp，底部整条被切。
+    private static final int LARGE_MIN_WIDTH_DP = 144 + 6;
+    private static final int LARGE_MIN_HEIGHT_DP = 194 + 6;
+
     /** 渲染队列：单线程串行，避免两张并发递交互相盖。 */
     private static final ExecutorService RENDER = Executors.newSingleThreadExecutor(runnable ->
             new Thread(runnable, "widget-console"));
@@ -99,6 +117,16 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
+        scheduleUpdate(context);
+    }
+
+    /**
+     * 桌面给的槽位变了（刚放置、换桌面、改网格密度、旋转都会走这里）：重挑一档。
+     * 本类不参与补切，所以这里只需排一次渲染。
+     */
+    @Override
+    public void onAppWidgetOptionsChanged(Context context, AppWidgetManager appWidgetManager,
+                                          int appWidgetId, Bundle newOptions) {
         scheduleUpdate(context);
     }
 
@@ -188,12 +216,42 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         if (ids == null || ids.length == 0) {
             return;
         }
-        manager.updateAppWidget(component, buildViews(ctx));
+        // 一次 updateAppWidget(component, ...) 会把所有实例刷成同一份视图，所以档只能挑一个：
+        // 按"报得最小的那个实例"来，宁可小的那个四周多露透明边，也不能大的那个被切一截
+        boolean large = true;
+        for (int id : ids) {
+            large &= fitsLarge(manager, id);
+        }
+        manager.updateAppWidget(component, buildViews(ctx,
+                large ? R.layout.widget_console_large : R.layout.widget_console));
     }
 
-    /** 构建六格视图：两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标。 */
-    private static RemoteViews buildViews(Context ctx) {
-        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console);
+    /**
+     * 这个实例申报的槽位够不够摆大档（单位 dp，阈值见 {@code LARGE_MIN_*_DP} 为什么还要再加 6）。
+     * 读不到就一律算不够：走紧凑档，与 v3.92 之前的表现一致，动态化本身不会把东西弄坏。
+     */
+    private static boolean fitsLarge(AppWidgetManager manager, int id) {
+        Bundle options;
+        try {
+            options = manager.getAppWidgetOptions(id);
+        } catch (Exception ignored) {
+            return false;
+        }
+        if (options == null) {
+            return false;
+        }
+        // MIN 与 MAX 取大的那个当"它愿意给多少"：本小组件 resizeMode=none、不存在拉伸，
+        // 两个值通常相同；而有些桌面只填其中一个，另一个留 0
+        int width = Math.max(options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH),
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH));
+        int height = Math.max(options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT),
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT));
+        return width >= LARGE_MIN_WIDTH_DP && height >= LARGE_MIN_HEIGHT_DP;
+    }
+
+    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标。两份布局只有格子尺寸不同，id 一致。 */
+    private static RemoteViews buildViews(Context ctx, int layoutRes) {
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), layoutRes);
         boolean night = isNight(ctx);
         // 整卡读同一个范围：暂停图标与缩略图必须和四格动作指的是同一面，
         // 分头现读会出现"图标显示锁屏暂停中、按下去切的是桌面"这种自相矛盾
@@ -315,7 +373,12 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         return src == null ? null : roundCorners(ctx, src);
     }
 
-    /** 一格需要多少像素：按密度折算，再夹进 Binder 安全的区间。 */
+    /**
+     * 一格需要多少像素：按密度折算，再夹进 Binder 安全的区间。
+     * 大档那格是 56dp，这里仍按 52dp 算（{@code THUMB_CELL_DP}）：2.75 密度下解出来 143px，
+     * 摆进 154px 的位子差 7%，而 ImageView 是 fitCenter、位图本身是方的，肉眼看不出来；
+     * 为这 7% 把边长抬到 154px 会去吃 Binder 那约 1MB 的余量，不值。
+     */
     private static int thumbSide(Context ctx) {
         float density = ctx.getResources().getDisplayMetrics().density;
         int side = Math.round(THUMB_CELL_DP * density);
