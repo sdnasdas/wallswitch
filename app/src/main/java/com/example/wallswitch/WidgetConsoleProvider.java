@@ -35,14 +35,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * v3.91 及之前这四格只认桌面。代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，
  * 六格塞不下双套；桌面的自动切换照旧在跑，只是手动干预得把范围翻回来。
  *
- * <h3>两档尺寸（v3.93 起）</h3>
- * 紧凑档 136×170dp（{@code widget_console.xml}，第三行是 40dp 矮格）/ 大档 144×194dp
- * （{@code widget_console_large.xml}，六格齐高 56dp 正方）。挑哪档看桌面<b>申报</b>的槽位尺寸
- * （{@link #fitsLarge} 读 {@code getAppWidgetOptions}，要多出 6dp 余量才敢上大档），读不到就用紧凑档。
- * 为什么是"挑档"而不是"按尺寸连续缩放"：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
- * （android-34 与 android-35 的 android.jar 都 javap 过），只能靠 {@code setMinimumWidth/Height}
- * 把格子撑大，而那要把格子改成 wrap_content、踩「wrap_content 父 + match_parent 子量成 0」那个坑。
- * 代价如实说：多一份布局，改格子结构要两份同步。
+ * <h3>格子边长是算出来的（v3.95）</h3>
+ * 布局里每个格子都是 {@code wrap_content} + 一个 44dp 地板值，真正的边长在 {@link #buildViews} 里
+ * 按桌面<b>申报</b>的槽位宽高算：{@link #cellDpFor} 读 {@code getAppWidgetOptions}，横向扣掉 32dp
+ * 开销除以 2 格、纵向扣掉 26dp 除以 3 行，取小的那个当正方格边长，夹进 28~64dp。
+ * 所以换设备、换桌面、改网格密度都不用改这里 —— 读到的数变了格子跟着变；读不到（空或 0）
+ * 就落 44dp 地板，比 v3.94 那两档少一份要同步的布局，也更保守。
+ * 为什么撑得动：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
+ * （android-34 与 android-35 的 android.jar 都 javap 过），但 {@code View.setMinimumWidth/Height}
+ * 是 public，而 ImageView / FrameLayout / LinearLayout 的 onMeasure 都吃 suggested minimum，
+ * 于是 {@code setInt(id, "setMinimumWidth", px)} 就定得住边长。
+ * 前提条件别改坏：<b>格子里的图绝不能用 {@code match_parent}</b> —— wrap_content 的父配
+ * match_parent 的子，子会被量成父拿到的全部空间，整张卡直接撑爆槽位（v3.94 之前那版
+ * 缩略图就是 match_parent，改成 wrap_content + 地板值正是为了这条）。
  *
  * <h3>与 1×1 那格的分工</h3>
  * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台是"盯着一面手动操作"。
@@ -91,23 +96,36 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     private static final int REQ_LIB = 15;
     private static final int REQ_SCOPE = 16;
 
-    // 缩略图边长：与布局里写死的格子同宽（52dp，见 widget_console.xml 顶部：62dp 那版在真机上
-    // 被 2 行高的槽位切掉了底部那条，整卡缩到 130×170dp）。再硬夹上限。
-    // 不能直接用 WallpaperStore.getThumb() 的结果 —— 那是 384~768px 正方形（解码出来 0.6~2.3MB），
-    // 而 RemoteViews 经 Binder 递交、单次事务约 1MB，超了的表现是小组件静默不更新（不报错）
-    private static final int THUMB_CELL_DP = 52;
+    // ===== 格子边长是算出来的（v3.95）：按桌面申报的槽位宽高，取横竖两向里"放得下"的那个 =====
+    // 横向要放 2 格，固定开销 = 卡片内边距 4×2 + 两格外侧留白 3×2 + 列间距 18 = 32dp；
+    // 纵向要放 3 格，固定开销 = 内边距 8 + 三行上下留白 6×3 = 26dp。
+    private static final int H_SPARE_DP = 32;
+    private static final int V_SPARE_DP = 26;
+    private static final int COLS = 2;
+    private static final int ROWS = 3;
+    // 上限 64dp：再大就白占桌面、解码也顶到 Binder 余量。
+    // 下限 28dp 只兜"槽位薄到算不出可用格子"这种病态情况 —— 正常情况下边长就是算出来的那个，
+    // 哪怕它小。<b>这个下限不能抬到 40</b>：夹具 check/WidgetCellSizeTest 跑过，176×133dp 的槽位
+    // 算出来是 35dp，夹到 40 就变成卡片 146dp 高、比槽位还高 13dp —— 又回到 v3.79 那种被切。
+    // 宁可格子小一点，也不能撑出去。
+    private static final int CELL_MIN_DP = 28;
+    private static final int CELL_MAX_DP = 64;
+    // 读不到申报值时的地板（与 widget_console.xml 里写的 minWidth/minHeight 同一个数）。
+    // 44dp 格画出来是 120×158dp 的卡，等于假定"任何桌面至少给这么大"—— 这台机器的 2 行怎么也有
+    // 133dp，所以兜得住；真要遇到更薄又不报数的桌面，这一档会切，是已知让位于简单性的取舍
+    private static final int CELL_FLOOR_DP = 44;
+    // 格子里的图标只占格子一半多一点（v3.94 之前是 52dp 的格里放 28dp 的图 = 0.54），跟着格子缩放
+    private static final float ICON_RATIO = 0.54f;
+    // 翻面那一格的图标更小一档：下面还压着一行「桌面/锁屏」
+    private static final float SCOPE_ICON_RATIO = 0.3f;
+
+    // 缩略图解码边长的硬夹。不能直接用 WallpaperStore.getThumb() 的结果 ——
+    // 那是 384~768px 正方形（解码出来 0.6~2.3MB），而 RemoteViews 经 Binder 递交、单次事务约 1MB，
+    // 超了的表现是小组件静默不更新（不报错）
     private static final int THUMB_MIN_PX = 96;
     private static final int THUMB_MAX_PX = 192;
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）
     private static final float THUMB_CORNER_DP = 10f;
-
-    // ===== 两档布局：按桌面申报的槽位尺寸挑一份用 =====
-    // 大档整卡 144×194dp（widget_console_large.xml，六格齐高 56dp 正方），
-    // 紧凑档 136×170dp（widget_console.xml，第三行是 40dp 矮格）。
-    // 阈值取"大档尺寸再多 6dp"才敢上：getAppWidgetOptions 报的是桌面**申报**的数，
-    // 申报与真给能差一截 —— v3.79 那版按 214dp 要位、真机只给约 200dp，底部整条被切。
-    private static final int LARGE_MIN_WIDTH_DP = 144 + 6;
-    private static final int LARGE_MIN_HEIGHT_DP = 194 + 6;
 
     /** 渲染队列：单线程串行，避免两张并发递交互相盖。 */
     private static final ExecutorService RENDER = Executors.newSingleThreadExecutor(runnable ->
@@ -216,42 +234,75 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         if (ids == null || ids.length == 0) {
             return;
         }
-        // 一次 updateAppWidget(component, ...) 会把所有实例刷成同一份视图，所以档只能挑一个：
-        // 按"报得最小的那个实例"来，宁可小的那个四周多露透明边，也不能大的那个被切一截
-        boolean large = true;
+        // 一次 updateAppWidget(component, ...) 会把所有实例刷成同一份视图，所以边长只能取一个：
+        // 按"报得最小的那个实例"算，宁可小的那个四周多露透明边，也不能大的那个撑出去被切
+        int cellDp = CELL_FLOOR_DP;
         for (int id : ids) {
-            large &= fitsLarge(manager, id);
+            cellDp = Math.min(cellDp, cellDpFor(manager, id));
         }
-        manager.updateAppWidget(component, buildViews(ctx,
-                large ? R.layout.widget_console_large : R.layout.widget_console));
+        manager.updateAppWidget(component, buildViews(ctx, cellDp));
     }
 
-    /**
-     * 这个实例申报的槽位够不够摆大档（单位 dp，阈值见 {@code LARGE_MIN_*_DP} 为什么还要再加 6）。
-     * 读不到就一律算不够：走紧凑档，与 v3.92 之前的表现一致，动态化本身不会把东西弄坏。
-     */
-    private static boolean fitsLarge(AppWidgetManager manager, int id) {
+    /** 这个实例的槽位放得下多大的正方格（dp）；读不到申报值就回地板值。 */
+    private static int cellDpFor(AppWidgetManager manager, int id) {
         Bundle options;
         try {
             options = manager.getAppWidgetOptions(id);
         } catch (Exception ignored) {
-            return false;
+            return CELL_FLOOR_DP;
         }
         if (options == null) {
-            return false;
+            return CELL_FLOOR_DP;
         }
-        // MIN 与 MAX 取大的那个当"它愿意给多少"：本小组件 resizeMode=none、不存在拉伸，
-        // 两个值通常相同；而有些桌面只填其中一个，另一个留 0
-        int width = Math.max(options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH),
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH));
-        int height = Math.max(options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT),
-                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT));
-        return width >= LARGE_MIN_WIDTH_DP && height >= LARGE_MIN_HEIGHT_DP;
+        int width = slotDp(options, AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
+                AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
+        int height = slotDp(options, AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,
+                AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT);
+        if (width <= 0 || height <= 0) {
+            return CELL_FLOOR_DP;
+        }
+        int cell = Math.min((width - H_SPARE_DP) / COLS, (height - V_SPARE_DP) / ROWS);
+        return Math.max(CELL_MIN_DP, Math.min(cell, CELL_MAX_DP));
     }
 
-    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标。两份布局只有格子尺寸不同，id 一致。 */
-    private static RemoteViews buildViews(Context ctx, int layoutRes) {
-        RemoteViews views = new RemoteViews(ctx.getPackageName(), layoutRes);
+    /**
+     * MIN 与 MAX 两个键里取"稳拿得到的那个"：只填了一个就用那个，两个都填取<b>小的</b> ——
+     * 按大的算等于向桌面要它没打算给的空间，v3.79 那次 214dp 的卡片被切掉一截就是这么来的。
+     */
+    private static int slotDp(Bundle options, String minKey, String maxKey) {
+        int min = options.getInt(minKey);
+        int max = options.getInt(maxKey);
+        if (min <= 0) {
+            return max;
+        }
+        if (max <= 0) {
+            return min;
+        }
+        return Math.min(min, max);
+    }
+
+    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标 + 算出来的格子边长。 */
+    private static RemoteViews buildViews(Context ctx, int cellDp) {
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console);
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int cellPx = Math.round(cellDp * density);
+        int iconPx = Math.round(cellPx * ICON_RATIO);
+        int scopeIconPx = Math.round(cellPx * SCOPE_ICON_RATIO);
+        // 边长下发：六格各自定成同一个正方值，格子里的图按同一比例跟着缩放。
+        // setMinimumWidth/Height 是 View 的 public setter，ImageView 与两个布局的 onMeasure
+        // 都吃 suggested minimum，所以 wrap_content 的格子这样就能定住（详见类注释那条）
+        setSize(views, R.id.widget_cell_thumb, cellPx);
+        setSize(views, R.id.widget_cell_pause, cellPx);
+        setSize(views, R.id.widget_cell_prev, cellPx);
+        setSize(views, R.id.widget_cell_next, cellPx);
+        setSize(views, R.id.widget_cell_lib, cellPx);
+        setSize(views, R.id.widget_cell_scope, cellPx);
+        setSize(views, R.id.widget_thumb, cellPx);
+        setSize(views, R.id.widget_pause, iconPx);
+        setSize(views, R.id.widget_prev, iconPx);
+        setSize(views, R.id.widget_next, iconPx);
+        setSize(views, R.id.widget_lib_ic, iconPx);
+        setSize(views, R.id.widget_scope_ic, scopeIconPx);
         boolean night = isNight(ctx);
         // 整卡读同一个范围：暂停图标与缩略图必须和四格动作指的是同一面，
         // 分头现读会出现"图标显示锁屏暂停中、按下去切的是桌面"这种自相矛盾
@@ -283,7 +334,7 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         views.setTextViewText(R.id.widget_scope_label,
                 ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock));
         views.setTextColor(R.id.widget_scope_label, ink);
-        Bitmap thumb = scopeThumb(ctx, forHome);
+        Bitmap thumb = scopeThumb(ctx, forHome, cellPx);
         if (thumb != null) {
             views.setImageViewBitmap(R.id.widget_thumb, thumb);
         } else {
@@ -360,29 +411,38 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     /**
      * 取一格大小的圆角缩略图；拿不到返回 null，由调用方显示空态灰块。
      * <b>刻意不做缓存</b>：按壁纸 id 缓存会在「覆盖当前这张」后停在旧图上
-     * （id 没变、文件变了，缓存永远命中）。一次 192px 的小 JPEG 解码是几毫秒且在后台线程，
+     * （id 没变、文件变了，缓存永远命中）。一次一两百 px 的小 JPEG 解码是几毫秒且在后台线程，
      * 而带 QUEUED 闸门的渲染本来就把连发事件并成一次 —— 省这一点不值得换一个错画面。
      * 翻面也走这条路（多解一次），为的是缩略图与四格动作指的是同一面。
      */
-    private static Bitmap scopeThumb(Context ctx, boolean forHome) {
+    private static Bitmap scopeThumb(Context ctx, boolean forHome, int cellPx) {
         String id = scopeThumbId(ctx, forHome);
         if (id == null) {
             return null;
         }
-        Bitmap src = WallpaperStore.getWidgetThumb(ctx, id, thumbSide(ctx));
+        Bitmap src = WallpaperStore.getWidgetThumb(ctx, id, thumbSide(cellPx));
         return src == null ? null : roundCorners(ctx, src);
     }
 
     /**
-     * 一格需要多少像素：按密度折算，再夹进 Binder 安全的区间。
-     * 大档那格是 56dp，这里仍按 52dp 算（{@code THUMB_CELL_DP}）：2.75 密度下解出来 143px，
-     * 摆进 154px 的位子差 7%，而 ImageView 是 fitCenter、位图本身是方的，肉眼看不出来；
-     * 为这 7% 把边长抬到 154px 会去吃 Binder 那约 1MB 的余量，不值。
+     * 缩略图解码边长：就用算出来的那个格子像素，再夹进 Binder 安全的区间。
+     * 上限 192px 是硬约束（RemoteViews 经 Binder 递交，单次事务约 1MB，超了不报错、
+     * 只是小组件静默不更新）；格子算到 64dp 上限时，2.75 密度下是 176px，仍在区间内，
+     * 更高密度的机器上会被这里夹回 192px，代价只是图比显示尺寸略糊一点。
      */
-    private static int thumbSide(Context ctx) {
-        float density = ctx.getResources().getDisplayMetrics().density;
-        int side = Math.round(THUMB_CELL_DP * density);
-        return Math.max(THUMB_MIN_PX, Math.min(side, THUMB_MAX_PX));
+    private static int thumbSide(int cellPx) {
+        return Math.max(THUMB_MIN_PX, Math.min(cellPx, THUMB_MAX_PX));
+    }
+
+    /**
+     * 定住一个 view 的边长（正方）。RemoteViews 没有 setLayoutParams，但
+     * {@code View.setMinimumWidth/setMinimumHeight} 是 public setter，而 ImageView / FrameLayout /
+     * LinearLayout 的 onMeasure 都吃 suggested minimum —— 配布局里的 wrap_content 就能把格子撑到指定像素。
+     * 只在"变大"这个方向上起作用：布局里的 44dp 地板值兜住读不到申报数的场景，不会塌成图标的 24dp。
+     */
+    private static void setSize(RemoteViews views, int viewId, int px) {
+        views.setInt(viewId, "setMinimumWidth", px);
+        views.setInt(viewId, "setMinimumHeight", px);
     }
 
     /**
