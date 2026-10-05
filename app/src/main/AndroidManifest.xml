@@ -74,7 +74,7 @@
                 android:resource="@xml/widget_info_console" />
         </receiver>
 
-        <!-- 控制台「缩略图那格」的选库页：透明主题只弹单选框，背景仍是桌面。
+        <!-- 控制台「缩略图那格」的选库页：透明主题只弹一列带缩略图的库（行布局与 App 内选库共用），背景仍是桌面。
              taskAffinity 留空 = 另起一个任务，不会把 App 主界面顶到前台；excludeFromRecents = 不进最近任务 -->
         <activity
             android:name=".LibPickerActivity"
