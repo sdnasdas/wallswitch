@@ -76,6 +76,22 @@
                 android:resource="@xml/widget_info_console" />
         </receiver>
 
+        <!-- 控制台横版（3 列 × 2 行、六格等大）：桌面列表里是独立的一条，与上面那条各要一份格子。
+             这类只是"壳"：动作广播、状态、渲染全留在 WidgetConsoleProvider 一处
+             （它的 render 会依次递两个已放置的组件，没摆的那个查 id 就返回，连解码都不做）。
+             所以这里同样只声明 APPWIDGET_UPDATE。 -->
+        <receiver
+            android:name=".WidgetConsoleWideProvider"
+            android:exported="false"
+            android:label="@string/widget_console_wide_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info_console_wide" />
+        </receiver>
+
         <!-- 控制台第三行「选库」那格的选库页：透明主题只弹一列带缩略图的库（行布局与 App 内选库共用），
              背景仍是桌面；给哪一面挑库由小组件用 extra 带进来。
              taskAffinity 留空 = 另起一个任务，不会把 App 主界面顶到前台；excludeFromRecents = 不进最近任务 -->

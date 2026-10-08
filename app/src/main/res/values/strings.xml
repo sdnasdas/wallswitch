@@ -48,6 +48,10 @@
     <!-- 名字里不带尺寸：格位随观感调过两回（2×2 → 2×3 → 缩回 2×2），写进名字迟早对不上 -->
     <string name="widget_console_label">控制台</string>
     <string name="widget_console_desc">暂停 · 上一张 · 下一张 · 换库 · 桌面/锁屏翻面（缩略图进 App）</string>
+    <!-- 横版：同一套六格，排成 3 列 × 2 行。名字里仍不写"3×2"这种数字（上面那条注释说的就是
+         格位随观感调过两回，写进名字迟早对不上），只说横竖 —— 两条都在列表里，得一眼分得开 -->
+    <string name="widget_console_wide_label">控制台（横）</string>
+    <string name="widget_console_wide_desc">六格横排：换库 · 缩略图 · 桌面/锁屏翻面 / 上一张 · 暂停 · 下一张</string>
     <string name="widget_console_thumb_desc">当前范围这一面的壁纸，点按打开 App</string>
     <string name="widget_console_pause_desc">暂停或继续当前范围的自动切换</string>
     <string name="widget_console_lib_desc">为当前范围选择壁纸库</string>

@@ -25,29 +25,49 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 桌面控制台小组件：2 列 × 3 行、共六格 —— 左上 = 当前范围那一面的缩略图（点按打开 App）、
- * 右上 = 暂停/继续（只换图标）、左下 = 上一张、右下 = 下一张、
- * 第三行左 = 选库（弹 {@link LibPickerActivity}）、第三行右 = 范围翻面（桌面 ⇄ 锁屏）。
+ * 桌面控制台小组件的渲染与动作收口：<b>两种格位共用这一份代码</b> —— 竖版 {@code widget_console}
+ * （内部 2 列 × 3 行，向桌面要 2×2）与横版 {@code widget_console_wide}（内部 3 列 × 2 行，向桌面要
+ * 3×2，壳见 {@link WidgetConsoleWideProvider}）。六格内容是同一套：选库、当前范围缩略图（点按打开
+ * App）、范围翻面（桌面 ⇄ 锁屏）、上一张、暂停/继续、下一张；两份布局的 view id 逐个对齐，
+ * 所以 {@link #buildViews} 只多收一份 spec（布局资源 + 那一带的格子算式）。
  *
  * <h3>作用范围</h3>
- * 暂停/上一张/下一张/选库这四格都作用在<b>当前范围</b>这一面，翻面键一按整卡换一面
+ * 除翻面外五格都作用在<b>当前范围</b>这一面，翻面键一按整卡换一面
  * （范围态在 {@link LibraryStore#widgetScopeHome}，默认桌面，缩略图跟着翻）。
- * v3.91 及之前这四格只认桌面。代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，
- * 六格塞不下双套；桌面的自动切换照旧在跑，只是手动干预得把范围翻回来。
+ * 代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，六格塞不下双套；桌面的自动切换照旧在跑，
+ * 只是手动干预得把范围翻回来。
  *
- * <h3>格子边长是算出来的（v3.95）</h3>
+ * <h3>翻面那一格为什么不再配文字</h3>
+ * v3.95 及之前是「小图标 + 桌面/锁屏两字」，当时的理由是"两面没有天然的区分符号"。现在换成竖胶囊
+ * （{@code ic_scope_pill_home} / {@code ic_scope_pill_lock}）：两个可选项一次画全，当前那一半给
+ * 淡底块 + 实心图标、另一半只留 32% 淡的图标 —— 状态靠深浅对比读，不靠认小图细节，格子缩到
+ * 19~24dp 也分得出。两态各一份文件：淡底块画在上半还是下半是<b>形状</b>信息，而 RemoteViews
+ * 只能整张换 drawable，没有改子路径透明度的 API。
+ *
+ * <h3>格子边长是算出来的（v3.95），两种格位各带一套常数</h3>
  * 布局里每个格子都是 {@code wrap_content} + 一个 44dp 地板值，真正的边长在 {@link #buildViews} 里
- * 按桌面<b>申报</b>的槽位宽高算：{@link #cellDpFor} 读 {@code getAppWidgetOptions}，横向扣掉 32dp
- * 开销除以 2 格、纵向扣掉 26dp 除以 3 行，取小的那个当正方格边长，夹进 28~64dp。
- * 所以换设备、换桌面、改网格密度都不用改这里 —— 读到的数变了格子跟着变；读不到（空或 0）
- * 就落 44dp 地板，比 v3.94 那两档少一份要同步的布局，也更保守。
+ * 按桌面<b>申报</b>的槽位宽高算：{@link #cellDpFor} 读 {@code getAppWidgetOptions}，横向扣掉
+ * {@code hSpareDp} 除以列数、纵向扣掉 {@code vSpareDp} 除以行数，取小的那个当<b>正方</b>格边长，
+ * 夹进 28~64dp；读不到（空或 0）就落该档的地板 44dp。竖版开销 32/26dp，横版 50/20dp —— 差额来自
+ * 列间距的个数不同（账写在两份布局文件顶上）。<b>六格必须等大</b>，所以刻意不用 layout_weight：
+ * 桌面给的 3×2 槽位长宽比不是 1.5（横格比竖格宽），正方格按"两向里小的那个"算，必然有一个方向
+ * 画不满，剩下的是透明边、露出壁纸；占位是不是 3×2 由 dp 请求决定，与卡片画多宽无关。
  * 为什么撑得动：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
  * （android-34 与 android-35 的 android.jar 都 javap 过），但 {@code View.setMinimumWidth/Height}
- * 是 public，而 ImageView / FrameLayout / LinearLayout 的 onMeasure 都吃 suggested minimum，
+ * 是 public，而 ImageView / FrameLayout 的 onMeasure 都吃 suggested minimum，
  * 于是 {@code setInt(id, "setMinimumWidth", px)} 就定得住边长。
  * 前提条件别改坏：<b>格子里的图绝不能用 {@code match_parent}</b> —— wrap_content 的父配
- * match_parent 的子，子会被量成父拿到的全部空间，整张卡直接撑爆槽位（v3.94 之前那版
- * 缩略图就是 match_parent，改成 wrap_content + 地板值正是为了这条）。
+ * match_parent 的子，子会被量成父拿到的全部空间，整张卡直接撑爆槽位（v3.94 之前那版缩略图就是
+ * match_parent，改成 wrap_content + 地板值正是为了这条）。
+ *
+ * <h3>一条队列、一个闸门就够（两种组件同时摆着也不会漏刷）</h3>
+ * {@link #render} 每跑一次就把 {@link #SPECS} 里<b>两份</b>视图都递交一遍，所以共用的 {@code QUEUED}
+ * 合并掉的只是"同一轮里重复排的那次渲染"，不会因为另一个组件类抢不到闸门而停在旧画面；没摆上桌面的
+ * 那一份在 {@code getAppWidgetIds} 就返回，连缩略图都不解。给两个 provider 各配一条队列一个闸门的
+ * 写法为什么不要：桌面里两个都摆着时会并行解码，而且动作广播、切换语义会跟着长成两套。
+ * 点按目标一律写死<b>本类</b>（{@link #actionIntent}），横版那格的广播也送到这里，横竖共用
+ * {@link #handleAction} —— PendingIntent 的匹配看的是 Intent 的 component + action，不是 requestCode，
+ * 所以两种布局共用 11~16 这六个号不会串。
  *
  * <h3>与 1×1 那格的分工</h3>
  * 1×1 点一下 = 桌面与锁屏各自切一张；本控制台是"盯着一面手动操作"。
@@ -55,7 +75,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * + 切完 {@code restartScope}），守卫也在 Switcher 里收口，这里不另立规矩 ——
  * 锁屏那一面同样走得通：1×1 那格早就在广播里调 {@code Switcher.next(app, lock.id, false)}。
  *
- * <h3>为什么"进入 App"占左上那一格</h3>
+ * <h3>为什么"打开 App"占一格实位</h3>
  * RemoteViews <b>没有长按 API</b>（android-34 的 android.jar 里只有 setOnClickPendingIntent /
  * setPendingIntentTemplate / setOnClickFillInIntent，长按只有集合控件那套
  * setOnItemLongClickPendingIntent，得配 RemoteViewsService 的列表）。所以"长按=开 App"这条路不成立，
@@ -71,8 +91,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 不放 Chronometer（走秒会每秒驱动桌面重绘，真机实测是发热来源之一）；
  * 解码只发生在切换/暂停/换库/翻面/深浅色翻档/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
  * 且带一个 {@code QUEUED} 闸门把连发并成一次渲染（代价换确定性：见 {@code scopeThumb} 为什么不缓存）。
+ * 两种格位<b>共用这一条队列</b>，所以最坏情况是"桌面上横竖各摆一个"时一次事件串行递交两份视图、
+ * 解两回图（仍是同一张 192px 缩略图，两份布局的格子边长可能不同 → 各解各的）；只摆一个时另一份在
+ * {@code getAppWidgetIds} 那步就返回，成本是零。
  * 范围停在锁屏时每一张要全尺寸解成品图 + {@code setBitmap}，与通知那三颗键、1×1 那格同价，
  * 不是新增的开销类型；翻面本身只多一次 192px 解码。
+ * 横版开了 {@code resizeMode}：每次拖动改尺寸会走一次 {@code onAppWidgetOptionsChanged} → 排一次渲染，
+ * 拖动过程中连发由同一个闸门并掉，落定才是那一次真正的解码。
  */
 public class WidgetConsoleProvider extends AppWidgetProvider {
 
@@ -87,22 +112,26 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
 
     // PendingIntent requestCode：六格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
     // 后建的那条把前一条的 Intent 覆盖掉，两格按下去变成同一个动作
-    // 左上缩略图 = 打开 App（v3.91 之前这一格是选库入口）
+    // 缩略图那格 = 打开 App（v3.91 之前这一格是选库入口）
     private static final int REQ_OPEN_APP = 11;
     private static final int REQ_PAUSE = 12;
     private static final int REQ_PREV = 13;
     private static final int REQ_NEXT = 14;
-    // 第三行两格：选库、范围翻面
+    // 另两格：选库、范围翻面
     private static final int REQ_LIB = 15;
     private static final int REQ_SCOPE = 16;
 
     // ===== 格子边长是算出来的（v3.95）：按桌面申报的槽位宽高，取横竖两向里"放得下"的那个 =====
-    // 横向要放 2 格，固定开销 = 卡片内边距 4×2 + 两格外侧留白 3×2 + 列间距 18 = 32dp；
-    // 纵向要放 3 格，固定开销 = 内边距 8 + 三行上下留白 6×3 = 26dp。
-    private static final int H_SPARE_DP = 32;
-    private static final int V_SPARE_DP = 26;
-    private static final int COLS = 2;
-    private static final int ROWS = 3;
+    // 每种格位自带：向哪个 provider 递交、用哪份布局、横竖各几格、两向各自的固定开销 dp。
+    // 竖版：横向 2 格 = 内边距 8 + 外侧留白 6 + 列间距 18 → 32dp；纵向 3 行 = 内边距 8 + 6×3 → 26dp。
+    // 横版：横向 3 格 = 内边距 8 + 外侧留白 6 + 两处列间距 36 → 50dp；纵向 2 行 = 内边距 8 + 6×2 → 20dp。
+    private static final Spec SPEC_CONSOLE = new Spec(WidgetConsoleProvider.class,
+            R.layout.widget_console, 2, 3, 32, 26);
+    private static final Spec SPEC_CONSOLE_WIDE = new Spec(WidgetConsoleWideProvider.class,
+            R.layout.widget_console_wide, 3, 2, 50, 20);
+    /** 渲染时依次递交这两份视图；没摆上桌面的那份在 getAppWidgetIds 那步就跳过，连解码都不做。 */
+    private static final Spec[] SPECS = {SPEC_CONSOLE, SPEC_CONSOLE_WIDE};
+
     // 上限 64dp：再大就白占桌面、解码也顶到 Binder 余量。
     // 下限 28dp 只兜"槽位薄到算不出可用格子"这种病态情况 —— 正常情况下边长就是算出来的那个，
     // 哪怕它小。<b>这个下限不能抬到 40</b>：夹具 check/WidgetCellSizeTest 跑过，176×133dp 的槽位
@@ -110,14 +139,38 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 宁可格子小一点，也不能撑出去。
     private static final int CELL_MIN_DP = 28;
     private static final int CELL_MAX_DP = 64;
-    // 读不到申报值时的地板（与 widget_console.xml 里写的 minWidth/minHeight 同一个数）。
-    // 44dp 格画出来是 120×158dp 的卡，等于假定"任何桌面至少给这么大"—— 这台机器的 2 行怎么也有
-    // 133dp，所以兜得住；真要遇到更薄又不报数的桌面，这一档会切，是已知让位于简单性的取舍
+    // 读不到申报值时的地板（与两份布局里写的 minWidth/minHeight 同一个数）。
+    // 44dp 格画出来：竖版是 120×158dp 的卡，横版是 182×108dp 的卡 —— 等于假定"任何桌面至少给这么大"，
+    // 这台机器的 2 行怎么也有 133dp，所以兜得住；真要遇到更薄又不报数的桌面，这一档会切，
+    // 是已知让位于简单性的取舍
     private static final int CELL_FLOOR_DP = 44;
-    // 格子里的图标只占格子一半多一点（v3.94 之前是 52dp 的格里放 28dp 的图 = 0.54），跟着格子缩放
+    // 格子里的图标只占格子一半多一点（v3.94 之前是 52dp 的格里放 28dp 的图 = 0.54），跟着格子缩放。
+    // v3.96 起翻面格不再压一行「桌面/锁屏」，所以它不再单列一档比例（原来那个 0.3），六格统一这一个数
     private static final float ICON_RATIO = 0.54f;
-    // 翻面那一格的图标更小一档：下面还压着一行「桌面/锁屏」
-    private static final float SCOPE_ICON_RATIO = 0.3f;
+
+    /**
+     * 一种格位 = 一份布局 + 一套格子算式 + 一个递交目标。两份 spec 共用同一个 buildViews，
+     * 靠的是两份布局的 view id 逐个对齐 —— 新加一格时两份布局要用同一个 id，否则另一份会
+     * 在同一行 setSize/setOnClickPendingIntent 上把视图写给不存在的 id（RemoteViews 不报错，
+     * 只是那一格静默不动）。
+     */
+    private static final class Spec {
+        final Class<?> provider;
+        final int layoutRes;
+        final int cols;
+        final int rows;
+        final int hSpareDp;
+        final int vSpareDp;
+
+        Spec(Class<?> provider, int layoutRes, int cols, int rows, int hSpareDp, int vSpareDp) {
+            this.provider = provider;
+            this.layoutRes = layoutRes;
+            this.cols = cols;
+            this.rows = rows;
+            this.hSpareDp = hSpareDp;
+            this.vSpareDp = vSpareDp;
+        }
+    }
 
     // 缩略图解码边长的硬夹。不能直接用 WallpaperStore.getThumb() 的结果 ——
     // 那是 384~768px 正方形（解码出来 0.6~2.3MB），而 RemoteViews 经 Binder 递交、单次事务约 1MB，
@@ -206,7 +259,7 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         LibraryStore.Library lib = LibraryStore.slotLib(app, forHome);
         if (lib == null) {
             // 这一面没库：上一张/下一张没有可切的对象。空着不提示是刻意的（两面同口径）——
-            // 想配库就去点第三行左边那一格（那里是选库入口）
+            // 想配库就去点选库那一格（横竖两版都有这一格）
             return;
         }
         boolean ok = ACTION_NEXT.equals(action)
@@ -226,25 +279,29 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         }
     }
 
-    /** 渲染并递交所有已放置的实例（后台线程执行）。一个小组件都没摆时直接返回，连解码都不做。 */
+    /** 渲染并递交所有已放置的实例（后台线程执行）。两种格位各递一份，没摆的那份直接跳过。 */
     private static void render(Context ctx) {
         AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
-        ComponentName component = new ComponentName(ctx, WidgetConsoleProvider.class);
-        int[] ids = manager.getAppWidgetIds(component);
-        if (ids == null || ids.length == 0) {
-            return;
+        for (Spec spec : SPECS) {
+            ComponentName component = new ComponentName(ctx, spec.provider);
+            int[] ids = manager.getAppWidgetIds(component);
+            if (ids == null || ids.length == 0) {
+                continue;
+            }
+            // 一次 updateAppWidget(component, ...) 会把该组件的所有实例刷成同一份视图，所以边长只能取一个：
+            // 按"报得最小的那个实例"算，宁可小的那个四周多露透明边，也不能大的那个撑出去被切。
+            // 注意是<b>同一份组件内</b>比大小：横竖两份组件各自的槽位互不相干，
+            // 不能让 2×2 那个实例的槽位去决定 3×2 的格子大小。
+            int cellDp = CELL_FLOOR_DP;
+            for (int id : ids) {
+                cellDp = Math.min(cellDp, cellDpFor(manager, id, spec));
+            }
+            manager.updateAppWidget(component, buildViews(ctx, spec, cellDp));
         }
-        // 一次 updateAppWidget(component, ...) 会把所有实例刷成同一份视图，所以边长只能取一个：
-        // 按"报得最小的那个实例"算，宁可小的那个四周多露透明边，也不能大的那个撑出去被切
-        int cellDp = CELL_FLOOR_DP;
-        for (int id : ids) {
-            cellDp = Math.min(cellDp, cellDpFor(manager, id));
-        }
-        manager.updateAppWidget(component, buildViews(ctx, cellDp));
     }
 
     /** 这个实例的槽位放得下多大的正方格（dp）；读不到申报值就回地板值。 */
-    private static int cellDpFor(AppWidgetManager manager, int id) {
+    private static int cellDpFor(AppWidgetManager manager, int id, Spec spec) {
         Bundle options;
         try {
             options = manager.getAppWidgetOptions(id);
@@ -261,7 +318,7 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         if (width <= 0 || height <= 0) {
             return CELL_FLOOR_DP;
         }
-        int cell = Math.min((width - H_SPARE_DP) / COLS, (height - V_SPARE_DP) / ROWS);
+        int cell = Math.min((width - spec.hSpareDp) / spec.cols, (height - spec.vSpareDp) / spec.rows);
         return Math.max(CELL_MIN_DP, Math.min(cell, CELL_MAX_DP));
     }
 
@@ -281,16 +338,16 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         return Math.min(min, max);
     }
 
-    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标 + 算出来的格子边长。 */
-    private static RemoteViews buildViews(Context ctx, int cellDp) {
-        RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget_console);
+    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标 + 算出来的格子边长。
+     *  横竖两种格位走同一段代码：布局资源、列数、行数、开销都由 spec 带进来，两份布局的 view id 逐个对齐。 */
+    private static RemoteViews buildViews(Context ctx, Spec spec, int cellDp) {
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), spec.layoutRes);
         float density = ctx.getResources().getDisplayMetrics().density;
         int cellPx = Math.round(cellDp * density);
         int iconPx = Math.round(cellPx * ICON_RATIO);
-        int scopeIconPx = Math.round(cellPx * SCOPE_ICON_RATIO);
         // 边长下发：六格各自定成同一个正方值，格子里的图按同一比例跟着缩放。
-        // setMinimumWidth/Height 是 View 的 public setter，ImageView 与两个布局的 onMeasure
-        // 都吃 suggested minimum，所以 wrap_content 的格子这样就能定住（详见类注释那条）
+        // setMinimumWidth/Height 是 View 的 public setter，ImageView 与 FrameLayout 的 onMeasure
+        // 都吃 suggested minimum，所以 wrap_content 的格子就能定住（详见类注释那条）
         setSize(views, R.id.widget_cell_thumb, cellPx);
         setSize(views, R.id.widget_cell_pause, cellPx);
         setSize(views, R.id.widget_cell_prev, cellPx);
@@ -302,7 +359,7 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         setSize(views, R.id.widget_prev, iconPx);
         setSize(views, R.id.widget_next, iconPx);
         setSize(views, R.id.widget_lib_ic, iconPx);
-        setSize(views, R.id.widget_scope_ic, scopeIconPx);
+        setSize(views, R.id.widget_scope_ic, iconPx);
         boolean night = isNight(ctx);
         // 整卡读同一个范围：暂停图标与缩略图必须和四格动作指的是同一面，
         // 分头现读会出现"图标显示锁屏暂停中、按下去切的是桌面"这种自相矛盾
@@ -327,26 +384,24 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         views.setInt(R.id.widget_prev, "setColorFilter", ink);
         views.setInt(R.id.widget_next, "setColorFilter", ink);
         views.setInt(R.id.widget_lib_ic, "setColorFilter", ink);
-        // 翻面那一格：图标 + 两字，两样都跟着范围换（光给图标分不出谁是桌面谁是锁屏）
+        // 翻面那一格：整张换竖胶囊 drawable，当前那一半自带淡底块 + 实心图标、另一半只剩 32% 淡的图，
+        // 所以不再压「桌面/锁屏」那两个字（两态除了 alpha 分布之外完全同形，翻面时图标不会跳位置）
         views.setImageViewResource(R.id.widget_scope_ic,
-                forHome ? R.drawable.ic_home : R.drawable.ic_lock);
+                forHome ? R.drawable.ic_scope_pill_home : R.drawable.ic_scope_pill_lock);
         views.setInt(R.id.widget_scope_ic, "setColorFilter", ink);
-        views.setTextViewText(R.id.widget_scope_label,
-                ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock));
-        views.setTextColor(R.id.widget_scope_label, ink);
         Bitmap thumb = scopeThumb(ctx, forHome, cellPx);
         if (thumb != null) {
             views.setImageViewBitmap(R.id.widget_thumb, thumb);
         } else {
-            // 这一面没库 / 库里没图：灰色方块（点它照样进 App，选库去第三行那一格）
+            // 这一面没库 / 库里没图：灰色方块（点它照样进 App，配库去点选库那一格）
             views.setImageViewResource(R.id.widget_thumb,
                     night ? R.drawable.widget_thumb_empty_night : R.drawable.widget_thumb_empty);
         }
-        // 左上缩略图 = 打开 App。与 1×1 那格"没配库时点按打开应用"同一条 intent
-        //（不加 flag，走已验证过的路径）
+        // 缩略图那格 = 打开 App（竖版在左上、横版在第一行中间）。与 1×1 那格
+        // "没配库时点按打开应用"同一条 intent（不加 flag，走已验证过的路径）
         views.setOnClickPendingIntent(R.id.widget_cell_thumb, PendingIntent.getActivity(ctx,
                 REQ_OPEN_APP, new Intent(ctx, MainActivity.class), piFlags()));
-        // 第三行左格开选库页：小组件里弹不出列表（RemoteViews 没有下拉、也不认触摸），
+        // 选库那格开选库页：小组件里弹不出列表（RemoteViews 没有下拉、也不认触摸），
         // 只能借一个只弹窗、没有界面的 Activity —— 见 LibPickerActivity。
         // 范围写进 extra：这一页要知道自己是给哪一面挑库（RemoteViews 弹不出带参列表，
         // 参数只能在建 PendingIntent 时钉死，而每次翻档都会重建这一条）

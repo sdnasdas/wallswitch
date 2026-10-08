@@ -179,10 +179,13 @@
                     android:src="@drawable/ic_tab_wallpaper" />
             </FrameLayout>
 
-            <!-- 这一格必须有文字：两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏。
-                 图标与文字竖排，所以撑尺寸时是**这一格自己**吃 setMinimumHeight（子的高度和不一定够），
-                 文字本身固定 12sp 不跟着缩放。 -->
-            <LinearLayout
+            <!-- 翻面格：v3.96 起不带文字，两态各一份竖胶囊 drawable（代码里整张换），
+                 状态靠「淡底块 + 实心图标 vs 32% 淡图标」的深浅对比传，不认小图细节也读得出来。
+                 原来这里是 图标 + 12sp 文字 竖排，所以要靠这一格自己吃 setMinimumHeight；
+                 现在跟其他五格同构（FrameLayout + ImageView），六格统一按 0.54 比例放图。
+                 「两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏」这条结论已由胶囊形状推翻：
+                 胶囊同时画出两个可选项，实心那半就是当前面。 -->
+            <FrameLayout
                 android:id="@+id/widget_cell_scope"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -190,28 +193,19 @@
                 android:layout_marginStart="9dp"
                 android:minWidth="44dp"
                 android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg"
-                android:gravity="center"
-                android:orientation="vertical">
+                android:background="@drawable/widget_cell_bg">
 
                 <ImageView
                     android:id="@+id/widget_scope_ic"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:minWidth="16dp"
-                    android:minHeight="16dp"
+                    android:layout_gravity="center"
+                    android:minWidth="24dp"
+                    android:minHeight="24dp"
                     android:contentDescription="@string/widget_console_scope_desc"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ic_home" />
-
-                <TextView
-                    android:id="@+id/widget_scope_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
-                    android:text="@string/scope_home"
-                    android:textSize="12sp" />
-            </LinearLayout>
+                    android:src="@drawable/ic_scope_pill_home" />
+            </FrameLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

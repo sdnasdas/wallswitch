@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件「翻面」格图标 —— 桌面档：竖胶囊里上半（桌面）被选中。
+     为什么是这个形状：小组件那一格不再有文字，得同时说出「有两个面」和「现在管哪一面」。
+     外框是竖胶囊（两端半圆的 stadium，圆角正好等于半宽 5），上半画房子、下半画锁；
+     当前那一面用「淡底块 + 实心图标」，另一面只留 32% 淡图标 —— 状态靠深浅对比传，
+     不靠认小图细节，所以格子缩到 19~24dp 时仍然读得出来。
+     两态各一份文件（另一态见 ic_scope_pill_lock.xml）：淡底块画在哪一半是形状信息，
+     小组件只能整张换 drawable，RemoteViews 没有改子路径透明度的 API。
+     颜色全交给使用处 tint（widget 里走 setColorFilter，SRC_ATOP 只换 RGB、保 alpha，
+     所以这里的 fillAlpha 会原样留下）；因此刻意不写 android:fillColor 的白色版本 ——
+     被染成墨色时"淡"仍然靠 alpha，不靠色相。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 外框：x 7~17、y 2.2~21.8 的竖胶囊（描边 1.4，不填） -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.4"
+        android:pathData="M7,7.2A5,5 0 0 1 17,7.2L17,16.8A5,5 0 0 1 7,16.8Z" />
+
+    <!-- 当前那半的淡底块：上半 x 8.8~15.2、y 3.8~11.0（中心 12,7.4 与房子对齐）。
+         上下各留 1.6dp 才到外框描边的内缘，再挤就会和描边糊成一条 -->
+    <path
+        android:fillColor="#FF000000"
+        android:fillAlpha="0.22"
+        android:pathData="M8.8,7.0A3.2,3.2 0 0 1 15.2,7.0L15.2,7.8A3.2,3.2 0 0 1 8.8,7.8Z" />
+
+    <!-- 房子（Material home，原图 bbox x2~22 / y3~20，中心 12,11.5）
+         按 0.26 缩放后落到上半中心 (12, 7.4)：tx = 12 - 0.26*12 = 8.88，ty = 7.4 - 0.26*11.5 = 4.41 -->
+    <group
+        android:scaleX="0.26"
+        android:scaleY="0.26"
+        android:translateX="8.88"
+        android:translateY="4.41">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M10,20v-6h4v6h5v-8h3L12,3 2,12h3v8z" />
+    </group>
+
+    <!-- 锁（Material lock，bbox x4~20 / y1~22，中心 12,11.5）
+         按 0.30 缩放后落到下半中心 (12, 16.6)：tx = 12 - 0.3*12 = 8.4，ty = 16.6 - 0.3*11.5 = 13.15
+         这一半没被选中：只画 32% 淡的图标，不给底块 -->
+    <group
+        android:scaleX="0.3"
+        android:scaleY="0.3"
+        android:translateX="8.4"
+        android:translateY="13.15">
+        <path
+            android:fillColor="#FF000000"
+            android:fillAlpha="0.32"
+            android:pathData="M18,8h-1V6c0,-2.76 -2.24,-5 -5,-5S7,3.24 7,6v2H6c-1.1,0 -2,0.9 -2,2v10c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V10c0,-1.1 -0.9,-2 -2,-2zM9,6c0,-1.66 1.34,-3 3,-3s3,1.34 3,3v2H9V6zM18,20H6V10h12v10zM12,17c1.1,0 2,-0.9 2,-2s-0.9,-2 -2,-2 -2,0.9 -2,2 0.9,2 2,2z" />
+    </group>
+</vector>
