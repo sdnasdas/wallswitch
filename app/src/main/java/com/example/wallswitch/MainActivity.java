@@ -240,6 +240,16 @@ public class MainActivity extends AppCompatActivity {
                 refreshCurrentPage();
             });
         }, "thumb-regen").start();
+        // 【一次性探针，验完删】开屏 1.2 秒后把桌面报给小组件的四个原始数弹出来 —— 要定的是
+        // MagicOS 的 MIN_* 到底是"当前占位"还是"最小能缩到那一档"：真机反馈「拉到整屏卡片不变大、
+        // 缩到 2×2 会变小」，只有后者解释得通（格子算式取的是 MIN/MAX 里小的那个）。
+        // 删除清单三处：本段、WidgetConsoleProvider#diagnose、Spec#label。
+        findViewById(R.id.main_root).postDelayed(() -> {
+            String diag = WidgetConsoleProvider.diagnose(this);
+            if (!diag.isEmpty() && !isFinishing() && !isDestroyed()) {
+                Toast.makeText(this, diag, Toast.LENGTH_LONG).show();
+            }
+        }, 1200);
     }
 
     /**
