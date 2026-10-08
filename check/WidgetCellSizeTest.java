@@ -13,7 +13,7 @@ public class WidgetCellSizeTest {
     static final int V_H_SPARE = 32, V_V_SPARE = 26, V_COLS = 2, V_ROWS = 3;
     static final int W_H_SPARE = 50, W_V_SPARE = 20, W_COLS = 3, W_ROWS = 2;
     static final int CELL_MIN = 28;
-    static final int CELL_MAX = 84;   // v3.98 从 64 抬上来：真机截图量到槽位约 300x194dp，卡片只画了 242x148
+    static final int CELL_MAX = 84;   // v3.98 从 64 抬上来；v3.99 探针实测：3x2 槽位 224x132 -> 格 56，拉到整屏 304x428 -> 格 84（正好吃满这档）
     static final int CELL_FLOOR = 44;  // 读不到申报值时
 
     static int cellDp(int w, int h, int hSpare, int vSpare, int cols, int rows) {
@@ -59,7 +59,9 @@ public class WidgetCellSizeTest {
         System.out.println("--- vertical console: 2 cols x 3 rows, spare 32/26 ---");
         vertical("no options (floor path)", "info", 0, 0);
         vertical("2 rows record, v3.79 176x200", "fits", 176, 200);
-        vertical("2 rows back-inferred 176x133", "fits", 176, 133);
+        // 探针实测推出来的：3x2 槽位报回 224x132 -> 一格约 74.7 宽 / 66 高，那么要 2x2 的竖版
+        // 拿到的应是 2x74.7=149 宽、2x66=132 高（高度与 3x2 同为两行，正好对得上）
+        vertical("measured-implied 2x2 149x132", "fits", 149, 132);
         vertical("2 rows, thinner 150x120", "fits", 150, 120);
         // 120x100 比我们自己的请求（120x120）还薄，真机不会给；这里只报数：28dp 地板会把
         // 三行的卡片顶成 110dp 高，比槽位高 10dp —— 就是 v3.95 注释里那条"已知让位于简单性"的取舍
@@ -70,14 +72,13 @@ public class WidgetCellSizeTest {
         System.out.println();
         System.out.println("--- wide console: 3 cols x 2 rows, spare 50/20 ---");
         horizontal("no options (floor path)", "info", 0, 0);
-        // 真机截图量的那块槽位（v3.98）：约 300x194dp，卡片当时只画了 242x148 —— 两向同时空 = 上限在夹
-        horizontal("measured slot 300x194", "fits", 300, 194);
+        // 探针实测（v3.99 的 Toast）：默认 3x2 占位报回 min 224x132 —— 之前我按截图估的 300x194 是错的
+        horizontal("measured 3x2 slot 224x132", "fits", 224, 132);
+        // 同一块拉到整屏：报回 min 304x428 -> 横向 (304-50)/3=84 正好吃满上限
+        horizontal("measured stretched 304x428", "fits", 304, 428);
         horizontal("cap bites at 340x220", "fits", 340, 220);
-        // 旧假设值（176/2 反推的一格 88dp -> 3 格 264dp），留着做对照：算式在两种口径下都不撑出槽位
-        horizontal("old estimate 264x133", "fits", 264, 133);
         horizontal("minResize 145x90", "fits", 145, 90);
         horizontal("minResize w, thin h 145x80", "fits", 145, 80);
-        horizontal("dragged max 400x180", "fits", 400, 180);
         horizontal("below minResize 120x80", "info", 120, 80);
         horizontal("tablet 400x300", "fits", 400, 300);
 

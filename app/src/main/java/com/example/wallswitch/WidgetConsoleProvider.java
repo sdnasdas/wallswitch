@@ -54,10 +54,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 列间距的个数不同（账写在两份布局文件顶上）。<b>六格必须等大</b>，所以刻意不用 layout_weight：
  * 桌面给的 3×2 槽位长宽比不是 1.5（横格比竖格宽），正方格按"两向里小的那个"算，必然有一个方向
  * 画不满，剩下的是透明边、露出壁纸；占位是不是 3×2 由 dp 请求决定，与卡片画多宽无关。
- * 上限从 64dp 抬到 84dp 是 v3.98 的事：真机截图量出来桌面给了约 300×194dp 的槽位、卡片只画了
- * 242×148dp，两个方向同时空着，说明是<b>上限</b>在夹而不是算式不够 —— 算式本身不会撑出槽位
- * （(槽宽−开销)/列数 与 (槽高−开销)/行数 取小，代回去必然 ≤ 槽位），所以抬上限只是把"本来给得起
- * 的空间"用起来，代价是缩略图要跟着解大一点（见 {@code THUMB_MAX_PX}）。
+ * 上限从 64dp 抬到 84dp（v3.98）之后真机仍然一点没变，才把真凶查出来：{@link #render} 里"多实例取
+ * 最小"那句拿地板值 44 当了 {@code Math.min} 的种子，等于给边长加了个 44dp 的假上限 —— 桌面报回
+ * 224x132（3×2 探针实测）算得 56、拉到整屏报回 304x428 算得 84，全被压回 44，所以"拉多大都不变"。
+ * 教训记一条：<b>"卡片四周都空"分不开"被上限夹"与"被地板兜"</b>，别拿它当证据（v3.98 就是这么误判的）。
+ * 算式本身不会撑出槽位：边长取 min((槽宽−开销)/列数, (槽高−开销)/行数)，代回去恒 ≤ 槽位；
+ * 抬上限的代价只是缩略图要跟着解大一点（见 {@code THUMB_MAX_PX}）。
  * 为什么撑得动：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
  * （android-34 与 android-35 的 android.jar 都 javap 过），但 {@code View.setMinimumWidth/Height}
  * 是 public，而 ImageView / FrameLayout 的 onMeasure 都吃 suggested minimum，
@@ -143,11 +145,12 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 哪怕它小。<b>这个下限不能抬到 40</b>：夹具 check/WidgetCellSizeTest 跑过，176×133dp 的槽位
     // 算出来是 35dp，夹到 40 就变成卡片 146dp 高、比槽位还高 13dp —— 又回到 v3.79 那种被切。
     // 宁可格子小一点，也不能撑出去。
-    // 上限 84dp：v3.97 之前是 64，真机截图量出来桌面给约 300×194dp 的槽位、卡片只画 242×148dp，
-    // 两个方向同时空 = 上限在夹（不是算式不够），抬到 84 让横版正好铺满 3×2 那一档槽位。
-    // 抬上限不会撑出槽位：边长是 min((槽宽−横开销)/列数, (槽高−纵开销)/行数)，代回去恒 ≤ 槽位。
-    // 再往上（96dp 起）就要桌面给到 338×212dp 才吃得满，那已经超出这台机器的 3×2，多出来只会是
-    // 透明边，白占地方 —— 所以到 84 收手。
+    // 上限 84dp：v3.97 之前是 64。抬它的理由是"真机截图上卡片四周都空"，但那条证据分不开两种成因
+    // —— 走地板时也是四周都空，而 v3.98 抬完毫无反应，真凶是 render() 里把地板值当 min 的种子
+    // （等于 44dp 假上限），跟这个数无关。留 84 是因为修完那个 bug 之后，这台机器 3×2 的槽位
+    // （探针实测 224x132dp）算出来是 56dp，纵向拉到整屏（304x428）算出来是 84dp 正好吃满这一档；
+    // 再往上（96dp 起）要桌面给到 338x212 才吃得满，多出来只会是透明边 —— 所以到 84 收手。
+    // 抬上限本身不会撑出槽位：边长是 min((槽宽−横开销)/列数, (槽高−纵开销)/行数)，代回去恒 ≤ 槽位。
     private static final int CELL_MIN_DP = 28;
     private static final int CELL_MAX_DP = 84;
     // 读不到申报值时的地板（与两份布局里写的 minWidth/minHeight 同一个数）。
@@ -309,7 +312,13 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
             // 按"报得最小的那个实例"算，宁可小的那个四周多露透明边，也不能大的那个撑出去被切。
             // 注意是<b>同一份组件内</b>比大小：横竖两份组件各自的槽位互不相干，
             // 不能让 2×2 那个实例的槽位去决定 3×2 的格子大小。
-            int cellDp = CELL_FLOOR_DP;
+            //
+            // 种子值必须是"大到不可能"，<b>不能写 CELL_FLOOR_DP</b> —— v3.95~v3.99 一直写的是地板，
+            // 于是 Math.min 把地板当成了<b>上限</b>用：桌面报回 224x132（探针实测，算得 56dp）也好、
+            // 拉到 304x428（算得 84dp 上限）也好，全被压回 44dp，卡片永远 182x108、拉多大都不变。
+            // 抬 CELL_MAX_DP 毫无反应也是这一个原因（不是 MIN/MAX 语义、不是回调没来）。
+            // 地板值现在只在一个地方生效：cellDpFor 读不到申报值时自己返回它。
+            int cellDp = Integer.MAX_VALUE;
             for (int id : ids) {
                 cellDp = Math.min(cellDp, cellDpFor(manager, id, spec));
             }
@@ -356,15 +365,15 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     }
 
     /**
-     * 【一次性探针，验完删】把桌面报回来的四个原始数与算式结果拼成一段文字，由 App 开屏时弹出来。
+     * 【一次性探针，验完删】把桌面报回来的原始数与算式结果拼成几行短字，由 App 开屏时弹出来。
      *
-     * <p>要定的是：MagicOS 的 {@code OPTION_APPWIDGET_MIN_*} 到底是"<b>当前占位</b>"还是
-     * "<b>最小能缩到那一档</b>"。真机反馈是「拉到整屏卡片也不变大、缩到 2×2 卡片会变小」，
-     * 而 {@link #slotDp} 取的是 MIN/MAX 里<b>小的</b>那个 —— 只有后者能解释这个组合
-     * （当前占位的话拉宽必然变大）。答案决定改哪一处：改取 MAX、改回读当前占位的别的口径、
-     * 或者把 {@code resizeMode} 关回 none。
+     * <p>它已经立过一次功：真机两张图证明 {@code OPTION_APPWIDGET_MIN_*} 报的就是<b>当前占位</b>
+     * （3×2 时 224x132、拉到整屏时 304x428，跟着占位变），所以 MIN/MAX 的语义、{@link #slotDp}
+     * 取小的那个、{@code onAppWidgetOptionsChanged} 有没有来 —— 三条都不是根因。
+     * 真凶是 {@link #render} 里拿地板值当 {@code Math.min} 的种子，等于给边长加了个 44dp 的假上限。
      *
-     * <p>删除清单：本方法、{@code Spec#label}（只为这行输出而加）、MainActivity 里调它并弹 Toast 那一段。
+     * <p>这一版留着它只为确认修完之后的数（3×2 那档应该是 格 56dp、卡 218x132）。
+     * 删除清单：本方法、{@code Spec#label}（只为这行输出而加）、MainActivity 里调它并弹 Toast 那一段。
      */
     static String diagnose(Context ctx) {
         AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
@@ -389,15 +398,14 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
                 int maxW = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
                 int minH = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT);
                 int maxH = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT);
-                int w = slotDp(o, AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
-                        AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
-                int h = slotDp(o, AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT,
-                        AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT);
-                sb.append(spec.label).append(" 实例").append(id).append('\n')
-                        .append("min ").append(minW).append('x').append(minH)
-                        .append("  max ").append(maxW).append('x').append(maxH).append('\n')
-                        .append("取 ").append(w).append('x').append(h)
-                        .append(" -> 格 ").append(cellDpFor(manager, id, spec)).append("dp\n");
+                int cell = cellDpFor(manager, id, spec);
+                // 每行都压到 14 字符以内：MagicOS 的 Toast 按行裁，上一版第二行 "max 408x5..." 就是
+                // 被横向截断的（长行看不到数，等于白弹）
+                sb.append(spec.label).append(" min").append(minW).append('x').append(minH).append('\n')
+                        .append("max").append(maxW).append('x').append(maxH).append('\n')
+                        .append("格").append(cell).append("dp 卡")
+                        .append(spec.hSpareDp + spec.cols * cell).append('x')
+                        .append(spec.vSpareDp + spec.rows * cell).append('\n');
             }
         }
         return sb.toString();
