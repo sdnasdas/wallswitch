@@ -19,8 +19,10 @@ android {
         // 这里从 102 跳到 104 是故意的：103/3.96 让给 lan-sync 那条局域网同步，两条线各占一段号，
         // 免得出现两个同名不同内容的 APK（装机靠这个号分辨，UpdateChecker 也是从 CI 的
         // "latest（v3.27 · build 45）" 里读 versionName 比对的）
-        versionCode 108
-        versionName "3.101"
+        // 108/3.101 是"两面 + 换面淡入"那一版，装上后小组件直接不能用，已整体还原 —— 号不回收，
+        // 免得装机时出现两个内容不同却同名的包
+        versionCode 109
+        versionName "3.102"
     }
 
     signingConfigs {

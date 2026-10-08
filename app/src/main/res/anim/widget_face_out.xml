@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 翻面淡化的出场动画。见 widget_face_in.xml 里那条：当前框架下旧面会被立刻置 GONE，
-     这份多半不会真被看见，留着是为了框架行为变化时不用改代码。 -->
-<alpha xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="220"
-    android:fromAlpha="1.0"
-    android:interpolator="@android:anim/accelerate_decelerate_interpolator"
-    android:toAlpha="0.0" />

@@ -25,7 +25,7 @@
     android:minWidth="120dp"
     android:minHeight="120dp"
     android:previewImage="@drawable/ic_widget_switch"
-    android:previewLayout="@layout/widget_console_card"
+    android:previewLayout="@layout/widget_console"
     android:resizeMode="none"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
