@@ -1,193 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 桌面控制台小组件（横版）：内部六格 = 3 列 × 2 行，格位向桌面要 3×2。
-     第一行 = 选库（弹 LibPickerActivity，带当前范围）+ 当前范围那一面的缩略图（点按打开 App）
-              + 范围翻面（桌面 ⇄ 锁屏）；
-     第二行 = 上一张 + 暂停/继续 + 下一张。
-     动作语义与竖版（widget_console.xml）完全一套：除翻面外全部作用在当前范围，
-     范围态存在 settings 的 widget_scope_home（默认桌面），翻面一按整卡换一面。
+<!-- 桌面控制台小组件（横版）的<b>外层</b>：一个 ViewFlipper 装着两个"面"（桌面档 / 锁屏档）。
+     卡面本体在 widget_console_card_wide.xml，代码里按面各实例化一份再 addView 进来
+     （WidgetConsoleProvider#buildViews）。机制与三条约束（首帧占位不能有 id / 卡面文件兼作
+     previewLayout / animateFirstView=false）跟竖版一样，理由写在 widget_console.xml 顶上。
 
-     六格等大是硬要求：所以这里**不用 layout_weight**，三列同宽两行同高，格子里的图按比例跟着缩。
-     代价要知道 —— 桌面给的 3×2 槽位长宽比不是 1.5（横格比竖格宽），正方格取"横竖两向里小的那个"
-     算出来，必然有一个方向画不满，剩下的是透明边、露出壁纸。占位仍是 3×2，跟卡片画多宽无关。
-
-     格子边长同样是算出来的，不是写死的：布局里全是 wrap_content + 44dp 地板，真值由
-     WidgetConsoleProvider#buildViews 走 setMinimumWidth/Height 下发（横向扣 50dp 开销除 3 格、
-     纵向扣 20dp 除 2 行，取小的当正方边长，夹进 28~84dp；读不到申报值落 44dp 地板）。
-     横向那 50dp = 卡片内边距 8 + 最左最右格外侧留白 6 + 两处列间距 36（每处 9+9）；
-     纵向那 20dp = 内边距 8 + 两行各自上下留白 12。
-     别把格子改成 match_parent：wrap_content 的父配 match_parent 的子，在 RemoteViews 里
-     会把子量成父给的全部空间，整张卡直接撑爆槽位。
-
-     view id 与竖版逐个对齐（widget_cell_lib / widget_cell_thumb / widget_cell_scope /
-     widget_cell_prev / widget_cell_pause / widget_cell_next 加各自的图），这样一份 buildViews
-     喂两份布局；两边都改了的地方要同步改另一边，漏一边会出现"横版有文字、竖版没有"。
-     根层透明、卡片 wrap_content 居中；这里刻意不写任何颜色（背景、tint、textColor 都不写），
-     深浅两档全部由代码按自己读到的 uiMode 显式挑资源。 -->
+     六格等大是硬要求，所以卡面里刻意不用 layout_weight：桌面给的 3×2 槽位长宽比不是 1.5
+     （横格比竖格宽），正方格按"横 (槽宽−50)/3 与纵 (槽高−20)/2 取小"算，必然有一个方向画不满，
+     剩下的是透明边、露出壁纸。占位仍是 3×2（由 dp 请求决定），跟卡片画多宽无关。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_console_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <LinearLayout
-        android:id="@+id/widget_card"
+    <ViewFlipper
+        android:id="@+id/widget_console_flipper"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="@drawable/widget_bg"
-        android:orientation="vertical"
-        android:padding="4dp">
+        android:animateFirstView="false"
+        android:inAnimation="@anim/widget_face_in"
+        android:outAnimation="@anim/widget_face_out">
 
-        <!-- 第一行：选库 + 缩略图（点=打开 App）+ 翻面 -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <FrameLayout
-                android:id="@+id/widget_cell_lib"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginEnd="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <ImageView
-                    android:id="@+id/widget_lib_ic"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="24dp"
-                    android:minHeight="24dp"
-                    android:contentDescription="@string/widget_console_lib_desc"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_tab_wallpaper" />
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/widget_cell_thumb"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginStart="9dp"
-                android:layout_marginEnd="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <!-- fitCenter：位图已在代码里裁成正方，这里不再切；中间列左右都要让出 9dp 列间距 -->
-                <ImageView
-                    android:id="@+id/widget_thumb"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="44dp"
-                    android:minHeight="44dp"
-                    android:contentDescription="@string/widget_console_thumb_desc"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/widget_thumb_empty" />
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/widget_cell_scope"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginStart="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <!-- 翻面格：上下两张横卡片，当前那面整块实心（实心块里抠一个房子/锁的透明洞）、
-                     另一面只描边；不带文字，两态各一份 drawable，代码里整张换。
-                     与竖版那一格用同一对矢量，id 也一样 —— 两份布局的 id 集合必须继续逐个对齐 -->
-                <ImageView
-                    android:id="@+id/widget_scope_ic"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="24dp"
-                    android:minHeight="24dp"
-                    android:contentDescription="@string/widget_console_scope_desc"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_scope_card_home" />
-            </FrameLayout>
-        </LinearLayout>
-
-        <!-- 第二行：上一张 + 暂停/继续 + 下一张 -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <FrameLayout
-                android:id="@+id/widget_cell_prev"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginEnd="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <ImageView
-                    android:id="@+id/widget_prev"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="24dp"
-                    android:minHeight="24dp"
-                    android:contentDescription="@string/notif_action_prev"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_notif_prev" />
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/widget_cell_pause"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginStart="9dp"
-                android:layout_marginEnd="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <!-- 暂停中换成 ic_play（代码里 setImageViewResource），不加文字、不另开一行 -->
-                <ImageView
-                    android:id="@+id/widget_pause"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="24dp"
-                    android:minHeight="24dp"
-                    android:contentDescription="@string/widget_console_pause_desc"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_pause" />
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/widget_cell_next"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="3dp"
-                android:layout_marginStart="9dp"
-                android:minWidth="44dp"
-                android:minHeight="44dp"
-                android:background="@drawable/widget_cell_bg">
-
-                <ImageView
-                    android:id="@+id/widget_next"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:minWidth="24dp"
-                    android:minHeight="24dp"
-                    android:contentDescription="@string/notif_action_next"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_notif_next" />
-            </FrameLayout>
-        </LinearLayout>
-    </LinearLayout>
+        <!-- 首帧占位（无 id）：地板档那一版横卡的大小（3×44+50=182 宽、2×44+20=108 高） -->
+        <FrameLayout
+            android:layout_width="182dp"
+            android:layout_height="108dp"
+            android:background="@drawable/widget_bg" />
+    </ViewFlipper>
 </FrameLayout>

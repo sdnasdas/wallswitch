@@ -31,11 +31,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * App）、范围翻面（桌面 ⇄ 锁屏）、上一张、暂停/继续、下一张；两份布局的 view id 逐个对齐，
  * 所以 {@link #buildViews} 只多收一份 spec（布局资源 + 那一带的格子算式）。
  *
- * <h3>作用范围</h3>
- * 除翻面外五格都作用在<b>当前范围</b>这一面，翻面键一按整卡换一面
- * （范围态在 {@link LibraryStore#widgetScopeHome}，默认桌面，缩略图跟着翻）。
- * 代价要说清：范围停在锁屏时，桌面那一面在小组件里没有入口，六格塞不下双套；桌面的自动切换照旧在跑，
- * 只是手动干预得把范围翻回来。
+ * <h3>两面：每面各管自己那一面，换面时淡一下</h3>
+ * 一次渲染会建<b>两个面</b>塞进外层那个 ViewFlipper：child 0 = 桌面档、child 1 = 锁屏档，
+ * 每一面里六格全部固定指向自己那一面（桌面档的暂停键管的永远是桌面）。范围态
+ * {@link LibraryStore#widgetScopeHome} 因此只剩一个作用 —— 决定<b>显示哪一面</b>；点按要作用在
+ * 哪一面由 Intent 带的 {@link #EXTRA_FOR_HOME} 说。这解除了 v3.92 那条代价（"范围停在锁屏时
+ * 桌面那面在小组件里没有入口、六格塞不下双套"）：现在两面都在，翻过去就是另一面的完整入口。
+ *
+ * <p>换面的动画走 ViewFlipper：{@code setDisplayedChild} 带 {@code @RemotableViewMethod}，
+ * 而 {@code ViewAnimator.showOnly()} 里会 {@code startAnimation(in/out)}，所以淡入是真的；
+ * 不引入 RemoteViewsService、不引入定时器（这是它与 AdapterViewFlipper 那条路的区别，也正是
+ * "停在哪一面就一直在哪一面"的要求）。两个已知边界：① 框架在起完 out 动画后<b>立刻</b>把旧面置
+ * GONE，所以看到的是"旧面消失 + 新面淡入"、不是交叉淡化（写在 {@code res/anim/widget_face_in.xml}
+ * 顶上）；② 每次渲染都重发一次 {@code setDisplayedChild}，所以切图/暂停/换库这些内容变化也会
+ * 淡一下 —— 当过渡看挺好，嫌闪就把那句改成"只在面序真变了时才发"。
+ *
+ * <p>代价：一次渲染建两面、解两回缩略图，所以 {@code THUMB_MAX_PX} 从 256 退回 192
+ * （两张 147KB 比两张 262KB 离 Binder 单次事务约 1MB 那条线远得多）。
  *
  * <h3>翻面那一格为什么不再配文字</h3>
  * v3.95 及之前是「小图标 + 桌面/锁屏两字」，当时的理由是"两面没有天然的区分符号"。现在换成
@@ -118,6 +130,10 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     public static final String ACTION_PAUSE = "com.example.wallswitch.CONSOLE_PAUSE";
     /** 翻面：整卡的作用范围在桌面 ⇄ 锁屏之间换。 */
     public static final String ACTION_SCOPE = "com.example.wallswitch.CONSOLE_SCOPE";
+    /** 点的是哪一面（true=桌面档、false=锁屏档）：两面各有一套格子，光看 action 分不出来。
+     *  Intent 的 extras 参与 PendingIntent 的相等性判断，所以同一个 requestCode 在两面各建一条
+     *  不会被 FLAG_UPDATE_CURRENT 合并成一条。 */
+    public static final String EXTRA_FOR_HOME = "com.example.wallswitch.CONSOLE_FOR_HOME";
 
     // PendingIntent requestCode：六格各占一个。共号会被 FLAG_UPDATE_CURRENT 合并 ——
     // 后建的那条把前一条的 Intent 覆盖掉，两格按下去变成同一个动作
@@ -135,9 +151,9 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 竖版：横向 2 格 = 内边距 8 + 外侧留白 6 + 列间距 18 → 32dp；纵向 3 行 = 内边距 8 + 6×3 → 26dp。
     // 横版：横向 3 格 = 内边距 8 + 外侧留白 6 + 两处列间距 36 → 50dp；纵向 2 行 = 内边距 8 + 6×2 → 20dp。
     private static final Spec SPEC_CONSOLE = new Spec("竖", WidgetConsoleProvider.class,
-            R.layout.widget_console, 2, 3, 32, 26);
+            R.layout.widget_console, R.layout.widget_console_card, 2, 3, 32, 26);
     private static final Spec SPEC_CONSOLE_WIDE = new Spec("横", WidgetConsoleWideProvider.class,
-            R.layout.widget_console_wide, 3, 2, 50, 20);
+            R.layout.widget_console_wide, R.layout.widget_console_card_wide, 3, 2, 50, 20);
     /** 渲染时依次递交这两份视图；没摆上桌面的那份在 getAppWidgetIds 那步就跳过，连解码都不做。 */
     private static final Spec[] SPECS = {SPEC_CONSOLE, SPEC_CONSOLE_WIDE};
 
@@ -171,17 +187,21 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     private static final class Spec {
         final String label;
         final Class<?> provider;
+        /** 外层布局（那个 ViewFlipper）。 */
         final int layoutRes;
+        /** 卡面布局（一个面），运行时按桌面档/锁屏档各实例化一份塞进外层。 */
+        final int faceRes;
         final int cols;
         final int rows;
         final int hSpareDp;
         final int vSpareDp;
 
-        Spec(String label, Class<?> provider, int layoutRes, int cols, int rows,
+        Spec(String label, Class<?> provider, int layoutRes, int faceRes, int cols, int rows,
              int hSpareDp, int vSpareDp) {
             this.label = label;
             this.provider = provider;
             this.layoutRes = layoutRes;
+            this.faceRes = faceRes;
             this.cols = cols;
             this.rows = rows;
             this.hSpareDp = hSpareDp;
@@ -193,10 +213,11 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 那是 384~768px 正方形（解码出来 0.6~2.3MB），而 RemoteViews 经 Binder 递交、单次事务约 1MB，
     // 超了的表现是小组件静默不更新（不报错）
     private static final int THUMB_MIN_PX = 96;
-    // 上限 192 → 256（v3.98）：格子边长上限从 64dp 抬到 84dp 之后，2.75 密度下 84dp = 231px，
-    // 再夹在 192 就等于把图放大 1.2 倍显示（糊）。Binder 账：256×256×4 = 262KB，
-    // 圆角那一步会瞬时多留一份同尺寸的位图（约 524KB 峰值），仍远在单次事务约 1MB 之下。
-    private static final int THUMB_MAX_PX = 256;
+    // 上限 192 → 256（v3.98，为了配 84dp 的格子）→ 又退回 192（v3.101）：现在一次渲染要递交
+    // <b>两面</b>，每面各带一张位图，256px 那份是 262KB，两张 524KB 已经贴到单次事务约 1MB 的一半以下
+    // 但没多少余量；退回 192 是 147KB×2 = 294KB，稳。代价：格子真算到 84dp（要把横版拉到很大才给）
+    // 时图会放大 1.2 倍显示 —— 这台机器 3×2 实测槽位算出来是 56dp=154px，192 仍然够清楚。
+    private static final int THUMB_MAX_PX = 192;
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）
     private static final float THUMB_CORNER_DP = 10f;
 
@@ -231,9 +252,14 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
             final PendingResult pending = goAsync();
             final Context app = context.getApplicationContext();
             final String act = action;
+            // 点的是哪一面由 Intent 带的 extra 说（两面各有一套格子，"当前范围"这个全局值在
+            // 按下这一刻可能已经不是被点的那一面了）。缺 extra 时退回读全局，兜住老画面残留的点击
+            final boolean forHome = intent.hasExtra(EXTRA_FOR_HOME)
+                    ? intent.getBooleanExtra(EXTRA_FOR_HOME, false)
+                    : LibraryStore.widgetScopeHome(app);
             new Thread(() -> {
                 try {
-                    handleAction(app, act);
+                    handleAction(app, act, forHome);
                 } catch (Exception ignored) {
                 } finally {
                     pending.finish();
@@ -261,16 +287,16 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         }
     }
 
-    /** 点按动作（后台线程执行）：除翻面外都作用在当前范围，语义与常驻通知按钮 / 1×1 那格一致。 */
-    private static void handleAction(Context app, String action) {
+    /** 点按动作（后台线程执行）：除翻面外都作用在<b>被点的那一面</b>（forHome 由 Intent 带进来），
+     *  语义与常驻通知按钮 / 1×1 那格一致。 */
+    private static void handleAction(Context app, String action, boolean forHome) {
         if (ACTION_SCOPE.equals(action)) {
-            // 翻面只改一个显示态：不碰槽位、不碰定时、不上屏，重画一次整卡即可
-            //（四格的动作与缩略图都在 buildViews 里按范围现读）
+            // 翻面只改"显示哪一面"这一个显示态：不碰槽位、不碰定时、不上屏，重画一次整卡即可
+            //（两面各自现读自己那一面的库、暂停态与缩略图）
             LibraryStore.setWidgetScopeHome(app, !LibraryStore.widgetScopeHome(app));
             scheduleUpdate(app);
             return;
         }
-        boolean forHome = LibraryStore.widgetScopeHome(app);
         if (ACTION_PAUSE.equals(action)) {
             // 暂停/继续整面：撤任务或重新起算、日志、刷小组件与常驻通知都在 setPaused 里收口
             TimerScheduler.setPaused(app, forHome, !LibraryStore.slotPaused(app, forHome));
@@ -411,10 +437,33 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         return sb.toString();
     }
 
-    /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标 + 算出来的格子边长。
-     *  横竖两种格位走同一段代码：布局资源、列数、行数、开销都由 spec 带进来，两份布局的 view id 逐个对齐。 */
+    /**
+     * 组装外层：一个 ViewFlipper 两面（child 0 = 桌面档、child 1 = 锁屏档），显示哪一面由范围态决定。
+     * 换面那一下淡入是 ViewFlipper 的 in/out 动画负责的 —— {@code setDisplayedChild} 带
+     * {@code @RemotableViewMethod}，而 ViewAnimator.showOnly() 里会 startAnimation（机制与三条约束
+     * 写在 widget_console.xml 顶上，那里也写了"为什么首帧占位不能有 id"）。
+     *
+     * <p><b>两面都建</b>：旧面在淡出前后仍会被看见，留空就是灰块；而且这样每一面的五格都固定管
+     * 自己那一面（桌面档的暂停键永远管桌面），v3.92 那条"范围停在锁屏时桌面那面没有入口"的代价
+     * 到这里解除。代价是每次渲染要解两回缩略图，见 {@code THUMB_MAX_PX} 那段。
+     */
     private static RemoteViews buildViews(Context ctx, Spec spec, int cellDp) {
-        RemoteViews views = new RemoteViews(ctx.getPackageName(), spec.layoutRes);
+        RemoteViews root = new RemoteViews(ctx.getPackageName(), spec.layoutRes);
+        // 先清掉首帧占位（它刻意没写 id，带稳定 id 的子视图 removeAllViews 删不掉，面序就会错）
+        root.removeAllViews(R.id.widget_console_flipper);
+        root.addView(R.id.widget_console_flipper, buildFace(ctx, spec, cellDp, true));
+        root.addView(R.id.widget_console_flipper, buildFace(ctx, spec, cellDp, false));
+        root.setInt(R.id.widget_console_flipper, "setDisplayedChild",
+                LibraryStore.widgetScopeHome(ctx) ? 0 : 1);
+        return root;
+    }
+
+    /** 一个面 = 六格视图：深浅色两档外观 + 图标态 + 这一面的缩略图 + 各格的点按目标 + 算出来的格子边长。
+     *  横竖两种格位走同一段代码：卡面布局资源、列数、行数、开销都由 spec 带进来，
+     *  两份卡面布局的 view id 逐个对齐（同一次渲染里两面各 inflate 一份，id 在整棵树里出现两次
+     *  也不冲突 —— 每份嵌套 RemoteViews 只在自己的子树里 findViewById）。 */
+    private static RemoteViews buildFace(Context ctx, Spec spec, int cellDp, boolean forHome) {
+        RemoteViews views = new RemoteViews(ctx.getPackageName(), spec.faceRes);
         float density = ctx.getResources().getDisplayMetrics().density;
         int cellPx = Math.round(cellDp * density);
         int iconPx = Math.round(cellPx * ICON_RATIO);
@@ -434,9 +483,8 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         setSize(views, R.id.widget_lib_ic, iconPx);
         setSize(views, R.id.widget_scope_ic, iconPx);
         boolean night = isNight(ctx);
-        // 整卡读同一个范围：暂停图标与缩略图必须和四格动作指的是同一面，
-        // 分头现读会出现"图标显示锁屏暂停中、按下去切的是桌面"这种自相矛盾
-        boolean forHome = LibraryStore.widgetScopeHome(ctx);
+        // forHome 由调用方按面传进来（外层一次建两面）：这一面里的暂停图标、缩略图、
+        // 上一张/下一张/选库的目标<b>全部指向这一面</b>，不会出现"图标显示锁屏暂停中、按下去切的是桌面"
         // 底色按档显式挑，不靠 values-night 自动翻（原因见 colors.xml 那段）
         int cardBg = night ? R.drawable.widget_bg_night : R.drawable.widget_bg;
         int cellBg = night ? R.drawable.widget_cell_bg_night : R.drawable.widget_cell_bg;
@@ -487,13 +535,13 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_cell_lib, PendingIntent.getActivity(
                 ctx, REQ_LIB, picker, piFlags()));
         views.setOnClickPendingIntent(R.id.widget_cell_pause,
-                actionIntent(ctx, REQ_PAUSE, ACTION_PAUSE));
+                actionIntent(ctx, REQ_PAUSE, ACTION_PAUSE, forHome));
         views.setOnClickPendingIntent(R.id.widget_cell_prev,
-                actionIntent(ctx, REQ_PREV, ACTION_PREV));
+                actionIntent(ctx, REQ_PREV, ACTION_PREV, forHome));
         views.setOnClickPendingIntent(R.id.widget_cell_next,
-                actionIntent(ctx, REQ_NEXT, ACTION_NEXT));
+                actionIntent(ctx, REQ_NEXT, ACTION_NEXT, forHome));
         views.setOnClickPendingIntent(R.id.widget_cell_scope,
-                actionIntent(ctx, REQ_SCOPE, ACTION_SCOPE));
+                actionIntent(ctx, REQ_SCOPE, ACTION_SCOPE, forHome));
         return views;
     }
 
@@ -507,10 +555,13 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         return night == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    /** 一个动作对应一条广播 PendingIntent（组件写死本类，不依赖 intent-filter 匹配）。 */
-    private static PendingIntent actionIntent(Context ctx, int requestCode, String action) {
+    /** 一个动作对应一条广播 PendingIntent（组件写死本类，不依赖 intent-filter 匹配）。
+     *  forHome 进 extra：两面各有一套格子，收口处要靠它知道按下的是哪一面。 */
+    private static PendingIntent actionIntent(Context ctx, int requestCode, String action,
+                                              boolean forHome) {
         Intent intent = new Intent(ctx, WidgetConsoleProvider.class);
         intent.setAction(action);
+        intent.putExtra(EXTRA_FOR_HOME, forHome);
         return PendingIntent.getBroadcast(ctx, requestCode, intent, piFlags());
     }
 

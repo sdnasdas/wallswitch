@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 控制台小组件（竖版）的<b>一个面</b>：内部六格 = 2 列 × 3 行。
+     第一行 = 当前范围那一面的缩略图（点按打开 App）+ 暂停/继续；
+     第二行 = 上一张 + 下一张；
+     第三行 = 选库（弹 LibPickerActivity）+ 范围翻面（桌面 ⇄ 锁屏）。
+
+     v3.101 起这份布局是<b>被塞进 ViewFlipper 的一个子树</b>（外层见 widget_console.xml），
+     桌面档与锁屏档各实例化一份、各自填自己那一面的状态，所以这里的 id 在整棵小组件树里
+     <b>会出现两次</b> —— 不冲突：每份嵌套 RemoteViews 应用时在自己的子树里 findViewById。
+     也正因为如此，外层那份布局里不能再放一个带 id 的同款卡（removeAllViews 只删无 id 的子视图）。
+
+     ===== 尺寸是算出来的，不是写死的（v3.95）=====
+     每个格子与格子里的图都是 wrap_content，真正的边长由 WidgetConsoleProvider#buildViews 用
+     {@code setMinimumWidth/setMinimumHeight} 下发 —— 边长按桌面申报的槽位宽高算
+     （getAppWidgetOptions），取"横向放得下 2 格"与"纵向放得下 3 格"里小的那个，夹进 28~84dp，
+     所以格子永远是正方。读不到申报值落 44dp 地板（下面那些 44dp/24dp 就是两档地板值）。
+     注意别把格子改成 match_parent 或给图写 layout_width="match_parent"：wrap_content 的父配
+     match_parent 的子 在 RemoteViews 里会把子量成父给的全部空间，整张卡会直接撑爆槽位。
+
+     这里刻意不写任何颜色（背景、android:tint、textColor 都不写）：深浅色两档全部由代码按
+     我们自己读到的 uiMode 显式挑资源，布局里再写会和 setColorFilter / setTextColor 互相覆盖。
+     缩略图的圆角也是代码里画进位图的（RemoteViews 不会替 ImageView 裁剪位图）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_card"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <!-- 第一行：缩略图（点=打开 App）+ 暂停/继续 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/widget_cell_thumb"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginEnd="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <!-- fitCenter 而不是 centerCrop：位图已在代码里强制裁方，
+                 这里不再裁切，万一拿到的是非正方形（老数据）也只留边、不砍头尾。
+                 缩略图铺满整格，所以它的地板值与格子一样是 44dp -->
+            <ImageView
+                android:id="@+id/widget_thumb"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="44dp"
+                android:minHeight="44dp"
+                android:contentDescription="@string/widget_console_thumb_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_thumb_empty" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/widget_cell_pause"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginStart="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <!-- 暂停中换成 ic_play（代码里 setImageViewResource），不加文字、不另开一行。
+                 图标只占格子的一半多一点（地板 24dp / 格 44dp），代码里按同一个比例跟着缩放 -->
+            <ImageView
+                android:id="@+id/widget_pause"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="24dp"
+                android:minHeight="24dp"
+                android:contentDescription="@string/widget_console_pause_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_pause" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- 第二行：上一张 + 下一张 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/widget_cell_prev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginEnd="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_prev"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="24dp"
+                android:minHeight="24dp"
+                android:contentDescription="@string/notif_action_prev"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_notif_prev" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/widget_cell_next"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginStart="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_next"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="24dp"
+                android:minHeight="24dp"
+                android:contentDescription="@string/notif_action_next"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_notif_next" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- 第三行：选库 + 范围翻面。原来这里是一整条「进入 App」，
+         RemoteViews 没有长按 API 才占了一格实位；现在进 App 挪到缩略图那一格，
+         这一条腾出来竖切成两格。 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/widget_cell_lib"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginEnd="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_lib_ic"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="24dp"
+                android:minHeight="24dp"
+                android:contentDescription="@string/widget_console_lib_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_tab_wallpaper" />
+        </FrameLayout>
+
+        <!-- 翻面格：v3.97 起不带文字，两态各一份 drawable（代码里整张换），画的是上下两张横卡片：
+             当前那一面整块实心、另一面只描边，实心那块里再抠一个房子/锁的透明洞。
+             v3.101 起这一格还兼任 ViewFlipper 的"翻面"入口：按下去改的是显示哪一面，
+             而这一面里其余五格<b>固定只管自己那一面</b>（不再跟着当前范围跑）——
+             所以桌面档那面的暂停键管的永远是桌面，锁屏档那面管的永远是锁屏。
+             v3.98 之前这一格放的是竖胶囊，真机截图上太瘦（只占格宽 22%）所以换成卡片。 -->
+        <FrameLayout
+            android:id="@+id/widget_cell_scope"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="3dp"
+            android:layout_marginStart="9dp"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:background="@drawable/widget_cell_bg">
+
+            <ImageView
+                android:id="@+id/widget_scope_ic"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:minWidth="24dp"
+                android:minHeight="24dp"
+                android:contentDescription="@string/widget_console_scope_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_scope_card_home" />
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>

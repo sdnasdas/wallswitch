@@ -33,7 +33,7 @@
     android:minResizeWidth="145dp"
     android:minResizeHeight="90dp"
     android:previewImage="@drawable/ic_widget_switch"
-    android:previewLayout="@layout/widget_console_wide"
+    android:previewLayout="@layout/widget_console_card_wide"
     android:resizeMode="horizontal|vertical"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
