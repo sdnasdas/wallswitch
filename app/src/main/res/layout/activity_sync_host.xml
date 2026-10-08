@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 旧机（共享方）那页：打包状态 → 二维码 → 可复制的地址 → 实时传输状态 → 停止/重打。
+     服务只在本页活着的时候存在，退出即关（发热与暴露面都按这条收口）。 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/page_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/sync_host_title"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- 网络状况：只说连没连 Wi-Fi 和 IP，不显示 SSID（那要精确定位权限，不该为这功能要） -->
+        <TextView
+            android:id="@+id/tv_sync_net"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/sync_net_none"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/sync_same_wifi"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_sync_install_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_sync_pack_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/sync_pack_running"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <!-- 码要白底：屏幕自发光 + 四周留白，深色底上对比度不够会扫不动 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:background="#FFFFFFFF"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <ImageView
+                android:id="@+id/iv_sync_qr"
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:contentDescription="@string/sync_host_title"
+                android:scaleType="fitCenter" />
+
+            <!-- 地址：长按可复制（相机扫不动时的那条退路） -->
+            <TextView
+                android:id="@+id/tv_sync_addr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textIsSelectable="true"
+                android:textColor="#FF000000"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/sync_addr_hint"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <!-- 实时状态：等待来连 / 已连上 IP / 传输中百分比 / 对方已收完 -->
+        <TextView
+            android:id="@+id/tv_sync_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/sync_wait"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_sync_repack"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sync_repack" />
+
+            <Button
+                android:id="@+id/btn_sync_stop"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/sync_stop" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

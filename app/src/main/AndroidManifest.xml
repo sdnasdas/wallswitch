@@ -22,6 +22,16 @@
     <!-- App 内下载完更新包后要自己拉起安装页（Android 8+ 起属于「安装未知应用」，
          用户授权一次即可；不走系统下载器是为了进度和安装包都留在 App 里） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 局域网同步的扫码：相机只用来解一帧 640×480 灰度图，不拍照不录像、不写任何文件。
+         required=false 让没相机的机器照样能装（那种机器上用「手动输入地址」那条退路收包）。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <!-- 只为「现在是不是 Wi-Fi」这一个判断（normal 级、装完即有、不弹框）。
+         刻意不申请定位：显示 SSID 才要精确定位，那个权限不该为这功能要。
+         起/连局域网服务用的仍是上面已有的 INTERNET，不需要新权限。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- largeHeap：图片解码是本 App 的内存大头（裁剪源图按堆预算最大可到 24MP，
          ARGB_8888 下约 96MB），不申请大堆在中低端机型上容易 OOM -->
@@ -45,6 +55,18 @@
         <activity
             android:name=".EditActivity"
             android:exported="false" />
+
+        <!-- 局域网同步两页：旧机共享 / 新机接收。接收页锁竖屏 —— 相机预览的旋转矩阵
+             因此只需处理传感器 90° 那一种情形，ScanTransform 的夹具也只验那一种（横竖屏切着验不划算）。 -->
+        <activity
+            android:name=".SyncHostActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".SyncJoinActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <!-- 1×1 切换格：点一下桌面+锁屏各自切一张；它同时是「30 分钟补切」的时机（见 widget_info.xml），
              android:label 是小组件列表里显示的名字（以前没配，显示的是应用名，加了控制台就两个同名了） -->

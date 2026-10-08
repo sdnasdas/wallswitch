@@ -12,7 +12,6 @@ import org.xmlpull.v1.XmlPullParser;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -60,6 +59,29 @@ public final class BackupStore {
     // 原图（重复调整的源）。v3.8x 之前的包没这个目录，还原时读到就跳过 —— 不能因为缺它而报错
     private static final String ORIGINAL_DIR_IN_ZIP = "originals/";
     private static final String PREFS_DIR_IN_ZIP = "prefs/";
+    /** {@link #copyToCache} 的落地名。局域网收到的包**绝不能**叫这个（见 {@link #localZip}）。 */
+    private static final String CACHE_ZIP = "restore.zip";
+
+    /**
+     * 把包解析成本地文件：SAF 上的要整份搬到 cache（ZipFile 要随机读，ZipInputStream 拿不到中央目录）；
+     * 已经是本地文件的直接用 —— 拿 copyToCache 复制「自己就是目标」的文件会先把输入截成 0 字节，
+     * 现象是还原失败却报那句含糊的「读不到这个包」（check/LanSyncTest.trap 锁着这条）。
+     */
+    private static File localZip(Context context, Uri zipUri) {
+        if (zipUri != null && "file".equals(zipUri.getScheme())) {
+            File f = new File(zipUri.getPath());
+            if (f.isFile()) {
+                return f;
+            }
+        }
+        return copyToCache(context, zipUri);
+    }
+
+    /** 只有 cache 里那份副本归我们删；调用方自己的文件（局域网收下的包）不动。 */
+    private static boolean isCacheCopy(Context context, File f) {
+        return f != null && f.getParentFile() != null
+                && f.getParentFile().equals(context.getCacheDir());
+    }
 
     private BackupStore() {
     }
@@ -71,6 +93,8 @@ public final class BackupStore {
         public int originals;
         public int thumbs;
         public int entries;
+        public long zipBytes;      // 整包字节（压缩之后）
+        public String sha256;      // 整包摘要，局域网共享直接拿去报给对端
         public String error;
     }
 
@@ -110,58 +134,114 @@ public final class BackupStore {
             r.error = "建文件失败";
             return r;
         }
-        java.util.zip.ZipOutputStream zout = null;
+        OutputStream out = null;
         try {
-            zout = new java.util.zip.ZipOutputStream(
-                    context.getContentResolver().openOutputStream(doc, "wt"));
-            // 内容清单先算一次，好写进 manifest
-            java.util.List<File> images = listFiles(new File(context.getFilesDir(), "wallpapers"));
-            java.util.List<File> originals = listFiles(new File(context.getFilesDir(), "originals"));
-            java.util.List<File> thumbs = listFiles(new File(context.getFilesDir(), "thumbs"));
-            r.images = images.size();
-            r.originals = originals.size();
-            r.thumbs = thumbs.size();
-            r.entries = WallpaperStore.load(context).size();
-
-            writeManifest(context, zout, r, images, thumbs, originals);
-            writeFile(zout, new File(context.getFilesDir(), "library.json"), "library.json");
-            writeFile(zout, new File(context.getFilesDir(), "libraries.json"), "libraries.json");
-            for (File f : images) {
-                writeFile(zout, f, DIR_IN_ZIP + f.getName());
+            java.util.List<LanPackager.Entry> entries = collectEntries(context, r);
+            out = context.getContentResolver().openOutputStream(doc, "wt");
+            if (out == null) {
+                r.error = "打不开那个文件";
+                deleteQuietly(context, doc);
+                return r;
             }
-            for (File f : originals) {
-                writeFile(zout, f, ORIGINAL_DIR_IN_ZIP + f.getName());
-            }
-            for (File f : thumbs) {
-                writeFile(zout, f, THUMB_DIR_IN_ZIP + f.getName());
-            }
-            writeFile(zout, LauncherPreviewOverlay.overlayFile(context),
-                    LauncherPreviewOverlay.overlayFileName());
-            writeFile(zout, SwitchLog.logFile(context, true), SwitchLog.fileName(true));
-            writeFile(zout, SwitchLog.logFile(context, false), SwitchLog.fileName(false));
-            // shared_prefs 里我们自己的那几个 xml（系统持有文件，只读不改）
-            for (String prefsName : new String[]{"settings", "wallswitch"}) {
-                writeFile(zout, prefsFile(context, prefsName),
-                        PREFS_DIR_IN_ZIP + prefsName + ".xml");
-            }
-            zout.finish();
+            LanPackager.Result p = LanPackager.pack(entries, out);
+            r.zipBytes = p.zipBytes;
+            r.sha256 = p.sha256;
             r.error = null;
             r.name = name;
         } catch (Exception | OutOfMemoryError e) {
             r.error = "打包失败：" + e.getClass().getSimpleName();
             deleteQuietly(context, doc);
         } finally {
-            closeQuietly(zout);
+            closeQuietly(out);
         }
         return r;
     }
 
+    /**
+     * 局域网共享：把整库打进 cache（不进用户的导出目录，也不要求先设导出目录）。
+     * 纯 IO，调用方必须放后台线程。
+     */
+    public static BackupResult backupToCache(Context context, File dst) {
+        BackupResult r = new BackupResult();
+        try {
+            java.util.List<LanPackager.Entry> entries = collectEntries(context, r);
+            File dir = dst.getParentFile();
+            if (dir != null) {
+                dir.mkdirs();
+            }
+            OutputStream out = new FileOutputStream(dst);
+            LanPackager.Result p;
+            try {
+                p = LanPackager.pack(entries, out);
+            } finally {
+                closeQuietly(out);
+            }
+            r.name = dst.getName();
+            r.zipBytes = p.zipBytes;
+            r.sha256 = p.sha256;
+        } catch (Exception | OutOfMemoryError e) {
+            r.error = "打包失败：" + e.getClass().getSimpleName();
+            if (dst.exists() && dst.length() == 0L) {
+                dst.delete();     // 半截的空包留着只会让下次「复用现成包」的判断被骗
+            }
+        }
+        return r;
+    }
+
+    /**
+     * 组出「一个包该有哪些条目」—— 这是备份格式的**唯一**写手：{@link #backup}（写 SAF）与
+     * {@link #backupToCache}（写 cache）都只经由这里。出现第二个打包写手就等于格式有两处定义，
+     * 改一处会静默漂，本项目在 library.json 的序列化上吃过一次这个亏。
+     *
+     * <p>条目顺序、名字、内容跟 v3.76 定稿时完全一致：本功能不新增条目、不给 manifest.json 加字段。
+     */
+    public static java.util.List<LanPackager.Entry> collectEntries(Context context,
+                                                                  BackupResult r) throws Exception {
+        java.util.List<File> images = listFiles(new File(context.getFilesDir(), "wallpapers"));
+        java.util.List<File> originals = listFiles(new File(context.getFilesDir(), "originals"));
+        java.util.List<File> thumbs = listFiles(new File(context.getFilesDir(), "thumbs"));
+        int items = WallpaperStore.load(context).size();
+        if (r != null) {
+            r.images = images.size();
+            r.originals = originals.size();
+            r.thumbs = thumbs.size();
+            r.entries = items;
+        }
+        java.util.List<LanPackager.Entry> out = new java.util.ArrayList<>();
+        out.add(new LanPackager.Entry("manifest.json",
+                manifestBytes(context, items, images, originals, thumbs)));
+        out.add(new LanPackager.Entry("library.json", new File(context.getFilesDir(), "library.json")));
+        out.add(new LanPackager.Entry("libraries.json",
+                new File(context.getFilesDir(), "libraries.json")));
+        for (File f : images) {
+            out.add(new LanPackager.Entry(DIR_IN_ZIP + f.getName(), f));
+        }
+        for (File f : originals) {
+            // 原图落回同名文件；缺了只是以后不能重复调整，不是错误，所以 Entry 那边会静默跳过
+            out.add(new LanPackager.Entry(ORIGINAL_DIR_IN_ZIP + f.getName(), f));
+        }
+        for (File f : thumbs) {
+            out.add(new LanPackager.Entry(THUMB_DIR_IN_ZIP + f.getName(), f));
+        }
+        out.add(new LanPackager.Entry(LauncherPreviewOverlay.overlayFileName(),
+                LauncherPreviewOverlay.overlayFile(context)));
+        out.add(new LanPackager.Entry(SwitchLog.fileName(true), SwitchLog.logFile(context, true)));
+        out.add(new LanPackager.Entry(SwitchLog.fileName(false), SwitchLog.logFile(context, false)));
+        // shared_prefs 里我们自己的那几个 xml（系统持有文件，只读不改）
+        for (String prefsName : new String[]{"settings", "wallswitch"}) {
+            out.add(new LanPackager.Entry(PREFS_DIR_IN_ZIP + prefsName + ".xml",
+                    prefsFile(context, prefsName)));
+        }
+        return out;
+    }
+
     /** 读包里的 manifest 与张数（还原前的回显）。需要本地临时文件，走后台线程。 */
     public static Manifest inspect(Context context, Uri zipUri) {
-        File tmp = copyToCache(context, zipUri);
+        File tmp = localZip(context, zipUri);
         if (tmp == null) {
             return null;
         }
+        boolean temp = isCacheCopy(context, tmp);
         ZipFile zip = null;
         try {
             zip = new ZipFile(tmp);
@@ -195,7 +275,9 @@ public final class BackupStore {
             return null;
         } finally {
             closeQuietly(zip);
-            tmp.delete();
+            if (temp) {
+                tmp.delete();     // 只有我们自己的 cache 副本归这里删，调用方的文件不动
+            }
         }
     }
 
@@ -206,11 +288,12 @@ public final class BackupStore {
     public static RestoreResult restore(Context context, Uri zipUri) {
         RestoreResult r = new RestoreResult();
         java.util.Set<String> restoredLibIds = new java.util.HashSet<>();
-        File tmp = copyToCache(context, zipUri);
+        File tmp = localZip(context, zipUri);
         if (tmp == null) {
             r.error = "读不到这个包";
             return r;
         }
+        boolean temp = isCacheCopy(context, tmp);
         ZipFile zip = null;
         try {
             zip = new ZipFile(tmp);
@@ -253,7 +336,9 @@ public final class BackupStore {
             r.error = "还原失败：" + e.getClass().getSimpleName();
         } finally {
             closeQuietly(zip);
-            tmp.delete();
+            if (temp) {
+                tmp.delete();     // 局域网收下的那份是调用方的文件，不归这里删
+            }
         }
         return r;
     }
@@ -281,10 +366,13 @@ public final class BackupStore {
         return new File(new File(context.getFilesDir().getParentFile(), "shared_prefs"), name + ".xml");
     }
 
-    private static void writeManifest(Context context, java.util.zip.ZipOutputStream zout,
-                                      BackupResult r, java.util.List<File> images,
-                                      java.util.List<File> thumbs,
-                                      java.util.List<File> originals) throws Exception {
+    /**
+     * manifest.json 的字节。十个字段一个不改、不加 —— 局域网共享用的是同一个包，
+     * 加了字段就等于同时改备份格式（那要单开一版，见 docs/lan-sync-plan.md §8）。
+     */
+    private static byte[] manifestBytes(Context context, int items, java.util.List<File> images,
+                                        java.util.List<File> originals,
+                                        java.util.List<File> thumbs) throws Exception {
         long imageBytes = 0;
         for (File f : images) {
             imageBytes += f.length();
@@ -300,7 +388,7 @@ public final class BackupStore {
         JSONObject o = new JSONObject();
         o.put("app_version", versionName(context));
         o.put("backup_time", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()));
-        o.put("library_items", r.entries);
+        o.put("library_items", items);
         o.put("images", images.size());
         o.put("image_bytes", imageBytes);
         o.put("originals", originals.size());
@@ -308,31 +396,7 @@ public final class BackupStore {
         o.put("thumbs", thumbs.size());
         o.put("thumb_bytes", thumbBytes);
         o.put("libraries", LibraryStore.load(context).size());
-        ZipEntry e = new ZipEntry("manifest.json");
-        byte[] bytes = o.toString(2).getBytes(StandardCharsets.UTF_8);
-        zout.putNextEntry(e);
-        zout.write(bytes);
-        zout.closeEntry();
-    }
-
-    private static void writeFile(java.util.zip.ZipOutputStream zout,
-                                  File src, String entryName) throws Exception {
-        if (src == null || !src.exists() || !src.isFile()) {
-            return;
-        }
-        // 不显式设 STORED：STORE 要求 putNextEntry 之前就把 size 和 crc 填全（没地方预先算整张图的
-        // CRC 除非再整份读一遍），交给 ZipOutputStream 走默认的 DEFLATED 更简单；
-        // 无损 PNG 压完只差 2~5%，多出来的那点 CPU 换掉一次全量重读是划算的。
-        ZipEntry e = new ZipEntry(entryName);
-        zout.putNextEntry(e);
-        try (InputStream in = new FileInputStream(src)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) > 0) {
-                zout.write(buffer, 0, read);
-            }
-        }
-        zout.closeEntry();
+        return o.toString(2).getBytes(StandardCharsets.UTF_8);
     }
 
     /**
@@ -517,9 +581,9 @@ public final class BackupStore {
         }
     }
 
-    /** 把 SAF 上的包整份搬到 cache，好让 ZipFile 用随机读（ZipInputStream 拿不到中央目录）。 */
+    /** 只给 SAF 上的包用：ZipFile 要随机读，得先落到本地临时文件（见 {@link #localZip}）。 */
     private static File copyToCache(Context context, Uri zipUri) {
-        File dst = new File(context.getCacheDir(), "restore.zip");
+        File dst = new File(context.getCacheDir(), CACHE_ZIP);
         try (InputStream in = context.getContentResolver().openInputStream(zipUri);
              OutputStream out = new FileOutputStream(dst)) {
             if (in == null) {

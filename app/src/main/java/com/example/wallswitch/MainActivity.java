@@ -118,6 +118,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<Uri> exportDirLauncher;
     // 还原：用户直接指一个备份包（ACTION_OPEN_DOCUMENT，每次现授临时读权限，不依赖卸载前那个目录授权）
     private ActivityResultLauncher<String[]> restoreZipLauncher;
+    // 局域网同步的接收页：它只负责把包收进 cache，还原仍走 restoreZipLauncher 那一套回显与确认
+    private ActivityResultLauncher<Intent> syncJoinLauncher;
     // 接管开关是否处于「等待用户在系统选择器里确认」的状态（用来判断用户是否点了取消）
     private RecyclerView recycler;
     // 两页共用一个 RecyclerView：库列表页 = LibAdapter + LinearLayoutManager，
@@ -203,6 +205,10 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.OpenDocumentTree(), this::onExportDirPicked);
         restoreZipLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocument(), this::onRestoreZipPicked);
+        // 局域网同步的接收页：收完只回一个 cache 里的文件路径，回显/确认/还原仍旧走 onRestoreZipPicked
+        syncJoinLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> onSyncZipReceived(result));
         recycler = findViewById(R.id.recycler);
         libAdapter = new LibAdapter();
         wallpaperAdapter = new WallpaperAdapter();
@@ -807,6 +813,17 @@ public class MainActivity extends AppCompatActivity {
         View restoreRow = findViewById(R.id.row_restore);
         if (restoreRow != null) {
             restoreRow.setOnClickListener(v -> restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}));
+        }
+        // 局域网同步：旧机共享（本机起服务 + 出码）、新机接收（扫码或手输地址，见 SyncJoinActivity）
+        View syncHostRow = findViewById(R.id.row_sync_host);
+        if (syncHostRow != null) {
+            syncHostRow.setOnClickListener(v ->
+                    startActivity(new Intent(this, SyncHostActivity.class)));
+        }
+        View syncJoinRow = findViewById(R.id.row_sync_join);
+        if (syncJoinRow != null) {
+            syncJoinRow.setOnClickListener(v ->
+                    syncJoinLauncher.launch(new Intent(this, SyncJoinActivity.class)));
         }
         // 保存当前壁纸：接管中导出引擎正在显示的那张；未接管备份系统壁纸（并记为可还原存档）
         View saveWallpaperRow = findViewById(R.id.row_save_wallpaper);
@@ -2547,9 +2564,23 @@ public class MainActivity extends AppCompatActivity {
         }, "lib-backup").start();
     }
 
+    /**
+     * 局域网同步收完包：只接一个 cache 里的文件路径，剩下的交给现成的「回显 → 确认 → 还原」那条路。
+     * {@code file://} 的包在 BackupStore 里会跳过 copyToCache 直接用（否则会把输入截成 0 字节）。
+     */
+    private void onSyncZipReceived(androidx.activity.result.ActivityResult result) {
+        if (result == null || result.getResultCode() != RESULT_OK || result.getData() == null) {
+            return;
+        }
+        String path = result.getData().getStringExtra(SyncJoinActivity.EXTRA_ZIP);
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+        onRestoreZipPicked(Uri.fromFile(new File(path)));
+    }
+
     /** 选中备份包后先回显现场，确认了才动本机数据。 */
-    private void onRestoreZipPicked(Uri uri) {
-        if (uri == null) {
+    private void onRestoreZipPicked(Uri uri) {        if (uri == null) {
             return;
         }
         showProgress(R.string.restore_title, R.string.restore_reading);
@@ -2601,6 +2632,11 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Toast.makeText(this, getString(R.string.restore_done, r.items, r.prefsKeys,
                         r.images, r.droppedItems), Toast.LENGTH_LONG).show();
+                // 局域网收来的那份包落在 cache，还原完就该清掉：几百 MB 留在手机上没人会去找它
+                File lanZip = new File(getCacheDir(), SyncJoinActivity.CACHE_ZIP);
+                if (lanZip.exists()) {
+                    lanZip.delete();
+                }
                 recreate();
             });
         }, "lib-restore").start();

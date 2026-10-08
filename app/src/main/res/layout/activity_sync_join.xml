@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 新机（接收方）那页，三个态共用一个布局：
+     扫（相机预览 + 取景提示）→ 问（对方包信息 + 开始接收）→ 收（进度）。
+     相机只在「扫」这一态开着，扫到立刻关； Activity 锁竖屏，预览矩阵只需处理传感器 90 度那一种。 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/page_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/sync_join_title"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- 不在 Wi-Fi 上时这行会变红：先用不着相机就该拦住，免得白烧一次预览 -->
+        <TextView
+            android:id="@+id/tv_join_net"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/danger"
+            android:textSize="12sp" />
+
+        <FrameLayout
+            android:id="@+id/box_scan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp">
+
+            <!-- 取景框按相机缓冲转置后的比例（3:4）摆，见 ScanTransform 的夹具不变式 -->
+            <TextureView
+                android:id="@+id/tv_scan_view"
+                android:layout_width="match_parent"
+                android:layout_height="360dp"
+                android:layout_gravity="center_horizontal" />
+
+            <TextView
+                android:id="@+id/tv_scan_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="8dp"
+                android:background="@color/card_bg"
+                android:padding="6dp"
+                android:text="@string/sync_scanning"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </FrameLayout>
+
+        <Button
+            android:id="@+id/btn_join_manual"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/sync_manual_entry" />
+
+        <!-- 扫到之后停相机，换成这张卡片让用户看清「要收多大、什么时候打的包」再决定 -->
+        <LinearLayout
+            android:id="@+id/box_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_join_info"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btn_join_go"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/sync_go" />
+
+            <Button
+                android:id="@+id/btn_join_again"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sync_again" />
+        </LinearLayout>
+
+        <!-- 接收中：进度条按真实字节数走，不画假动画 -->
+        <LinearLayout
+            android:id="@+id/box_recv"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/pb_join"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:max="100" />
+
+            <TextView
+                android:id="@+id/tv_join_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

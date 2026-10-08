@@ -16,8 +16,8 @@ android {
         minSdk 26
         targetSdk 35
         // 版本约定：每次提交都递增（versionCode +1，versionName 次版本 +1，如 1.0 -> 1.1 -> 1.2）
-        versionCode 102
-        versionName "3.95"
+        versionCode 103
+        versionName "3.96"
     }
 
     signingConfigs {
@@ -61,4 +61,7 @@ dependencies {
     implementation 'androidx.activity:activity:1.9.3'
     // 定时切换后端：≥15 分钟间隔用 WorkManager（系统批量合并、Doze 友好、自动重启恢复）
     implementation 'androidx.work:work-runtime:2.9.1'
+    // 局域网同步的二维码：纯 Java 单 jar，只带编解码器，不带相机、不依赖 GMS。
+    // 荣耀 MagicOS 没有 Google Play 服务，ML Kit 那条路本来就走不通；解码只用 Y 平面，不引 CameraX。
+    implementation 'com.google.zxing:core:3.5.3'
 }
