@@ -38,20 +38,26 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 只是手动干预得把范围翻回来。
  *
  * <h3>翻面那一格为什么不再配文字</h3>
- * v3.95 及之前是「小图标 + 桌面/锁屏两字」，当时的理由是"两面没有天然的区分符号"。现在换成竖胶囊
- * （{@code ic_scope_pill_home} / {@code ic_scope_pill_lock}）：两个可选项一次画全，当前那一半给
- * 淡底块 + 实心图标、另一半只留 32% 淡的图标 —— 状态靠深浅对比读，不靠认小图细节，格子缩到
- * 19~24dp 也分得出。两态各一份文件：淡底块画在上半还是下半是<b>形状</b>信息，而 RemoteViews
- * 只能整张换 drawable，没有改子路径透明度的 API。
+ * v3.95 及之前是「小图标 + 桌面/锁屏两字」，当时的理由是"两面没有天然的区分符号"。现在换成
+ * 上下两张横卡片（{@code ic_scope_card_home} / {@code ic_scope_card_lock}）：两个可选项一次画全，
+ * 当前那一张整块实心、另一张只描边，实心那张里再抠一个房子/锁的透明洞写明是哪一面 —— 状态主要靠
+ * "哪张实心"传（不含需要认的小图形，格子缩到多小都读得出），洞只是把约定再标一遍。
+ * 中间那一档用过竖胶囊，真机截图上太瘦（胶囊只占格宽的 22%）所以换掉，见那两个文件顶上的账。
+ * 两态各一份文件：实心块画在上半还是下半是<b>形状</b>信息，而 RemoteViews 只能整张换 drawable，
+ * 没有改子路径透明度的 API。
  *
  * <h3>格子边长是算出来的（v3.95），两种格位各带一套常数</h3>
  * 布局里每个格子都是 {@code wrap_content} + 一个 44dp 地板值，真正的边长在 {@link #buildViews} 里
  * 按桌面<b>申报</b>的槽位宽高算：{@link #cellDpFor} 读 {@code getAppWidgetOptions}，横向扣掉
  * {@code hSpareDp} 除以列数、纵向扣掉 {@code vSpareDp} 除以行数，取小的那个当<b>正方</b>格边长，
- * 夹进 28~64dp；读不到（空或 0）就落该档的地板 44dp。竖版开销 32/26dp，横版 50/20dp —— 差额来自
+ * 夹进 28~84dp；读不到（空或 0）就落该档的地板 44dp。竖版开销 32/26dp，横版 50/20dp —— 差额来自
  * 列间距的个数不同（账写在两份布局文件顶上）。<b>六格必须等大</b>，所以刻意不用 layout_weight：
  * 桌面给的 3×2 槽位长宽比不是 1.5（横格比竖格宽），正方格按"两向里小的那个"算，必然有一个方向
  * 画不满，剩下的是透明边、露出壁纸；占位是不是 3×2 由 dp 请求决定，与卡片画多宽无关。
+ * 上限从 64dp 抬到 84dp 是 v3.98 的事：真机截图量出来桌面给了约 300×194dp 的槽位、卡片只画了
+ * 242×148dp，两个方向同时空着，说明是<b>上限</b>在夹而不是算式不够 —— 算式本身不会撑出槽位
+ * （(槽宽−开销)/列数 与 (槽高−开销)/行数 取小，代回去必然 ≤ 槽位），所以抬上限只是把"本来给得起
+ * 的空间"用起来，代价是缩略图要跟着解大一点（见 {@code THUMB_MAX_PX}）。
  * 为什么撑得动：RemoteViews 没有 {@code setLayoutParams}、也没有权重接口
  * （android-34 与 android-35 的 android.jar 都 javap 过），但 {@code View.setMinimumWidth/Height}
  * 是 public，而 ImageView / FrameLayout 的 onMeasure 都吃 suggested minimum，
@@ -89,13 +95,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <h3>发热账</h3>
  * {@code updatePeriodMillis=0}：不接 1×1 那个"30 分钟刷一次"的补切时机，免得同一刻补切跑两遍；
  * 不放 Chronometer（走秒会每秒驱动桌面重绘，真机实测是发热来源之一）；
- * 解码只发生在切换/暂停/换库/翻面/深浅色翻档/开机恢复这些已有事件上，一次是一回 192px 小 JPEG 解码，
+ * 解码只发生在切换/暂停/换库/翻面/深浅色翻档/开机恢复这些已有事件上，一次是一回一两百 px 的小 JPEG
+ * 解码（边长按格子算，最多夹到 {@code THUMB_MAX_PX}），
  * 且带一个 {@code QUEUED} 闸门把连发并成一次渲染（代价换确定性：见 {@code scopeThumb} 为什么不缓存）。
  * 两种格位<b>共用这一条队列</b>，所以最坏情况是"桌面上横竖各摆一个"时一次事件串行递交两份视图、
- * 解两回图（仍是同一张 192px 缩略图，两份布局的格子边长可能不同 → 各解各的）；只摆一个时另一份在
+ * 解两回图（同一张缩略图，两份布局的格子边长可能不同 → 各解各的尺寸）；只摆一个时另一份在
  * {@code getAppWidgetIds} 那步就返回，成本是零。
  * 范围停在锁屏时每一张要全尺寸解成品图 + {@code setBitmap}，与通知那三颗键、1×1 那格同价，
- * 不是新增的开销类型；翻面本身只多一次 192px 解码。
+ * 不是新增的开销类型；翻面本身只多一次小 JPEG 解码。
  * 横版开了 {@code resizeMode}：每次拖动改尺寸会走一次 {@code onAppWidgetOptionsChanged} → 排一次渲染，
  * 拖动过程中连发由同一个闸门并掉，落定才是那一次真正的解码。
  */
@@ -132,20 +139,24 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     /** 渲染时依次递交这两份视图；没摆上桌面的那份在 getAppWidgetIds 那步就跳过，连解码都不做。 */
     private static final Spec[] SPECS = {SPEC_CONSOLE, SPEC_CONSOLE_WIDE};
 
-    // 上限 64dp：再大就白占桌面、解码也顶到 Binder 余量。
     // 下限 28dp 只兜"槽位薄到算不出可用格子"这种病态情况 —— 正常情况下边长就是算出来的那个，
     // 哪怕它小。<b>这个下限不能抬到 40</b>：夹具 check/WidgetCellSizeTest 跑过，176×133dp 的槽位
     // 算出来是 35dp，夹到 40 就变成卡片 146dp 高、比槽位还高 13dp —— 又回到 v3.79 那种被切。
     // 宁可格子小一点，也不能撑出去。
+    // 上限 84dp：v3.97 之前是 64，真机截图量出来桌面给约 300×194dp 的槽位、卡片只画 242×148dp，
+    // 两个方向同时空 = 上限在夹（不是算式不够），抬到 84 让横版正好铺满 3×2 那一档槽位。
+    // 抬上限不会撑出槽位：边长是 min((槽宽−横开销)/列数, (槽高−纵开销)/行数)，代回去恒 ≤ 槽位。
+    // 再往上（96dp 起）就要桌面给到 338×212dp 才吃得满，那已经超出这台机器的 3×2，多出来只会是
+    // 透明边，白占地方 —— 所以到 84 收手。
     private static final int CELL_MIN_DP = 28;
-    private static final int CELL_MAX_DP = 64;
+    private static final int CELL_MAX_DP = 84;
     // 读不到申报值时的地板（与两份布局里写的 minWidth/minHeight 同一个数）。
     // 44dp 格画出来：竖版是 120×158dp 的卡，横版是 182×108dp 的卡 —— 等于假定"任何桌面至少给这么大"，
     // 这台机器的 2 行怎么也有 133dp，所以兜得住；真要遇到更薄又不报数的桌面，这一档会切，
     // 是已知让位于简单性的取舍
     private static final int CELL_FLOOR_DP = 44;
     // 格子里的图标只占格子一半多一点（v3.94 之前是 52dp 的格里放 28dp 的图 = 0.54），跟着格子缩放。
-    // v3.96 起翻面格不再压一行「桌面/锁屏」，所以它不再单列一档比例（原来那个 0.3），六格统一这一个数
+    // v3.97 起翻面格不再压一行「桌面/锁屏」，所以它不再单列一档比例（原来那个 0.3），六格统一这一个数
     private static final float ICON_RATIO = 0.54f;
 
     /**
@@ -176,7 +187,10 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 那是 384~768px 正方形（解码出来 0.6~2.3MB），而 RemoteViews 经 Binder 递交、单次事务约 1MB，
     // 超了的表现是小组件静默不更新（不报错）
     private static final int THUMB_MIN_PX = 96;
-    private static final int THUMB_MAX_PX = 192;
+    // 上限 192 → 256（v3.98）：格子边长上限从 64dp 抬到 84dp 之后，2.75 密度下 84dp = 231px，
+    // 再夹在 192 就等于把图放大 1.2 倍显示（糊）。Binder 账：256×256×4 = 262KB，
+    // 圆角那一步会瞬时多留一份同尺寸的位图（约 524KB 峰值），仍远在单次事务约 1MB 之下。
+    private static final int THUMB_MAX_PX = 256;
     // 缩略图圆角（与壁纸网格里 RoundedGrid 的观感对齐）
     private static final float THUMB_CORNER_DP = 10f;
 
@@ -384,10 +398,11 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         views.setInt(R.id.widget_prev, "setColorFilter", ink);
         views.setInt(R.id.widget_next, "setColorFilter", ink);
         views.setInt(R.id.widget_lib_ic, "setColorFilter", ink);
-        // 翻面那一格：整张换竖胶囊 drawable，当前那一半自带淡底块 + 实心图标、另一半只剩 32% 淡的图，
-        // 所以不再压「桌面/锁屏」那两个字（两态除了 alpha 分布之外完全同形，翻面时图标不会跳位置）
+        // 翻面那一格：整张换"上下两张卡片"drawable —— 当前那一面整块实心、另一面只描边，
+        // 实心那块里再抠一个房子/锁的透明洞（洞必须透明不能涂白，原因见那两个文件顶上；
+        // 两份矢量的两张卡片外沿完全同位，翻面时图标不会跳）
         views.setImageViewResource(R.id.widget_scope_ic,
-                forHome ? R.drawable.ic_scope_pill_home : R.drawable.ic_scope_pill_lock);
+                forHome ? R.drawable.ic_scope_card_home : R.drawable.ic_scope_card_lock);
         views.setInt(R.id.widget_scope_ic, "setColorFilter", ink);
         Bitmap thumb = scopeThumb(ctx, forHome, cellPx);
         if (thumb != null) {
@@ -481,9 +496,10 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
 
     /**
      * 缩略图解码边长：就用算出来的那个格子像素，再夹进 Binder 安全的区间。
-     * 上限 192px 是硬约束（RemoteViews 经 Binder 递交，单次事务约 1MB，超了不报错、
-     * 只是小组件静默不更新）；格子算到 64dp 上限时，2.75 密度下是 176px，仍在区间内，
-     * 更高密度的机器上会被这里夹回 192px，代价只是图比显示尺寸略糊一点。
+     * 上限 256px 是硬约束（RemoteViews 经 Binder 递交，单次事务约 1MB，超了不报错、
+     * 只是小组件静默不更新）；格子算到 84dp 上限时，2.75 密度下是 231px，落在区间内；
+     * 更高密度的机器上会被这里夹回 256px，代价只是图比显示尺寸略糊一点。
+     * 源图本身是 384~768px 的方形 JPEG，所以 256 仍是降采样、不是放大重采样。
      */
     private static int thumbSide(int cellPx) {
         return Math.max(THUMB_MIN_PX, Math.min(cellPx, THUMB_MAX_PX));

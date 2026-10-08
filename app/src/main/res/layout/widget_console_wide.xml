@@ -12,7 +12,7 @@
 
      格子边长同样是算出来的，不是写死的：布局里全是 wrap_content + 44dp 地板，真值由
      WidgetConsoleProvider#buildViews 走 setMinimumWidth/Height 下发（横向扣 50dp 开销除 3 格、
-     纵向扣 20dp 除 2 行，取小的当正方边长，夹进 28~64dp；读不到申报值落 44dp 地板）。
+     纵向扣 20dp 除 2 行，取小的当正方边长，夹进 28~84dp；读不到申报值落 44dp 地板）。
      横向那 50dp = 卡片内边距 8 + 最左最右格外侧留白 6 + 两处列间距 36（每处 9+9）；
      纵向那 20dp = 内边距 8 + 两行各自上下留白 12。
      别把格子改成 match_parent：wrap_content 的父配 match_parent 的子，在 RemoteViews 里
@@ -99,8 +99,9 @@
                 android:minHeight="44dp"
                 android:background="@drawable/widget_cell_bg">
 
-                <!-- 翻面格：竖胶囊图标，不带文字（两态各一份 drawable，代码里整张换）。
-                     正方格子放竖胶囊，上下会紧、左右会空，这是胶囊形状自己的账 -->
+                <!-- 翻面格：上下两张横卡片，当前那面整块实心（实心块里抠一个房子/锁的透明洞）、
+                     另一面只描边；不带文字，两态各一份 drawable，代码里整张换。
+                     与竖版那一格用同一对矢量，id 也一样 —— 两份布局的 id 集合必须继续逐个对齐 -->
                 <ImageView
                     android:id="@+id/widget_scope_ic"
                     android:layout_width="wrap_content"
@@ -110,7 +111,7 @@
                     android:minHeight="24dp"
                     android:contentDescription="@string/widget_console_scope_desc"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ic_scope_pill_home" />
+                    android:src="@drawable/ic_scope_card_home" />
             </FrameLayout>
         </LinearLayout>
 

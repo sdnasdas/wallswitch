@@ -9,7 +9,7 @@
      ===== 尺寸是算出来的，不是写死的（v3.95）=====
      每个格子与格子里的图都是 wrap_content，真正的边长由 WidgetConsoleProvider#buildViews 用
      {@code setMinimumWidth/setMinimumHeight} 下发 —— 边长按桌面申报的槽位宽高算
-     （getAppWidgetOptions），取"横向放得下 2 格"与"纵向放得下 3 格"里小的那个，夹进 28~64dp，
+     （getAppWidgetOptions），取"横向放得下 2 格"与"纵向放得下 3 格"里小的那个，夹进 28~84dp，
      所以格子永远是正方（v3.78 用 weight 平铺把格子拉成长方形、缩略图被裁成竖条，那个坑不重踩）。
      换设备、换桌面、改网格密度都不用改这里：读到的数变了，算出来的格子跟着变。
 
@@ -179,12 +179,13 @@
                     android:src="@drawable/ic_tab_wallpaper" />
             </FrameLayout>
 
-            <!-- 翻面格：v3.96 起不带文字，两态各一份竖胶囊 drawable（代码里整张换），
-                 状态靠「淡底块 + 实心图标 vs 32% 淡图标」的深浅对比传，不认小图细节也读得出来。
+            <!-- 翻面格：v3.97 起不带文字，两态各一份 drawable（代码里整张换），画的是上下两张横卡片：
+                 当前那一面整块实心、另一面只描边，实心那块里再抠一个房子/锁的透明洞。
                  原来这里是 图标 + 12sp 文字 竖排，所以要靠这一格自己吃 setMinimumHeight；
                  现在跟其他五格同构（FrameLayout + ImageView），六格统一按 0.54 比例放图。
-                 「两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏」这条结论已由胶囊形状推翻：
-                 胶囊同时画出两个可选项，实心那半就是当前面。 -->
+                 「两面没有天然的区分符号，光给图标分不出谁是桌面谁是锁屏」这条结论被推翻了：
+                 两张卡片同时画出两个可选项，实心那张就是当前面。
+                 v3.98 之前这一格放的是竖胶囊，真机截图上太瘦（只占格宽 22%）所以换成卡片。 -->
             <FrameLayout
                 android:id="@+id/widget_cell_scope"
                 android:layout_width="wrap_content"
@@ -204,7 +205,7 @@
                     android:minHeight="24dp"
                     android:contentDescription="@string/widget_console_scope_desc"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ic_scope_pill_home" />
+                    android:src="@drawable/ic_scope_card_home" />
             </FrameLayout>
         </LinearLayout>
     </LinearLayout>

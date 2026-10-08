@@ -509,7 +509,9 @@ public class WallpaperStore {
      *
      * <p>为什么不让小组件直接用 {@link #getThumb}：那份是给两列方格看的 384~768px 正方形，
      * 解码出来是 0.6~2.3MB 的位图，而 RemoteViews 要经 Binder 递交给桌面、单次事务上限约 1MB ——
-     * 超了不抛异常，表现是小组件静默不更新。一格 60~70dp，192px 已经够清楚。
+     * 超了不抛异常，表现是小组件静默不更新。小组件一格最大 84dp（2.75 密度约 231px），
+     * 调用方按格子像素要，最多夹到 256px（v3.98 从 192 抬上来，账见
+     * {@code WidgetConsoleProvider.THUMB_MAX_PX}）。
      */
     public static Bitmap getWidgetThumb(Context context, String id, int maxSide) {
         Bitmap src = decodeBounded(getThumbFile(context, id), maxSide);
