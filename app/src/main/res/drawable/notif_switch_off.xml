@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 常驻通知「一键设置」那颗开关的**没钉**档：轨道用 divider 色（浅 #E8EAED / 夜 #33363B），
-     圆钮停在**左边**、用次级文字色（在浅灰轨道上够压得住）。36×22dp，钮 14dp、四周留 4dp。
-     形状照抽屉里那颗 MaterialSwitch（M3 规格 52×32dp）等比缩到 22dp 高 —— 那颗的类是 androidx 的
-     MaterialSwitch，RemoteViews 白名单只认 framework 里带 @RemoteView 的类，androidx 一个都不行，
-     所以样式只能自绘；自绘还多拿到一样：颜色仍跟我们的 brand / 夜间变体走，不受系统动态取色摆布。
-     坐标全是手算的定值（轨道 36×22 圆角 11；钮 left4/top4/right18/bottom4 → 14×14），
-     改尺寸要两处一起改（on 那份的 left/right 是镜像：18 与 4）。 -->
+<!-- 常驻通知「一键设置」那颗开关的**没钉**档：轨道**透明底 + 1.5dp 描边**，圆钮停在**左边**。
+     描边这一层是修出来的：原本轨道填 divider（浅色 #E8EAED），压在白色的通知卡上几乎没对比，
+     真机截图里只剩那颗灰钮浮着、轨道看不见 —— 抽屉那颗 MaterialSwitch 没打开时本来就是空心描边，
+     照它改成描边，两档的差别也就固定成「空心 ⇄ 实心」，与小组件翻面卡片同一套语言。
+     描边与钮都用次级文字色（浅 #5F6368 / 夜 #9AA0A6），在深浅两种卡底上都够对比。
+     36×22dp、圆角 11、钮 14dp 四周留 4dp；改尺寸要两份文件一起改（on 那份的 left/right 是镜像 18↔4）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:width="36dp" android:height="22dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/divider" />
+            <solid android:color="@android:color/transparent" />
+            <stroke android:width="1.5dp" android:color="@color/text_secondary" />
             <corners android:radius="11dp" />
         </shape>
     </item>

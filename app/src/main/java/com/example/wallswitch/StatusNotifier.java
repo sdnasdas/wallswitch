@@ -261,35 +261,32 @@ public class StatusNotifier {
                 keyPending(ctx, busy, REQ_PAUSE, NotifActionReceiver.ACTION_PAUSE));
         views.setOnClickPendingIntent(R.id.notif_next,
                 keyPending(ctx, busy, REQ_NEXT, NotifActionReceiver.ACTION_NEXT));
-        bindOneTap(ctx, views, busy, tint);
+        bindOneTap(ctx, views, busy);
         return views;
     }
 
     /**
-     * 「一键设置」那颗开关（占掉原来壁纸标题那一行）：抽屉里没选过图就整行 GONE —— 这一行不留标题，
-     * 空出来的位置由封面那 40dp 兜住，所以整卡高度与升级前一分不差。
+     * 「一键设置」那颗开关（占掉原来壁纸标题那一行，紧挨封面）：抽屉里没选过图就整颗 GONE ——
+     * 这一行不留标题、也不摆别的东西，位置由封面那 40dp 兜住，所以整卡高度与升级前一分不差。
      *
-     * <p>读法照抽屉里那一排：文字在左、开关在右，点击 PendingIntent 挂在行容器上（文字与图都不是
-     * 监听者，不吃点击），所以整片 266×22dp 都是触控区。状态由「钮在左/在右 + 轨道色」表示；
-     * 钉还是撤仍在点击时现读 {@link PinnedWallpaper#canUndo}，这里只画档位 —— 与那颗作用面角标
-     * 同一套"显示与动作同源"的规矩。
+     * <p>没有配对的说明文字：状态全靠「钮在左/在右 + 轨道空心/实心」读。点击 PendingIntent 就挂在这颗
+     * ImageView 本身上，可点范围 = 可见范围 36×22dp（用户明确要求不要撑大，也不 push 到行尾）。
+     * 钉还是撤仍在点击时现读 {@link PinnedWallpaper#canUndo}，这里只负责画对档位 ——
+     * 与那颗作用面角标同一套"显示与动作同源"的规矩。
      *
-     * <p>切换中只把文字染成次级色、整行锁掉，开关图形不动：那份图是 layer-list 的两块实心色，
-     * setColorFilter 会把轨道与钮压成同一个颜色（等于把状态抹了），所以不给它上滤镜。
+     * <p>切换中只把点击锁掉（传 null），图形不上滤镜：那份图是 layer-list 的两块实心色，
+     * setColorFilter 会把轨道与圆钮压成同一个颜色（等于把状态抹了）；"还在忙"这件事由封面那层
+     * 毛玻璃 + 转圈说。
      */
-    private static void bindOneTap(Context ctx, RemoteViews views, boolean busy, int tint) {
+    private static void bindOneTap(Context ctx, RemoteViews views, boolean busy) {
         if (!PinnedWallpaper.isConfigured(ctx)) {
-            views.setViewVisibility(R.id.notif_one_tap, View.GONE);
+            views.setViewVisibility(R.id.notif_one_tap_switch, View.GONE);
             return;
         }
-        boolean pinned = PinnedWallpaper.canUndo(ctx);
-        views.setViewVisibility(R.id.notif_one_tap, View.VISIBLE);
-        views.setTextViewText(R.id.notif_one_tap_label,
-                ctx.getString(pinned ? R.string.pinned_switch_on : R.string.pinned_switch_off));
-        views.setTextColor(R.id.notif_one_tap_label, tint);
+        views.setViewVisibility(R.id.notif_one_tap_switch, View.VISIBLE);
         views.setImageViewResource(R.id.notif_one_tap_switch,
-                pinned ? R.drawable.notif_switch_on : R.drawable.notif_switch_off);
-        views.setOnClickPendingIntent(R.id.notif_one_tap,
+                PinnedWallpaper.canUndo(ctx) ? R.drawable.notif_switch_on : R.drawable.notif_switch_off);
+        views.setOnClickPendingIntent(R.id.notif_one_tap_switch,
                 keyPending(ctx, busy, REQ_PIN, NotifActionReceiver.ACTION_PIN));
     }
 

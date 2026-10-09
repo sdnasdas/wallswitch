@@ -23,8 +23,8 @@ android {
         // 免得装机时出现两个内容不同却同名的包
         // 110/3.103 是「一键设置」那颗图钉叠在角标正下方那一版（整卡被顶到 138dp，位置也没定好），
         // 已改成标题那一行的自绘开关 —— 110 那个包同样不回收
-        versionCode 111
-        versionName "3.104"
+        versionCode 112
+        versionName "3.105"
     }
 
     signingConfigs {

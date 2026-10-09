@@ -222,9 +222,6 @@
     <string name="pinned_title">一键设置壁纸</string>
     <string name="pinned_unset">未设置 · 点按选一张</string>
     <string name="pinned_selected">%1$s · %2$s</string>
-    <!-- 通知里那颗开关左边的文字：只有动作名，不写是哪张（指定的那张归抽屉副标题与封面看） -->
-    <string name="pinned_switch_off">一键设置</string>
-    <string name="pinned_switch_on">已钉住 · 点这里撤回</string>
     <string name="pinned_lib_title">这张在哪个库</string>
     <string name="pinned_pic_title">选这一张</string>
     <!-- 副标题取 library.json 里现成的原图尺寸（不是成品图，两个名字别混用） -->
