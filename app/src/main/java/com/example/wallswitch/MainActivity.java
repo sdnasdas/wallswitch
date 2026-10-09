@@ -77,9 +77,11 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -778,6 +780,7 @@ public class MainActivity extends AppCompatActivity {
                 refreshExportRows();
                 refreshBackupRow();
                 refreshSwitchLogRow();
+                refreshPinnedRow();
                 syncTakeoverAsync();
             }
         });
@@ -830,6 +833,15 @@ public class MainActivity extends AppCompatActivity {
             logRow.setOnClickListener(v -> showSwitchLog());
             logRow.setOnLongClickListener(v -> {
                 confirmClearSwitchLog();
+                return true;
+            });
+        }
+        // 一键设置：点按两级选图（先库后那张），长按清除设定（连带丢掉撤回快照，但不动屏上那张）
+        View pinnedRow = findViewById(R.id.row_pinned);
+        if (pinnedRow != null) {
+            pinnedRow.setOnClickListener(v -> showPinnedPicker());
+            pinnedRow.setOnLongClickListener(v -> {
+                clearPinned();
                 return true;
             });
         }
@@ -2862,6 +2874,185 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }, "set-home").start();
+    }
+
+    // ==================== 一键设置（钉住一张到两面，通知上那颗图钉执行） ====================
+
+    /** 抽屉那一行的副标题：已选 = 「库名 · 标题」，没选过、或那张/那个库已被删 = 「未设置」。 */
+    private void refreshPinnedRow() {
+        TextView tv = findViewById(R.id.tv_pinned);
+        if (tv == null) {
+            return;
+        }
+        String label = PinnedWallpaper.label(this);
+        tv.setText(label == null ? getString(R.string.pinned_unset) : label);
+    }
+
+    /**
+     * 清除一键设置的设定：只让通知上那颗图钉不再画，<b>不还原壁纸</b>；撤回快照也一并丢掉
+     * （入口没了就退不回去了，所以这句要说清）。想让轮播回来是按那颗暂停键，不是清这里。
+     */
+    private void clearPinned() {
+        PinnedWallpaper.clear(this);
+        refreshPinnedRow();
+        StatusNotifier.update(this);
+        Toast.makeText(this, R.string.pinned_cleared, Toast.LENGTH_SHORT).show();
+    }
+
+    /** 两级选图的第一级：这张在哪个库里。选完直接进第二级。 */
+    private void showPinnedPicker() {
+        final List<LibraryStore.Library> libs = LibraryStore.load(this);
+        if (libs.isEmpty()) {
+            Toast.makeText(this, R.string.pinned_no_lib, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.pinned_lib_title)
+                .setAdapter(new PinLibPickerAdapter(libs, PinnedWallpaper.libId(this)),
+                        (dialog, which) -> showPinnedWallpaperPicker(libs.get(which).id))
+                .setNegativeButton(R.string.close, null)
+                .show();
+    }
+
+    /**
+     * 两级选图的第二级：这个库里的哪一张。点一行就落 prefs，<b>不在这里上屏</b> ——
+     * 上屏归通知那颗图钉，一次点按办一件事；选完顺手切一张等于替他做了一个他没按的动作。
+     */
+    private void showPinnedWallpaperPicker(final String libId) {
+        final List<WallpaperStore.Item> items = WallpaperStore.loadByLib(this, libId);
+        if (items.isEmpty()) {
+            Toast.makeText(this, R.string.pinned_lib_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 勾只画在「pin 正指向这个库」时的那一张上；指向别的库时整列都不打勾
+        String pinnedLibId = PinnedWallpaper.libId(this);
+        final String liveId = libId.equals(pinnedLibId) ? PinnedWallpaper.wallpaperId(this) : null;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.pinned_pic_title)
+                .setAdapter(new PinWallpaperAdapter(items, liveId), (dialog, which) -> {
+                    PinnedWallpaper.set(this, libId, items.get(which).id);
+                    refreshPinnedRow();
+                    // 那颗图钉要当场跟上（没配→画出来、已钉↔没钉都靠这次重发），别等下次切图才画
+                    StatusNotifier.update(this);
+                    // 执行入口只在通知栏那颗键上：常驻通知被关掉（我们这条关了或系统总闸关了）时
+                    // 那颗键根本不存在，选好等于白选，得如实说一句而不是只报"已记下"
+                    boolean notifyOk = StatusNotifier.isEnabled(this) && SwitchNotifier.canNotify(this);
+                    Toast.makeText(this, notifyOk ? R.string.pinned_saved : R.string.pinned_saved_no_notify,
+                            notifyOk ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton(R.string.close, null)
+                .show();
+    }
+
+    /** 一键设置两级列表共用的一行（现成的 {@code item_slot_lib}：缩略图 + 主标题 + 副标题 + 选中勾）。 */
+    private View newPinRow(View convertView, ViewGroup parent) {
+        return convertView != null ? convertView
+                : LayoutInflater.from(this).inflate(R.layout.item_slot_lib, parent, false);
+    }
+
+    /**
+     * 第一级：一行一个库，pin 现在指向的那个打勾。
+     * 张数在构造时一次遍历算完（{@code loadByLib} 内部是「整份 library.json 读一遍再筛」，
+     * 按行调用就是库数 × 整份解析），与 {@code LibPickerActivity} 同一笔账。
+     */
+    private class PinLibPickerAdapter extends BaseAdapter {
+
+        private final List<LibraryStore.Library> libs;
+        private final String liveLibId;
+        private final Map<String, Integer> counts = new HashMap<>();
+
+        PinLibPickerAdapter(List<LibraryStore.Library> libs, String liveLibId) {
+            this.libs = libs;
+            this.liveLibId = liveLibId;
+            for (WallpaperStore.Item item : WallpaperStore.load(MainActivity.this)) {
+                if (item.libId == null) {
+                    continue;
+                }
+                Integer seen = counts.get(item.libId);
+                counts.put(item.libId, seen == null ? 1 : seen + 1);
+            }
+        }
+
+        @Override
+        public int getCount() {
+            return libs.size();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            return libs.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @NonNull
+        @Override
+        public View getView(int position, View convertView, @NonNull ViewGroup parent) {
+            View row = newPinRow(convertView, parent);
+            LibraryStore.Library lib = libs.get(position);
+            Integer count = counts.get(lib.id);
+            ((TextView) row.findViewById(R.id.tv_pick_name)).setText(lib.name);
+            ((TextView) row.findViewById(R.id.tv_pick_sub))
+                    .setText(getString(R.string.lib_count, count == null ? 0 : count));
+            // 代表图沿用库卡与选库弹窗那套（这一面在屏的那张优先、其次另一面、再次库内第一张），
+            // 不再立第三种取法
+            bindThumb((ImageView) row.findViewById(R.id.img_pick_thumb),
+                    slotThumbId(lib.id, true), R.drawable.ic_tab_wallpaper, 10);
+            row.findViewById(R.id.iv_pick_check).setVisibility(
+                    lib.id.equals(liveLibId) ? View.VISIBLE : View.INVISIBLE);
+            return row;
+        }
+    }
+
+    /**
+     * 第二级：这一库里的每一张。副标题是<b>原图</b>尺寸（{@code library.json} 里现成的字段，
+     * 不必再读一次文件头）；没记过参数的留空。
+     * 缩略图<b>不预解全部</b> —— 一个库可能上千张，开弹窗时一次解完等于自己把自己卡住；
+     * 沿用首页网格那套 LruCache 现解（同一个缓存，多半滚动时已经热了）。
+     */
+    private class PinWallpaperAdapter extends BaseAdapter {
+
+        private final List<WallpaperStore.Item> items;
+        private final String liveId;
+
+        PinWallpaperAdapter(List<WallpaperStore.Item> items, String liveId) {
+            this.items = items;
+            this.liveId = liveId;
+        }
+
+        @Override
+        public int getCount() {
+            return items.size();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            return items.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @NonNull
+        @Override
+        public View getView(int position, View convertView, @NonNull ViewGroup parent) {
+            View row = newPinRow(convertView, parent);
+            WallpaperStore.Item item = items.get(position);
+            ((TextView) row.findViewById(R.id.tv_pick_name)).setText(itemTitle(item));
+            ((TextView) row.findViewById(R.id.tv_pick_sub)).setText(item.srcWidth > 0 && item.srcHeight > 0
+                    ? getString(R.string.pinned_pic_sub, item.srcWidth, item.srcHeight)
+                    : "");
+            bindThumb((ImageView) row.findViewById(R.id.img_pick_thumb),
+                    item.id, R.drawable.ic_tab_wallpaper, 10);
+            row.findViewById(R.id.iv_pick_check).setVisibility(
+                    item.id.equals(liveId) ? View.VISIBLE : View.INVISIBLE);
+            return row;
+        }
     }
 
     /** 壁纸显示名（未命名则用占位文案）。 */

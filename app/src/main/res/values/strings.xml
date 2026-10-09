@@ -217,6 +217,24 @@
     <string name="save_wallpaper_working">正在保存…</string>
     <string name="save_wallpaper_done">已保存到相册 Pictures/WallSwitch</string>
     <string name="save_wallpaper_failed">保存失败：%1$s</string>
+
+    <!-- 抽屉：一键设置（通知上那颗图钉按一下就把它同时钉到桌面和锁屏，再按一次退回钉之前那一整套） -->
+    <string name="pinned_title">一键设置壁纸</string>
+    <string name="pinned_unset">未设置 · 点按选一张</string>
+    <string name="pinned_selected">%1$s · %2$s</string>
+    <string name="pinned_lib_title">这张在哪个库</string>
+    <string name="pinned_pic_title">选这一张</string>
+    <!-- 副标题取 library.json 里现成的原图尺寸（不是成品图，两个名字别混用） -->
+    <string name="pinned_pic_sub">原图 %1$d×%2$d</string>
+    <string name="pinned_saved">已记下：去通知栏点那颗图钉就能钉上</string>
+    <!-- 执行入口只有那颗图钉：通知被关掉时它根本不画出来，选好等于白选，所以这句得说透 -->
+    <string name="pinned_saved_no_notify">已记下，但常驻通知是关着的：打开它才有那颗图钉可点</string>
+    <string name="pinned_cleared">已清除一键设置（屏上那张不动；要恢复轮播是按暂停键）</string>
+    <string name="pinned_no_lib">还没有壁纸库：先在首页加一个</string>
+    <string name="pinned_lib_empty">这个库里没有壁纸</string>
+    <string name="pinned_missing">一键设置的那张已经不在了，去抽屉重选一张</string>
+    <string name="pinned_lock_not_applied">桌面已设为这张，锁屏没设上（两面已停住）</string>
+    <string name="pinned_lock_left">这一面之前不是本应用在管，屏上那张退不回去，要手动换回</string>
             <!-- 范围改为单选下拉后，改范围需二次确认 -->
     <string name="scope_confirm_title">确认修改范围</string>
     <string name="scope_confirm_msg">把「%1$s」的范围改成「%2$s」？保存后这个库只负责该范围的切换。</string>
@@ -306,6 +324,8 @@
     <string name="notif_action_prev">上一张</string>
     <string name="notif_action_next">下一张</string>
     <string name="notif_scope_desc">切换这三颗键作用在桌面还是锁屏</string>
+    <!-- 一颗键两个含义，靠实心/浅底分档（无障碍朗读里两个都说一遍，屏幕上没有文字可看） -->
+    <string name="notif_pin_desc">一键设置：把抽屉里指定的那张同时钉到桌面和锁屏；实心时点这里退回</string>
     <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
     <!-- 预计下次切换时间（静态显示，不走秒：走秒每秒唤醒 SystemUI/桌面，真机实测是持续发热源）。

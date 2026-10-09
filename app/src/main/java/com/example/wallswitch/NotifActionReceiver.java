@@ -10,9 +10,10 @@ import android.widget.Toast;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 常驻通知上四颗键的落点：「上一张 / 暂停·继续 / 下一张」按 {@link StatusNotifier#currentScope}
+ * 常驻通知上五颗键的落点：「上一张 / 暂停·继续 / 下一张」按 {@link StatusNotifier#currentScope}
  * 当时指的那一面执行 {@link Switcher#prev}/{@link Switcher#next} 或 {@link TimerScheduler#setPaused}，
- * 「桌面/锁屏」那颗角标执行 {@link StatusNotifier#toggleScope} 并立刻重画通知。
+ * 「桌面/锁屏」那颗角标执行 {@link StatusNotifier#toggleScope} 并立刻重画通知，
+ * 角标正下方那颗图钉执行 {@link PinnedWallpaper#apply} 或 {@link PinnedWallpaper#undo}。
  * 语义与守卫跟桌面小组件、App 内卡片保持一致。
  *
  * <p>范围为什么在点击时现读、不从 intent 里带：只剩一条通知，"卡片显示哪一面"和"键打在哪一面"必须同源，
@@ -38,6 +39,10 @@ public class NotifActionReceiver extends BroadcastReceiver {
     public static final String ACTION_PAUSE = "com.example.wallswitch.NOTIF_PAUSE";
     // 常驻通知「桌面 / 锁屏」角标的 action：只翻作用面，不切图
     public static final String ACTION_SCOPE = "com.example.wallswitch.NOTIF_SCOPE";
+    // 常驻通知那颗图钉的 action：把指定那张钉到两面，或者把这一次钉退回去掉。
+    // 两个含义共用一条 action —— 做哪件事由点击时现读 PinnedWallpaper#canUndo 决定，
+    // 不塞 extras：省得"这颗 PendingIntent 到底带的是哪件事"变成第二个来源（与那颗作用角标同一本账）。
+    public static final String ACTION_PIN = "com.example.wallswitch.NOTIF_PIN";
     // 动作跑过这么久还没完，才把通知切成「切换中…」。桌面那面 200ms 内就完事，门槛挡住的是无谓的闪一下；
     // 锁屏那面走 setBitmap 全图解码，几秒才落回正常态，一定越过这个门槛
     private static final long BUSY_DELAY_MS = 400;
@@ -46,12 +51,14 @@ public class NotifActionReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         if (!ACTION_PREV.equals(action) && !ACTION_NEXT.equals(action)
-                && !ACTION_PAUSE.equals(action) && !ACTION_SCOPE.equals(action)) {
+                && !ACTION_PAUSE.equals(action) && !ACTION_SCOPE.equals(action)
+                && !ACTION_PIN.equals(action)) {
             return;
         }
         final PendingResult pending = goAsync();
         final Context app = context.getApplicationContext();
         final boolean scope = ACTION_SCOPE.equals(action);
+        final boolean pin = ACTION_PIN.equals(action);
         final boolean pause = ACTION_PAUSE.equals(action);
         final boolean prev = ACTION_PREV.equals(action);
         new Thread(() -> {
@@ -73,6 +80,18 @@ public class NotifActionReceiver extends BroadcastReceiver {
                     // 另一面没设库时 toggleScope 自己就不动，通知也就原样重发一遍
                     StatusNotifier.toggleScope(app);
                     StatusNotifier.update(app);
+                    return;
+                }
+                if (pin) {
+                    // 那颗图钉两个含义：能退就退，退不了就钉（判据现读，见 PinnedWallpaper#canUndo）。
+                    // 两条都要解码 + 一次锁屏 setBitmap，几秒才落回正常态，所以一定越过 400ms 门槛、
+                    // 会看到转圈 —— 正是"按下去了、还没完"该有的样子
+                    String error = PinnedWallpaper.canUndo(app)
+                            ? PinnedWallpaper.undo(app) : PinnedWallpaper.apply(app);
+                    if (error != null) {
+                        final String text = PinnedWallpaper.errorText(app, error);
+                        main.post(() -> Toast.makeText(app, text, Toast.LENGTH_LONG).show());
+                    }
                     return;
                 }
                 final boolean forHome = StatusNotifier.currentScope(app);

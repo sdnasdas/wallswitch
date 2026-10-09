@@ -110,6 +110,15 @@ public class TimerScheduler {
      *  真机实测 UPDATE 不平移格子（12:41 手动 force UPDATE 之后，格子仍在 13:19 醒），
      *  只有 REPLACE（新建 WorkSpec、新 jobId）才重新起算。 */
     private static void scheduleInternal(Context ctx, boolean forHome, boolean force) {
+        scheduleInternal(ctx, forHome, force, -1L);
+    }
+
+    /**
+     * firstDelayMillis &gt; 0 时，格子的**第一次**醒点 = 排定时刻 + 该延迟而不是 + 一整轮
+     * （第二次起仍是醒点 + 间隔，见下面那段 initialDelay 的账）。只有「一键设置」的撤回用得上：
+     * 钉住那段时间本该切图却没切，撤回要把已经走掉的那半截倒计时接回来，而不是白送一整轮。
+     */
+    private static void scheduleInternal(Context ctx, boolean forHome, boolean force, long firstDelayMillis) {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         // 暂停的那一面一律撤任务：不撤的话，每次回应用的 scheduleAll 会把刚撤掉的定时又排回来，
         // 暂停等于没生效（比"到点跳过"更省 —— 暂停期间连一次唤醒都没有）
@@ -137,7 +146,8 @@ public class TimerScheduler {
             // 不设 flex（三参构造器里 flex 恒等于 interval，flex 分支不生效），所以第二次起都是准点 + 间隔。
             PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
                     SwitchWorker.class, seconds, TimeUnit.SECONDS)
-                    .setInitialDelay(seconds, TimeUnit.SECONDS)
+                    .setInitialDelay(firstDelayMillis > 0 ? firstDelayMillis : seconds * 1000L,
+                            TimeUnit.MILLISECONDS)
                     .setInputData(data)
                     .build();
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
@@ -212,6 +222,32 @@ public class TimerScheduler {
         }
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
+    }
+
+    /**
+     * 「一键设置」撤回专用：把这一面的定时退回钉住之前的那一格。
+     *
+     * <p>剩余还够（触发点在未来）就照原样接回来：回写 last_run 与 next_trigger，再用 REPLACE 把格子的
+     * 首次延迟设成「剩余」，第二次起仍是准点 + 一整轮 —— 读起来就等于那段时间只是被按住了一下。
+     * 回写的 last_run 是钉住之前那次上屏的时刻，它正好让补切闸门 {@code isDue} 在原触发点之前一直判
+     * false，所以撤回后不会有别的路径抢先把刚退回去的图换掉。
+     *
+     * <p>那个点已经在身后（钉着期间本来该切一张却没切）就不接了：落回「从此刻重新起算一整轮」。
+     * 补切一次不是「撤回」的意思 —— 刚退回的那张至少该停满一整轮。
+     *
+     * <p>暂停中的那一面不走这里（没有「下次」可言），由调用方 {@link #cancelScope}。
+     */
+    public static void restoreSchedule(Context ctx, boolean forHome, long lastRunMillis, long triggerMillis) {
+        long remaining = triggerMillis - System.currentTimeMillis();
+        if (triggerMillis <= 0 || remaining <= 0) {
+            restartScope(ctx, forHome, null);
+            return;
+        }
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong(KEY_LAST_RUN_PREFIX + suffix(forHome), lastRunMillis)
+                .putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome), triggerMillis)
+                .apply();
+        scheduleInternal(ctx, forHome, true, remaining);
     }
 
     /** 该范围此刻在屏上的壁纸标题（暂停标记行用；没库给空串）。 */

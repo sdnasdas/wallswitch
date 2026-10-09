@@ -8,9 +8,15 @@
      封面行 58 + 时间行 22 + 按钮行 54 + 头部 30 = 164dp。
      现在：paddingTop 6 + 封面 40 + paddingTop 2 + 按钮 44 + paddingBottom 6 = 98dp，加头部约 128dp。
      时间因此从单独一行并进第二行末尾；封面 48→40dp。
+     「一键设置」那颗图钉键挂在角标正下方之后：左列变成 28 + 2 + 24 = 54dp，第二行高由 44 变 54，
+     整卡约 138dp —— 离那条 146 只剩 8dp，所以那颗键没配置时一律 GONE（左列落回 28、行高落回 44、
+     整卡回到 128）。真机要发现 138 这一档被裁，回收顺序写死两条：封面 40→36（−4）、键 24→20（−4）。
 
      第二行那颗 notif_scope 是"这三颗键现在打在哪一面"的角标，点它翻面（桌面 ⇄ 锁屏）。
-     角标与三颗键的文字/图标颜色都由代码现挑（RemoteViews 不带主题，见 StatusNotifier#buildViews）。 -->
+     角标与三颗键的文字/图标颜色都由代码现挑（RemoteViews 不带主题，见 StatusNotifier#buildViews）。
+     左列那层容器必须是 LinearLayout（或别的带 @RemoteView 注解的类）：裸 <View> 不在 RemoteViews
+     白名单里，inflate 抛 "Class not allowed to be inflated" 的后果不是少一个控件，而是整条通知被
+     NMS 以 REASON_ERROR 删掉（v3.83 的 notif_cover_frost 就是这么把通知弄没的）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/notif_root"
     android:layout_width="match_parent"
@@ -131,19 +137,40 @@
         android:paddingTop="2dp"
         android:paddingBottom="6dp">
 
-        <TextView
-            android:id="@+id/notif_scope"
+        <!-- 左列：作用面角标 + 「一键设置」那颗图钉（上下叠，中间 2dp）。
+             第二行高 = max(三颗键 44, 这一列 28+2+24=54)，所以这颗键一画出来整卡就长 10dp；
+             没配置时由代码置 GONE，行高落回 44、整卡回到升级前的 128dp。 -->
+        <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="28dp"
+            android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="2dp"
-            android:background="@drawable/notif_chip_bg"
-            android:contentDescription="@string/notif_scope_desc"
-            android:gravity="center"
-            android:paddingHorizontal="9dp"
-            android:text="@string/scope_home"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/notif_scope"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:background="@drawable/notif_chip_bg"
+                android:contentDescription="@string/notif_scope_desc"
+                android:gravity="center"
+                android:paddingHorizontal="9dp"
+                android:text="@string/scope_home"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/notif_pin"
+                android:layout_width="42dp"
+                android:layout_height="24dp"
+                android:layout_marginTop="2dp"
+                android:background="@drawable/notif_chip_bg"
+                android:contentDescription="@string/notif_pin_desc"
+                android:padding="4dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_notif_pin"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <ImageView
             android:id="@+id/notif_prev"

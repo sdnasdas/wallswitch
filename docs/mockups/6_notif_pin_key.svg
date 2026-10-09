@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 常驻通知「一键设置」那颗键的落位设计图。
+     尺寸基准：1 单位 = 1dp，整卡按 1.5 倍画（放大看排版，标注的数字是真实 dp）。
+     下面那条放大带是 6 倍，三个候选图标都按 24dp 视口画，真实显示 16dp。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="880" viewBox="0 0 1120 880" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1120" height="880" fill="#F2F3F5"/>
+  <text x="20" y="28" font-size="18" font-weight="bold" fill="#1A1C1E">常驻通知加「一键设置」键 —— 落位与图标（单位：dp，卡片按 1.5 倍画）</text>
+  <text x="20" y="50" font-size="13" fill="#5F6368">左边浅色、右边深色，都是「已选好一张」的状态；左下是没选过东西时（那颗键整块不画）。</text>
+
+  <!-- ============ 左上：浅色 · 已设置（整卡 138dp） ============ -->
+  <g transform="translate(20,70) scale(1.5)">
+    <rect x="-6" y="-6" width="352" height="150" rx="12" fill="#E6E9EF"/>
+    <!-- 系统头部 ~30dp：App 名 + 时间，小图标是全透明替身 -->
+    <text x="10" y="14" font-size="9" fill="#5F6368">wallswitch · 10:09</text>
+    <text x="10" y="26" font-size="7.5" fill="#9AA0A6">（这 30dp 是系统画的，我们动不了）</text>
+    <!-- 第一行：paddingTop 6 + 封面 40 -->
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="50" font-size="10.5" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+    <text x="62" y="66" font-size="9" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="250" y="66" font-size="9" fill="#5F6368">已暂停</text>
+    <!-- 第二行：paddingTop 2 后开始，行高 54（= 角标 28 + 间距 2 + 新键 24） -->
+    <g transform="translate(12,78)">
+      <rect x="0" y="0" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="21" y="18" font-size="9.5" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <!-- 新键：与角标同宽、24dp 高、同一种圆角底 -->
+      <rect x="0" y="30" width="42" height="24" rx="6" fill="#E8EAED"/>
+      <g transform="translate(13,34) scale(0.6667)">
+        <path d="M5,4 H19 V8 H17 L15,11 H9 L7,8 H5 Z M11,11 H13 V21 H11 Z" fill="#1A1C1E"/>
+      </g>
+    </g>
+    <!-- 三颗键：上一张 / 暂停 / 下一张，仍然 44dp 高、居中挂在这一行里 -->
+    <g transform="translate(62,84)" fill="#1A1C1E">
+      <path d="M56,10 L44,17 L56,24 Z"/>
+      <rect x="86" y="10" width="4" height="14"/><rect x="94" y="10" width="4" height="14"/>
+      <path d="M124,10 L136,17 L124,24 Z"/>
+    </g>
+    <rect x="0" y="0" width="340" height="138" fill="none" stroke="#C9CDD3" stroke-width="0.7" rx="10"/>
+  </g>
+  <text x="20" y="286" font-size="12" fill="#1A1C1E">浅色 · 已设置：6 + 40 + 2 + 54 + 6 = 内容 108dp，+ 系统头部约 30 = 整卡约 138dp</text>
+
+  <!-- ============ 右上：深色 · 已设置 ============ -->
+  <g transform="translate(590,70) scale(1.5)">
+    <rect x="-6" y="-6" width="352" height="150" rx="12" fill="#0E0F11"/>
+    <text x="10" y="14" font-size="9" fill="#9AA0A6">wallswitch · 10:09</text>
+    <rect x="0" y="24" width="340" height="114" rx="10" fill="#1E2024"/>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#5B7F9E"/>
+    <text x="62" y="50" font-size="10.5" font-weight="bold" fill="#E6E7E9">山脊与云</text>
+    <text x="62" y="66" font-size="9" fill="#9AA0A6">风景 · 顺序 · 每 30分钟</text>
+    <text x="250" y="66" font-size="9" fill="#9AA0A6">已暂停</text>
+    <g transform="translate(12,78)">
+      <rect x="0" y="0" width="42" height="28" rx="6" fill="#33363B"/>
+      <text x="21" y="18" font-size="9.5" font-weight="bold" fill="#90CAF9" text-anchor="middle">桌面</text>
+      <rect x="0" y="30" width="42" height="24" rx="6" fill="#33363B"/>
+      <g transform="translate(13,34) scale(0.6667)">
+        <path d="M5,4 H19 V8 H17 L15,11 H9 L7,8 H5 Z M11,11 H13 V21 H11 Z" fill="#E6E7E9"/>
+      </g>
+    </g>
+    <g transform="translate(62,84)" fill="#E6E7E9">
+      <path d="M56,10 L44,17 L56,24 Z"/>
+      <rect x="86" y="10" width="4" height="14"/><rect x="94" y="10" width="4" height="14"/>
+      <path d="M124,10 L136,17 L124,24 Z"/>
+    </g>
+  </g>
+  <text x="590" y="286" font-size="12" fill="#1A1C1E">深色 · 已设置：底用现成的 divider 色（#E8EAED / #33363B 有夜间变体），图标染成正文色</text>
+
+  <!-- ============ 左下：浅色 · 没选过东西（键 GONE，整卡回到 128dp） ============ -->
+  <g transform="translate(20,340) scale(1.5)">
+    <rect x="-6" y="-6" width="352" height="140" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="14" font-size="9" fill="#5F6368">wallswitch · 10:09</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="50" font-size="10.5" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+    <text x="62" y="66" font-size="9" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="250" y="66" font-size="9" fill="#5F6368">下次 10:39</text>
+    <g transform="translate(12,80)">
+      <rect x="0" y="0" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="21" y="18" font-size="9.5" font-weight="bold" fill="#1E88E5" text-anchor="middle">锁屏</text>
+    </g>
+    <g transform="translate(62,72)" fill="#1A1C1E">
+      <path d="M56,10 L44,17 L56,24 Z"/>
+      <rect x="86" y="10" width="4" height="14"/><rect x="94" y="10" width="4" height="14"/>
+      <path d="M124,10 L136,17 L124,24 Z"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.7" rx="10"/>
+  </g>
+  <text x="20" y="556" font-size="12" fill="#1A1C1E">没选过：新键不画（GONE），左列回到只有角标 28dp，行高由 max(54,44) 落回 44</text>
+  <text x="20" y="574" font-size="12" fill="#1A1C1E">= 内容 98dp，整卡约 128dp —— 与今天一模一样，一分不长</text>
+
+  <!-- ============ 右下：新键本体 6 倍放大，三个候选 + 两态 ============ -->
+  <g transform="translate(590,340)">
+    <text x="0" y="0" font-size="14" font-weight="bold" fill="#1A1C1E">新键本体（6 倍）：42dp 宽 × 24dp 高，圆角 6dp，里面图标 16dp</text>
+    <text x="0" y="20" font-size="12" fill="#5F6368">触控区 42×24 —— 角标现在就是 28dp 高、真机按得到，这颗只矮 4dp，宽一样</text>
+
+    <!-- 候选 A：图钉 -->
+    <g transform="translate(0,40)">
+      <rect x="0" y="0" width="252" height="150" rx="10" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <text x="12" y="24" font-size="13" font-weight="bold" fill="#1A1C1E">A 图钉（推荐）</text>
+      <text x="12" y="42" font-size="11" fill="#5F6368">帽 + 针，全是直线段</text>
+      <g transform="translate(24,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#E8EAED"/>
+        <g transform="translate(21,4) scale(2)"><path d="M5,4 H19 V8 H17 L15,11 H9 L7,8 H5 Z M11,11 H13 V21 H11 Z" fill="#1A1C1E"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">浅色 可用态</text>
+      </g>
+      <g transform="translate(138,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#1E2024"/>
+        <g transform="translate(21,4) scale(2)"><path d="M5,4 H19 V8 H17 L15,11 H9 L7,8 H5 Z M11,11 H13 V21 H11 Z" fill="#9AA0A6"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">深色 切换中(不可点)</text>
+      </g>
+    </g>
+
+    <!-- 候选 B：双格 -->
+    <g transform="translate(270,40)">
+      <rect x="0" y="0" width="252" height="150" rx="10" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <text x="12" y="24" font-size="13" font-weight="bold" fill="#1A1C1E">B 双格</text>
+      <text x="12" y="42" font-size="11" fill="#5F6368">两块实心 = 桌面 + 锁屏一起</text>
+      <g transform="translate(24,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#E8EAED"/>
+        <g transform="translate(21,4) scale(2)"><path d="M3,7 H10.5 V17 H3 Z M13.5,7 H21 V17 H13.5 Z" fill="#1A1C1E"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">浅色 可用态</text>
+      </g>
+      <g transform="translate(138,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#1E2024"/>
+        <g transform="translate(21,4) scale(2)"><path d="M3,7 H10.5 V17 H13.5 Z M13.5,7 H21 V17 H13.5 Z" fill="#9AA0A6"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">深色 切换中(不可点)</text>
+      </g>
+    </g>
+
+    <!-- 候选 C：星 -->
+    <g transform="translate(0,210)">
+      <rect x="0" y="0" width="252" height="150" rx="10" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <text x="12" y="24" font-size="13" font-weight="bold" fill="#1A1C1E">C 星</text>
+      <text x="12" y="42" font-size="11" fill="#5F6368">「指定那一张」的通用读法</text>
+      <g transform="translate(24,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#E8EAED"/>
+        <g transform="translate(21,4) scale(2)"><path d="M12,2.5 L14.9,8.4 L21.4,9.2 L16.6,13.7 L17.9,20.1 L12,16.9 L6.1,20.1 L7.4,13.7 L2.6,9.2 L9.1,8.4 Z" fill="#1A1C1E"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">浅色 可用态</text>
+      </g>
+      <g transform="translate(138,58)">
+        <rect x="0" y="0" width="90" height="56" rx="12" fill="#1E2024"/>
+        <g transform="translate(21,4) scale(2)"><path d="M12,2.5 L14.9,8.4 L21.4,9.2 L16.6,13.7 L17.9,20.1 L12,16.9 L6.1,20.1 L7.4,13.7 L2.6,9.2 L9.1,8.4 Z" fill="#9AA0A6"/></g>
+        <text x="45" y="76" font-size="10" fill="#5F6368" text-anchor="middle">深色 切换中(不可点)</text>
+      </g>
+    </g>
+
+    <!-- 高度账 -->
+    <g transform="translate(270,210)">
+      <rect x="0" y="0" width="252" height="150" rx="10" fill="#F7F8FA" stroke="#D6DAE0"/>
+      <text x="12" y="24" font-size="13" font-weight="bold" fill="#1A1C1E">高度账（146dp 是收起态裁切线）</text>
+      <text x="12" y="48" font-size="11" fill="#5F6368">今天              内容 98 → 整卡 128 ✓ 实测不被裁</text>
+      <text x="12" y="66" font-size="11" fill="#5F6368">新键 24dp         内容 108 → 整卡 138 ← 本图</text>
+      <text x="12" y="84" font-size="11" fill="#5F6368">新键 20dp         内容 104 → 整卡 134（回收一档）</text>
+      <text x="12" y="102" font-size="11" fill="#5F6368">封面 40→36dp      再 −4（回收第二档）</text>
+      <text x="12" y="120" font-size="11" fill="#B3261E">上一版被裁的是 164dp；128 与 164 之间没实测过</text>
+      <text x="12" y="138" font-size="11" fill="#B3261E">138 要装机验：若被裁就先收到 134</text>
+    </g>
+  </g>
+</svg>

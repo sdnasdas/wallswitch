@@ -21,8 +21,8 @@ android {
         // "latest（v3.27 · build 45）" 里读 versionName 比对的）
         // 108/3.101 是"两面 + 换面淡入"那一版，装上后小组件直接不能用，已整体还原 —— 号不回收，
         // 免得装机时出现两个内容不同却同名的包
-        versionCode 109
-        versionName "3.102"
+        versionCode 110
+        versionName "3.103"
     }
 
     signingConfigs {

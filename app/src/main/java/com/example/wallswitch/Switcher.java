@@ -5,6 +5,8 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 
 import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -354,6 +356,66 @@ public class Switcher {
             editor.remove(base + "_current");
         }
         editor.apply();
+    }
+
+    /**
+     * 读某库某范围的进度四件套（「一键设置」的撤回用）。键名与类型只有这里认，
+     * 快照的存放与序列化在 {@link PinnedWallpaper}，两边不重复定义同一套键。
+     *
+     * <p>没记录的键交回 {@link JSONObject#NULL} 而不是省略：撤回要分得清「这面本来没指针」和
+     * 「这面本来有、现在该把指针抹掉」，两种都得原样退回去。
+     */
+    public static JSONObject captureProgress(Context ctx, String libId, boolean forHome) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String base = progressBase(libId, forHome);
+        JSONObject state = new JSONObject();
+        try {
+            state.put("current", progressValue(prefs, base + "_current"));
+            state.put("seq", progressValue(prefs, base + "_seq"));
+            state.put("pool", progressValue(prefs, base + "_pool"));
+            state.put("hist", progressValue(prefs, base + "_hist"));
+        } catch (JSONException ignored) {
+        }
+        return state;
+    }
+
+    /** 把 {@link #captureProgress} 那四样按原样写回；缺键（或值为 NULL）一律删键，不留空串。 */
+    public static void restoreProgress(Context ctx, String libId, boolean forHome, JSONObject state) {
+        if (state == null) {
+            return;
+        }
+        String base = progressBase(libId, forHome);
+        SharedPreferences.Editor editor =
+                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+        restoreString(editor, base + "_current", state, "current");
+        restoreString(editor, base + "_pool", state, "pool");
+        restoreString(editor, base + "_hist", state, "hist");
+        // seq 是 int 键：按字符串回写会把它变成 getInt 读不出来的类型，所以单独一支
+        if (state.isNull("seq")) {
+            editor.remove(base + "_seq");
+        } else {
+            try {
+                editor.putInt(base + "_seq", Integer.parseInt(state.getString("seq")));
+            } catch (Exception ignored) {
+                editor.remove(base + "_seq");
+            }
+        }
+        editor.apply();
+    }
+
+    /** 某个进度键的现值字符串；没记录返回 {@link JSONObject#NULL}。 */
+    private static Object progressValue(SharedPreferences prefs, String key) {
+        Object raw = prefs.getAll().get(key);
+        return raw == null ? JSONObject.NULL : raw.toString();
+    }
+
+    private static void restoreString(SharedPreferences.Editor editor, String prefKey,
+                                      JSONObject state, String jsonKey) {
+        if (state.isNull(jsonKey)) {
+            editor.remove(prefKey);
+        } else {
+            editor.putString(prefKey, state.optString(jsonKey));
+        }
     }
 
     /** 在候选集里找 id 的下标，找不到返回 -1。 */

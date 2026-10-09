@@ -422,6 +422,37 @@ public class LibraryStore {
         }
     }
 
+    /**
+     * 把某一面的槽位原样写回（「一键设置」的撤回用）：只写 prefs，不排程、不记日志、不刷界面。
+     *
+     * <p>为什么不能用 {@link #setSlotLib}：它末尾带着 restartScope 与一条「换库」标记行，撤回要的是
+     * 「先把四样状态抹回原样，排程由调用方按快照自己决定」（暂停的面要撤任务、在跑的面要接回剩余倒计时），
+     * 走 setSlotLib 会把刚退回去的图又重起一轮。libId 传 null = 那一面退回「不切换」的空槽。
+     *
+     * <p>间隔只在快照里存着非正数（老快照/手改过的 prefs）时不动现值，免得把 0 夹成下限 15 分钟。
+     */
+    public static void restoreSlot(Context ctx, boolean forHome, String libId, String mode,
+                                  int intervalSeconds, boolean paused) {
+        SharedPreferences.Editor editor =
+                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+        String key = slotKey(forHome);
+        if (libId == null || libId.isEmpty()) {
+            editor.remove(key + "_lib");
+        } else {
+            editor.putString(key + "_lib", libId);
+        }
+        editor.putString(key + "_mode", MODE_RANDOM.equals(mode) ? MODE_RANDOM : MODE_ORDER);
+        if (intervalSeconds > 0) {
+            editor.putInt(key + "_interval", clampInterval(intervalSeconds));
+        }
+        if (paused) {
+            editor.putBoolean(key + "_paused", true);
+        } else {
+            editor.remove(key + "_paused");
+        }
+        editor.apply();
+    }
+
     /** 重命名库（库行点库名就地改名的写回入口；留空则保留原名）。 */
     public static void setName(Context ctx, String libId, String name) {
         List<Library> libs = load(ctx);
