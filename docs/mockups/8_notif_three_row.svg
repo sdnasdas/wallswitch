@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 三行版常驻通知（标题不显示）+ 五颗键的图标统一包络。1 单位 = 1dp，卡片 1.5 倍，图标带 6 倍放大。
+     高度账：6 + 封面 40 + 2 + 按钮排 40 + 6 = 内容 94dp，+ 系统头部约 30 = 整卡约 124dp
+     （比 v3.103 的 138dp 矮 14dp，比升级前的 128dp 还矮 4dp —— 146 那条线彻底不碰）。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="880" viewBox="0 0 1120 880" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1120" height="880" fill="#F2F3F5"/>
+  <text x="20" y="26" font-size="18" font-weight="bold" fill="#1A1C1E">三行版：标题去掉，图标统一，键排小一档（真实 dp，卡片 1.5 倍）</text>
+  <text x="20" y="46" font-size="13" fill="#5F6368">第二行 = 库名 · 模式；第三行 = 每 X · 下次时间；第四行 = 角标 + 一排键。文字仍是两行，所以封面那一行高度没变。</text>
+
+  <!-- ============ 左上：四颗（按你列的顺序） ============ -->
+  <g transform="translate(20,66) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="132" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <!-- 封面 + 两行文字 -->
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="52" font-size="10" font-weight="bold" fill="#1A1C1E">风景 · 顺序</text>
+    <text x="62" y="68" font-size="8.5" fill="#5F6368">每 30分钟 · 下次 10:39</text>
+    <!-- 按钮排：角标 42×28 + 四颗 48×40，相邻间距 2dp -->
+    <g transform="translate(0,78)">
+      <rect x="12" y="6" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="24" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <g transform="translate(58,0)">
+        <rect x="0" y="0" width="48" height="40" rx="6" fill="#1E88E5"/>
+        <g transform="translate(14,8) scale(0.8333)"><path d="M6,5h12v3h-1.8l-1.4,2.6H9.2L7.8,8H6z M10.9,10.6h2.2V19h-2.2z" fill="#FFFFFF"/></g>
+        <rect x="50" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(64,8) scale(0.8333)"><path d="M6,19h4V5H6v14zM14,5v14h4V5h-4z" fill="#1A1C1E"/></g>
+        <rect x="100" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(114,8) scale(0.8333)"><path d="M8,5v14l11,-7z" fill="#9AA0A6"/></g>
+        <rect x="150" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(164,8) scale(0.8333)"><path d="M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z" fill="#1A1C1E"/></g>
+      </g>
+      <text x="262" y="25" font-size="8" fill="#B3261E">← 右边空 78dp</text>
+    </g>
+    <rect x="0" y="0" width="340" height="124" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="20" y="278" font-size="13" font-weight="bold" fill="#1A1C1E">四颗：钉 / 暂停 / 播放 / 下一张（上一张按你列的去掉）</text>
+  <text x="20" y="296" font-size="12" fill="#5F6368">这一档画的是「已钉住 + 正在跑」：图钉实心、暂停那颗实色、播放那颗淡一档</text>
+
+  <!-- ============ 右上：五颗（上一张留着） ============ -->
+  <g transform="translate(590,66) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="132" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="52" font-size="10" font-weight="bold" fill="#1A1C1E">风景 · 顺序</text>
+    <text x="62" y="68" font-size="8.5" fill="#5F6368">每 30分钟 · 下次 10:39</text>
+    <g transform="translate(0,78)">
+      <rect x="12" y="6" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="24" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <g transform="translate(58,0)">
+        <rect x="0" y="0" width="48" height="40" rx="6" fill="#1E88E5"/>
+        <g transform="translate(14,8) scale(0.8333)"><path d="M6,5h12v3h-1.8l-1.4,2.6H9.2L7.8,8H6z M10.9,10.6h2.2V19h-2.2z" fill="#FFFFFF"/></g>
+        <rect x="50" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(64,8) scale(0.8333)"><path d="M6,6h2v12H6zM9.5,12l8.5,6L18,6z" fill="#1A1C1E"/></g>
+        <rect x="100" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(114,8) scale(0.8333)"><path d="M6,19h4V5H6v14zM14,5v14h4V5h-4z" fill="#1A1C1E"/></g>
+        <rect x="150" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(164,8) scale(0.8333)"><path d="M8,5v14l11,-7z" fill="#9AA0A6"/></g>
+        <rect x="200" y="0" width="48" height="40" rx="6" fill="#F7F8FA"/>
+        <g transform="translate(214,8) scale(0.8333)"><path d="M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z" fill="#1A1C1E"/></g>
+      </g>
+      <text x="312" y="25" font-size="8" fill="#1E88E5">空 28</text>
+    </g>
+    <rect x="0" y="0" width="340" height="124" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="590" y="278" font-size="13" font-weight="bold" fill="#1A1C1E">五颗：钉 / 上一张 / 暂停 / 播放 / 下一张</text>
+  <text x="590" y="296" font-size="12" fill="#5F6368">同样 48dp 宽，五颗正好铺到行尾（右边只剩一个内边距），不留那块空</text>
+
+  <!-- ============ 左下：图标包络 6 倍（这就是"大小不统一"的根） ============ -->
+  <g transform="translate(20,330)">
+    <text x="0" y="14" font-size="14" font-weight="bold" fill="#1A1C1E">为什么图钉看起来大：每颗图形的 24 视口占位不一样（6 倍，虚线框 = 暂停那颗的包络 12×14）</text>
+    <g transform="translate(0,28)">
+      <!-- 五个格子，每格 24 视口 → 144px，间隔 16 -->
+      <g transform="translate(0,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#B3261E" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M6,6h2v12H6zM9.5,12l8.5,6L18,6z" fill="#1A1C1E"/></g>
+        <text x="72" y="162" font-size="11" fill="#5F6368" text-anchor="middle">上一张 12×12</text>
+      </g>
+      <g transform="translate(160,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#1E88E5" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M6,19h4V5H6v14zM14,5v14h4V5h-4z" fill="#1A1C1E"/></g>
+        <text x="232" y="162" font-size="11" fill="#1A1C1E" text-anchor="middle">暂停 12×14 ← 基准</text>
+      </g>
+      <g transform="translate(320,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#B3261E" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M8,5v14l11,-7z" fill="#1A1C1E"/></g>
+        <text x="392" y="162" font-size="11" fill="#5F6368" text-anchor="middle">播放 11×14</text>
+      </g>
+      <g transform="translate(480,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#B3261E" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z" fill="#1A1C1E"/></g>
+        <text x="552" y="162" font-size="11" fill="#5F6368" text-anchor="middle">下一张 12×12</text>
+      </g>
+      <!-- 旧图钉 vs 新图钉 -->
+      <g transform="translate(640,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#FFF6F5" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#1E88E5" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M5,4h14v4h-2l-2,3H9L7,8H5V4z M10.8,11h2.4v10h-2.4z" fill="#B3261E"/></g>
+        <text x="712" y="162" font-size="11" fill="#B3261E" text-anchor="middle">图钉 v3.103 14×17（出框）</text>
+      </g>
+      <g transform="translate(800,0)">
+        <rect x="0" y="0" width="144" height="144" fill="#F5FAF5" stroke="#D6DAE0"/>
+        <rect x="36" y="30" width="72" height="84" fill="none" stroke="#1E88E5" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <g transform="scale(6)"><path d="M6,5h12v3h-1.8l-1.4,2.6H9.2L7.8,8H6z M10.9,10.6h2.2V19h-2.2z" fill="#1A1C1E"/></g>
+        <text x="872" y="162" font-size="11" fill="#1A1C1E" text-anchor="middle">图钉 改后 12×14（同框）</text>
+      </g>
+    </g>
+    <text x="0" y="212" font-size="12" fill="#1A1C1E">统一办法（不用改那四颗已验收的图标）：把图钉按暂停那颗的包络重画 —— 帽 y5..8、收口到 y10.6、针到 y19，横向一律 x6..18。</text>
+    <text x="0" y="230" font-size="12" fill="#5F6368">再加上五颗共用同一档显示尺寸：键 48×40dp、内边距 8dp → 24 视口显示成 20dp（现在是 24dp），图形占位一致、整体小一档。</text>
+  </g>
+
+  <!-- ============ 右下：三态（暂停中 / 已钉住 / 切换中） ============ -->
+  <g transform="translate(20,600)">
+    <text x="0" y="14" font-size="14" font-weight="bold" fill="#1A1C1E">那颗「暂停 / 播放」拆成两颗之后，谁亮 = 现在处于哪个态（实心只留给图钉，避免两个含义抢同一种强调）</text>
+    <g transform="translate(0,26)">
+      <!-- 正在跑 -->
+      <g transform="translate(0,0)">
+        <rect x="0" y="0" width="330" height="56" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <text x="12" y="20" font-size="12" fill="#5F6368">正在跑</text>
+        <g transform="translate(120,8)">
+          <rect x="0" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/><path d="M14,14h8v-8h-1.2l-0.9,1.7H16.1L15.2,6H14z" fill="#9AA0A6"/>
+          <rect x="44" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/><path d="M59,29h3.3V11H59z M65.7,11v18H69V11z" fill="#1A1C1E" transform="translate(0,0)"/>
+          <rect x="88" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/><path d="M105,11v18l13,-9z" fill="#9AA0A6"/>
+          <rect x="132" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+        </g>
+      </g>
+      <!-- 暂停中 -->
+      <g transform="translate(0,66)">
+        <rect x="0" y="0" width="330" height="56" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <text x="12" y="20" font-size="12" fill="#5F6368">暂停中</text>
+        <g transform="translate(120,8)">
+          <rect x="0" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+          <rect x="44" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/><path d="M59,29h3.3V11H59z M65.7,11v18H69V11z" fill="#9AA0A6"/>
+          <rect x="88" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/><path d="M105,11v18l13,-9z" fill="#1A1C1E"/>
+          <rect x="132" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+        </g>
+      </g>
+      <!-- 切换中 -->
+      <g transform="translate(0,132)">
+        <rect x="0" y="0" width="330" height="56" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+        <text x="12" y="20" font-size="12" fill="#5F6368">切换中（现成 400ms 那档）</text>
+        <g transform="translate(120,8)">
+          <rect x="0" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+          <rect x="44" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+          <rect x="88" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+          <rect x="132" y="0" width="40" height="40" rx="6" fill="#F7F8FA"/>
+        </g>
+        <text x="300" y="34" font-size="11" fill="#9AA0A6">全部淡一档、按不动</text>
+      </g>
+      <text x="344" y="40" font-size="12" fill="#5F6368">浅 = 现在不是这个态（点它幂等无事，</text>
+      <text x="344" y="58" font-size="12" fill="#5F6368">不写日志），实色 = 当前态。</text>
+      <text x="344" y="106" font-size="12" fill="#1A1C1E">好处：不用靠"图标会自己换"来猜暂停没暂停</text>
+      <text x="344" y="124" font-size="12" fill="#1A1C1E">—— 两颗谁亮就是答案。</text>
+      <text x="344" y="170" font-size="12" fill="#B3261E">另一种做法是让当前那颗也变实心 brand，</text>
+      <text x="344" y="188" font-size="12" fill="#B3261E">但那样一排里两颗实心，"实心 = 钉住了"就糊了。</text>
+    </g>
+  </g>
+</svg>

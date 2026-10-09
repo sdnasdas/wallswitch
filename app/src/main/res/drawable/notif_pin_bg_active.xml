@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 「一键设置」那颗图钉键处于「已经钉上了」那一档的底：实心主色 + 白色图标。
-     与浅底那颗（notif_chip_bg）几何完全一样，只有底色分档 —— 沿用小组件翻面卡片那套「实心 = 当前态」
-     的视觉语言，让同一颗键的两个含义（点它去钉 / 点它撤回）不靠文字也分得开。
-     brand 有夜间变体（#1E88E5 / #90CAF9），深浅两档都得压得住白图标，所以图标那侧固定用白。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/brand" />
-    <corners android:radius="6dp" />
-</shape>

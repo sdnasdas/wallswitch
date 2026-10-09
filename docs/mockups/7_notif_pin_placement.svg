@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 那颗「一键设置」图钉键的四种落位对比（1 单位 = 1dp，卡片按 1.5 倍画，标注是真实 dp）。
+     A = v3.103 现状（角标正下方）；B = 进按钮排当第四颗；C = 第一行行尾；D = 两颗都压矮保住"正下方"。
+     系统头部按 30dp 计，收起态裁切线 146dp（本机实测过 128 不裁、164 被裁，中间没验过）。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="900" viewBox="0 0 1120 900" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1120" height="900" fill="#F2F3F5"/>
+  <text x="20" y="26" font-size="18" font-weight="bold" fill="#1A1C1E">图钉键落位四选一（真实 dp，卡片画成 1.5 倍）</text>
+  <text x="20" y="46" font-size="13" fill="#5F6368">每格左边是浅色、右边那条 6dp 宽的竖线是「三颗键的下沿」，用来看新键跟不跟谁对齐。</text>
+
+  <!-- ============ A 现状：角标正下方，整卡 138dp ============ -->
+  <g transform="translate(20,70) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="146" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp（App 名 + 时间，我们动不了）</text>
+    <!-- 第一行 -->
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="50" font-size="10" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+    <text x="62" y="66" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="66" font-size="8.5" fill="#5F6368">已暂停</text>
+    <!-- 第二行：列(28+2+24=54) 与三颗键 44，行内垂直居中 -->
+    <g transform="translate(0,78)">
+      <rect x="12" y="0" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="18" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="12" y="30" width="42" height="24" rx="6" fill="#1E88E5"/>
+      <path d="M27,36h12v4h-1.7l-1.7,2.5h-5.2L28.7,40H27z M33.6,42.5h1.8v7.5h-1.8z" fill="#FFFFFF"/>
+      <rect x="62" y="5" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="152" y="5" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="242" y="5" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <path d="M106,19 L96,27 L106,35z" fill="#1A1C1E"/>
+      <rect x="188" y="20" width="4" height="14" fill="#1A1C1E"/><rect x="196" y="20" width="4" height="14" fill="#1A1C1E"/>
+      <path d="M278,19 L288,27 L278,35z" fill="#1A1C1E"/>
+      <!-- 三颗键的下沿 = y49 -->
+      <line x1="55" y1="5" x2="335" y2="5" stroke="#B3261E" stroke-width="0.8" stroke-dasharray="3,2"/>
+      <line x1="55" y1="49" x2="335" y2="49" stroke="#B3261E" stroke-width="0.8" stroke-dasharray="3,2"/>
+    </g>
+    <rect x="0" y="0" width="340" height="138" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="20" y="292" font-size="13" font-weight="bold" fill="#1A1C1E">A 现状 · 角标正下方</text>
+  <text x="20" y="311" font-size="12" fill="#5F6368">内容 108dp → 整卡约 138dp（离 146 只剩 8dp，这一段装机没验过）</text>
+  <text x="20" y="328" font-size="12" fill="#B3261E">不齐：新键上下沿都比三颗键低 5dp 和 25dp，成了整张卡最低的东西</text>
+  <text x="20" y="345" font-size="12" fill="#5F6368">触控 42×24；好处是"正下方"这三个字完全对得上</text>
+
+  <!-- ============ B 进按钮排：整卡 128dp ============ -->
+  <g transform="translate(590,70) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="50" font-size="10" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+    <text x="62" y="66" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="66" font-size="8.5" fill="#5F6368">已暂停</text>
+    <g transform="translate(0,78)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <!-- 四颗等宽键：每颗 (328-44)/4 = 71dp，高 44 -->
+      <rect x="60" y="0" width="68" height="44" rx="6" fill="#1E88E5"/>
+      <path d="M83,12h22v6h-2.7l-2.7,4h-9.2L88.7,18H86z M93.8,22h4.4v11h-4.4z" fill="#FFFFFF"/>
+      <rect x="129" y="0" width="66" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="196" y="0" width="66" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="263" y="0" width="66" height="44" rx="6" fill="#F7F8FA"/>
+      <path d="M163,14 L153,22 L163,30z" fill="#1A1C1E"/>
+      <rect x="255" y="15" width="4" height="14" fill="#1A1C1E"/><rect x="263" y="15" width="4" height="14" fill="#1A1C1E"/>
+      <path d="M300,14 L310,22 L300,30z" fill="#1A1C1E"/>
+      <line x1="55" y1="0" x2="335" y2="0" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+      <line x1="55" y1="44" x2="335" y2="44" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="590" y="292" font-size="13" font-weight="bold" fill="#1A1C1E">B 按钮排里当第四颗（排在「上一张」左边）</text>
+  <text x="590" y="311" font-size="12" fill="#1E88E5">内容 98dp → 整卡 128dp：和升级前一模一样，146 那条风险整个消掉</text>
+  <text x="590" y="328" font-size="12" fill="#5F6368">上下沿与三颗键完全齐；触控 71×44（现在三颗是 95×44，图标不变、还是宽于高）</text>
+  <text x="590" y="345" font-size="12" fill="#5F6368">代价：不在角标正下方；左列只剩角标一颗（回到 v3.102 的样子）</text>
+
+  <!-- ============ C 第一行行尾 ============ -->
+  <g transform="translate(20,420) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <g transform="translate(0,0)">
+      <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+      <text x="62" y="50" font-size="10" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+      <text x="62" y="66" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟 · 已暂停</text>
+      <rect x="288" y="36" width="40" height="40" rx="6" fill="#1E88E5"/>
+      <path d="M301,45h14v4.5h-1.8l-1.8,2.7h-6.8L303,49.5h-2z" fill="#FFFFFF"/>
+      <rect x="306.8" y="52" width="2.4" height="10" fill="#FFFFFF"/>
+    </g>
+    <g transform="translate(0,78)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="60" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="150" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="240" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="20" y="642" font-size="13" font-weight="bold" fill="#1A1C1E">C 第一行行尾（贴着封面那一行）</text>
+  <text x="20" y="661" font-size="12" fill="#1E88E5">整卡 128dp，键 40×40 与封面同上下沿，触控最大的一档</text>
+  <text x="20" y="678" font-size="12" fill="#B3261E">但读起来像"钉住正在显示这张" —— 它管的其实是抽屉里指定的那张，容易误会</text>
+  <text x="20" y="695" font-size="12" fill="#5F6368">代价：「下次 10:39 / 已暂停」那串得从行尾挪进库名那一行中间</text>
+
+  <!-- ============ D 两颗都压矮，保住正下方 ============ -->
+  <g transform="translate(590,420) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="50" font-size="10" font-weight="bold" fill="#1A1C1E">山脊与云</text>
+    <text x="62" y="66" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="66" font-size="8.5" fill="#5F6368">已暂停</text>
+    <g transform="translate(0,78)">
+      <!-- 列 = 角标 22 + 键 22 = 44，与三颗键同上下沿 -->
+      <rect x="12" y="0" width="42" height="22" rx="5" fill="#E8EAED"/>
+      <text x="33" y="15" font-size="8.5" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="12" y="22" width="42" height="22" rx="5" fill="#1E88E5"/>
+      <path d="M28,26h10v3.5h-1.4l-1.4,2.2h-4.4L29.4,29.5H28z M32.6,29.5h1.8v7h-1.8z" fill="#FFFFFF"/>
+      <rect x="60" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="150" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="240" y="0" width="88" height="44" rx="6" fill="#F7F8FA"/>
+      <line x1="55" y1="0" x2="335" y2="0" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+      <line x1="55" y1="44" x2="335" y2="44" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+      <line x1="6" y1="0" x2="56" y2="0" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+      <line x1="6" y1="44" x2="56" y1="44" stroke="#1E88E5" stroke-width="0.8" stroke-dasharray="3,2"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="590" y="642" font-size="13" font-weight="bold" fill="#1A1C1E">D 保住"正下方"，两颗一起压矮</text>
+  <text x="590" y="661" font-size="12" fill="#1E88E5">列 = 22 + 22 = 44，与三颗键同上下沿；整卡 128dp，零风险</text>
+  <text x="590" y="678" font-size="12" fill="#B3261E">代价：角标从真机验收过的 28dp 压到 22dp（12sp 字上下只剩 3dp 余量），两颗间距 0</text>
+  <text x="590" y="695" font-size="12" fill="#5F6368">触控 42×22 —— 比 A 那一档还矮 2dp，是最小的一档</text>
+
+  <!-- ============ 底部：对齐问题的放大说明 ============ -->
+  <g transform="translate(20,745)">
+    <text x="0" y="16" font-size="13" font-weight="bold" fill="#1A1C1E">A 为什么看着别扭（这一段是 6 倍）</text>
+    <g transform="translate(0,28)">
+      <rect x="0" y="0" width="300" height="108" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <!-- 三颗键 44dp → 264px，占 y 30..294 太大；这里按 6 倍画：行高 54dp → 324，超出框，所以只画局部 -->
+      <rect x="24" y="30" width="78" height="52" fill="none" stroke="#9AA0A6" stroke-dasharray="4,3"/>
+      <text x="24" y="24" font-size="11" fill="#5F6368">三颗键 44dp（y 5..49）</text>
+      <rect x="150" y="30" width="78" height="52" fill="#1E88E5"/>
+      <text x="150" y="24" font-size="11" fill="#5F6368">新键 24dp（y 30..54）</text>
+      <line x1="12" y1="82" x2="288" y2="82" stroke="#B3261E" stroke-width="1.4" stroke-dasharray="4,3"/>
+      <line x1="12" y1="106" x2="288" y2="106" stroke="#B3261E" stroke-width="1.4" stroke-dasharray="4,3"/>
+      <text x="12" y="100" font-size="11" fill="#B3261E">红线两条：键的下沿 49 / 新键的下沿 54 —— 低 5dp，而它上沿 30 比键上沿 5 低 25dp</text>
+    </g>
+    <text x="330" y="40" font-size="12" fill="#5F6368">第二行高由三颗键的 44 变成左列的 54，</text>
+    <text x="330" y="58" font-size="12" fill="#5F6368">整行还是垂直居中，于是：</text>
+    <text x="330" y="76" font-size="12" fill="#5F6368">· 角标被推到上方，不再与三颗键同一视线</text>
+    <text x="330" y="94" font-size="12" fill="#5F6368">· 新键下沿比三颗键低 5dp，成了整张卡最低的东西</text>
+    <text x="330" y="112" font-size="12" fill="#5F6368">· 底部 padding 只有 6dp，视觉上"顶到底"</text>
+    <text x="330" y="134" font-size="12" fill="#1A1C1E">B / D 都是让新键的上下沿直接压在三颗键的线上，问题就从根上没了。</text>
+  </g>
+</svg>

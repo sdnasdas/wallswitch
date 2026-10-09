@@ -1,9 +1,11 @@
 # 一键设置（钉住一张到两面）+ 撤回 —— 契约
 
-状态：设计已定稿（用户 2026-10-09 逐条点头，图标选图钉，撤回落点选"同一颗键两态"，系统锁屏副本不做）。
+状态：v3.103（110）那颗键画成"角标正下方一颗图钉"，装机前用户判"位置不好"，v3.104（111）改成
+**标题那一行的一颗自绘开关**（左文字右开关，没配时整行不画、标题也不留）。钉/撤的链路与快照规则不变。
 改之前先读第 3、4 节 —— 顺序与"什么不进快照"是有理由的。
 
-设计图：`docs/mockups/6_notif_pin_key.svg`（真实 dp：浅色/深色、未配置态、新键 6 倍、高度账）。
+设计图：`docs/mockups/10_notif_switch_style.svg`（抽屉那颗 MaterialSwitch 做参照 + 自绘两态 + 真 Switch 的代价对照 + 落到通知里的整卡）；
+`6_notif_pin_key.svg`（图钉那一版，已废）与 `7/8/9` 三张是排查过程的记录。
 
 ## 1. 谁是权威
 
@@ -18,16 +20,31 @@
 依赖方向：`PinnedWallpaper` → `LibraryStore` / `Switcher` / `TimerScheduler` / `TakeoverManager` / `WallSwitchService`。
 四个既有类都不认识 `PinnedWallpaper` 的快照格式。
 
-## 2. 通知那颗键
+## 2. 通知那颗开关
 
-- 位置：第二行左侧那一列由「一个角标」变成「竖着叠角标(28dp) + 新键(42×24dp)」，间距 2dp。第二行高 = `max(44, 54) = 54dp`，整卡 128 → 约 **138dp**（146 是 AOSP 收起态裁切线，本机只实测过 128 不被裁 / 164 被裁）。
-- 硬约束：那一列的容器必须是 `LinearLayout`（带 `@RemoteView`）。裸 `<View>` 不在 RemoteViews 白名单里，inflate 抛错的后果是整条通知被 NMS 以 REASON_ERROR 删掉。
-- 可见性：没配 `pin_wallpaper` → `GONE`，左列回到只有角标，整卡回到 128dp。
+- 位置：**占掉原来显示壁纸标题的那一行**（封面右侧文字列的第一行）。读法照抽屉里那一排：文字在左、开关在右，
+  点击 PendingIntent 挂在行容器上（文字与图都不是监听者，不吃点击），整片 266×22dp 都是触控区。
+- 高度账：开关 22dp 高是刻意选的 —— 22 + 2 + 下面那行 16 = 40 = 与封面同高，所以**整卡还是约 128dp**，
+  与 v3.102 一分不差。（110 那一版叠在角标正下方，把第二行顶到 54dp、整卡 138dp，离 AOSP 收起态裁切线
+  146 只剩 8dp，而本机只实测过 128 不裁 / 164 被裁 —— 这一段没验过，是当时否掉它的第二条理由。）
+- 可见性：没配 `pin_wallpaper` → 整行 `GONE`。用户明确要"没选图就不显示这颗开关"，且选了 **B 档**：
+  那一行**不留标题、也不空出别的东西**，位置由封面那 40dp 兜住。
+- 样式：照抽屉里那颗 `MaterialSwitch`（M3 规格 52×32dp）等比自绘成 36×22dp —— 那颗是 androidx 的类，
+  RemoteViews 白名单只认 framework 里带 `@RemoteView` 的类，androidx 一个都进不来。
+  两份 layer-list：`notif_switch_off`（轨道 `divider`、钮在左、`text_secondary`）/ `notif_switch_on`
+  （轨道 `brand`、钮在右、`notif_on_brand_ink`）。两份必须逐条同构，只有钮的 left/right 镜像（4↔18）与两色不同。
+- 为什么不用真 `android.widget.Switch`（它确实带 `@RemoteView`，android-33/34/35 三份 jar 现查过）：
+  ① 颜色由 SystemUI 主题决定，不跟我们的 brand（MagicOS 上多半走动态取色）；② 默认 32dp 高会把封面那行
+  顶到 50dp → 整卡又回 138dp，要强压就得用 `setViewLayoutHeight` 裁一个没测过的图形；③ minSdk 26，
+  而本机只能证到 33 起有 `@RemoteView`，低版本画不出来不是少一颗开关而是**整条通知被删**；④ 它会先自己本地翻态，
+  前置检查没过时我们必须补一次重画把钮拨回来。自绘这四条全免。
 - 两态（同一条 action `NOTIF_PIN`，钉还是撤**在点击时现读**，与"通知显示哪一面"同一套同源纪律）：
-  - 浅底（现成 `notif_chip_bg`）+ 正文色图钉 = 没钉住，点 = 钉
-  - 实心 brand 底（新 `notif_pin_bg_active`）+ 白色图钉 = 已钉住，点 = 撤回
-  - 切换中：染次级色 + `setOnClickPendingIntent(id, null)` 锁掉，跟另外三颗同一把锁
-- 判据 `canUndo`：有快照 **且** 两面的槽都还指着 `pin_lib` **且** 两面 `_current` 都还是 `pin_wallpaper`。任一条不满足（含"在抽屉换了另一张"）→ 键自动落回"钉"，可幂等重钉。
+  - 钮在左 + 浅轨道 + 文字「一键设置」= 没钉住，点 = 钉
+  - 钮在右 + 实心轨道 + 文字「已钉住 · 点这里撤回」= 已钉住，点 = 撤回
+  - 切换中：文字染次级色 + 整行 `setOnClickPendingIntent(id, null)` 锁掉，跟另外三颗同一把锁；
+    开关图形**不上滤镜**（layer-list 两块实心色，`setColorFilter` 会把轨道与钮压成同一个颜色，等于把状态抹了）
+- 判据 `canUndo`：有快照 **且** 两面的槽都还指着 `pin_lib` **且** 两面 `_current` 都还是 `pin_wallpaper`。任一条不满足（含"在抽屉换了另一张"）→ 开关自动落回"没钉"，可幂等重钉。
+- 加东西时的硬约束不变：容器必须是带 `@RemoteView` 的类（`LinearLayout` 这份就是），裸 `<View>` 会让整条通知被 NMS 以 REASON_ERROR 删掉。
 
 ## 3. 钉住（apply）的契约
 
@@ -47,7 +64,7 @@
 3. `setCurrent(pin_lib, wp, 桌面)`；false 就带着 `Switcher.lastError()` 返回
 4. `setCurrent(pin_lib, wp, 锁屏)`；false **不回滚**，记下 `lock_not_applied` 继续走
 5. 两面 `setPaused(true)`
-6. 成功不弹 Toast：通知封面/标题当场变这张、「下次 …」变「已暂停」就是反馈
+6. 成功不弹 Toast：开关当场拨到右、封面变成这张、「下次 …」变「已暂停」，这三样就是反馈（标题不再显示，所以不靠文字报）
 
 不进快照、因此也不会被撤回弄坏的东西：
 - 间隔与模式 —— `setSlotLib` 只在"那一面本来是空槽"时才把库级配置继承进去，非空槽原封不动（快照照样记，兜那一面空槽的情形）
@@ -93,7 +110,7 @@
 
 ## 7. 动的文件
 
-新增 `PinnedWallpaper.java`、`ic_notif_pin.xml`、`notif_pin_bg_active.xml`；
+新增 `PinnedWallpaper.java`、`notif_switch_off.xml`、`notif_switch_on.xml`；
 改 `LibraryStore`（+1 原语）、`Switcher`（+2 原语）、`TimerScheduler`（+2：`restoreSchedule`、带首次延迟的排程内部入口）、`StatusNotifier`、`NotifActionReceiver`、`notification_status.xml`、`activity_main.xml`、`MainActivity`、`strings.xml`。
 版本号按攒批纪律留到提交时统一 +1（当前 HEAD 109/3.102，下一档 110/3.103）。
 
@@ -102,4 +119,4 @@
 - `check\check.cmd` == `== Java type check PASSED ==`（只保类型；它编的是本机真 android.jar，所以 `RemoteViews.setBackgroundResource` 这类 API 存在性它能验）
 - 新 drawable / 新 id / RemoteViews 布局都在 check.cmd 盲区 → 再跑一次 Gradle `assembleDebug` 确认 aapt2 资源链接过
 - 资源交叉检查：Java 里用到的 `R.id`/`R.drawable`/`R.string` 与 XML 逐个对上
-- 装机待验三条：138dp 会不会被裁（被裁就先收封面 40→36，再收键 24→20）、42×24 按不按得到、点完两面是否真落在那张并停住、撤回后屏上与「下次」是否回到钉之前那一档
+- 装机待验：那颗开关画得对不对（钮的位置与轨道色分不分得开、266×22 整片按不按得到）、点一下两面是否真落在那张并停住、再拨一次屏上与「下次」是否回到钉之前那一档、没选图时那一行空着好不好看。整卡高度这版回到 128dp，146 那条线不用再看

@@ -2876,7 +2876,7 @@ public class MainActivity extends AppCompatActivity {
         }, "set-home").start();
     }
 
-    // ==================== 一键设置（钉住一张到两面，通知上那颗图钉执行） ====================
+    // ==================== 一键设置（钉住一张到两面，通知标题那一行那颗开关执行） ====================
 
     /** 抽屉那一行的副标题：已选 = 「库名 · 标题」，没选过、或那张/那个库已被删 = 「未设置」。 */
     private void refreshPinnedRow() {
@@ -2889,7 +2889,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 清除一键设置的设定：只让通知上那颗图钉不再画，<b>不还原壁纸</b>；撤回快照也一并丢掉
+     * 清除一键设置的设定：只让通知上那颗开关不再画，<b>不还原壁纸</b>；撤回快照也一并丢掉
      * （入口没了就退不回去了，所以这句要说清）。想让轮播回来是按那颗暂停键，不是清这里。
      */
     private void clearPinned() {
@@ -2916,7 +2916,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 两级选图的第二级：这个库里的哪一张。点一行就落 prefs，<b>不在这里上屏</b> ——
-     * 上屏归通知那颗图钉，一次点按办一件事；选完顺手切一张等于替他做了一个他没按的动作。
+     * 上屏归通知上那颗开关，一次点按办一件事；选完顺手切一张等于替他做了一个他没按的动作。
      */
     private void showPinnedWallpaperPicker(final String libId) {
         final List<WallpaperStore.Item> items = WallpaperStore.loadByLib(this, libId);
@@ -2932,7 +2932,7 @@ public class MainActivity extends AppCompatActivity {
                 .setAdapter(new PinWallpaperAdapter(items, liveId), (dialog, which) -> {
                     PinnedWallpaper.set(this, libId, items.get(which).id);
                     refreshPinnedRow();
-                    // 那颗图钉要当场跟上（没配→画出来、已钉↔没钉都靠这次重发），别等下次切图才画
+                    // 那颗开关要当场跟上（没配→画出来、已钉↔没钉都靠这次重发），别等下次切图才画
                     StatusNotifier.update(this);
                     // 执行入口只在通知栏那颗键上：常驻通知被关掉（我们这条关了或系统总闸关了）时
                     // 那颗键根本不存在，选好等于白选，得如实说一句而不是只报"已记下"

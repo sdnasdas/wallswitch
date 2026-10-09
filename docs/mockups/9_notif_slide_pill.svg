@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 标题那一行换成「滑块胶囊」当一键设置的入口（1 单位 = 1dp，卡片 1.5 倍画）。
+     高度账（推荐档）：胶囊压到 22dp 高，文字列 = 22 + 2 + 16 = 40 = 与封面同高 →
+     内容 6+40+2+44+6 = 94... 实际是 6+40+2+44+6 = 98dp（按钮排回到三颗键的 44），+ 系统头部约 30
+     = 整卡约 128dp，与 v3.102 那一版一模一样，一分不长。
+     想要 26~28dp 高的胶囊：整卡变 132~134dp，又回到「128 实测不裁 / 164 实测被裁」之间没验过的区间。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1120" height="640" fill="#F2F3F5"/>
+  <text x="20" y="26" font-size="18" font-weight="bold" fill="#1A1C1E">一键设置 = 标题行那颗滑块胶囊（三颗键那一排原样不动）</text>
+  <text x="20" y="46" font-size="13" fill="#5F6368">上面三格是浅色三档，最右是深色档对照。胶囊宽 266dp（整行让给它），高 22dp，圆角 11dp，钮 16dp。</text>
+
+  <!-- ===== 档 1：没配（点它去抽屉选一张） ===== -->
+  <g transform="translate(20,66) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <g transform="translate(62,42)">
+      <rect x="0" y="0" width="266" height="22" rx="11" fill="none" stroke="#C9CDD3" stroke-width="1"/>
+      <circle cx="11" cy="11" r="8" fill="#DDE1E6"/>
+      <text x="133" y="15" font-size="9" fill="#9AA0A6" text-anchor="middle">未设置 · 点这里选一张</text>
+    </g>
+    <text x="62" y="76" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="76" font-size="8.5" fill="#5F6368">下次 10:39</text>
+    <g transform="translate(0,84)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="60" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="152" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="244" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="20" y="278" font-size="12" font-weight="bold" fill="#1A1C1E">① 没配：钮在最左、描边、字淡</text>
+  <text x="20" y="295" font-size="11" fill="#5F6368">点它 = 打开 App 并直接弹两级选图（不做"按了没反应"）</text>
+
+  <!-- ===== 档 2：配了没钉（点它钉上） ===== -->
+  <g transform="translate(390,66) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <g transform="translate(62,42)">
+      <rect x="0" y="0" width="266" height="22" rx="11" fill="#E8EAED"/>
+      <circle cx="11" cy="11" r="8" fill="#FFFFFF"/>
+      <text x="145" y="15" font-size="9" font-weight="bold" fill="#1A1C1E" text-anchor="middle">一键设置 · 山脊与云</text>
+    </g>
+    <text x="62" y="76" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="76" font-size="8.5" fill="#5F6368">下次 10:39</text>
+    <g transform="translate(0,84)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="60" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="152" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="244" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="390" y="278" font-size="12" font-weight="bold" fill="#1A1C1E">② 选好没钉：浅底、钮在左、字里带上那张的名字</text>
+  <text x="390" y="295" font-size="11" fill="#5F6368">点一下 → 两面钉住、停住（v3.103 那条链路原样）</text>
+
+  <!-- ===== 档 3：已钉住（点它撤回） ===== -->
+  <g transform="translate(760,66) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <g transform="translate(62,42)">
+      <rect x="0" y="0" width="266" height="22" rx="11" fill="#1E88E5"/>
+      <circle cx="255" cy="11" r="8" fill="#FFFFFF"/>
+      <text x="121" y="15" font-size="9" font-weight="bold" fill="#FFFFFF" text-anchor="middle">已钉住 · 点这里撤回</text>
+    </g>
+    <text x="62" y="76" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="76" font-size="8.5" fill="#5F6368">已暂停</text>
+    <g transform="translate(0,84)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="60" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="152" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="244" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="760" y="278" font-size="12" font-weight="bold" fill="#1A1C1E">③ 已钉住：实心主色、钮拨到右</text>
+  <text x="760" y="295" font-size="11" fill="#5F6368">再点一下 → 退回钉之前那一整套；「已暂停」是停住的直接反馈</text>
+
+  <!-- ===== 底部：深浅两档 + 机制说明 ===== -->
+  <g transform="translate(20,330)">
+    <text x="0" y="16" font-size="14" font-weight="bold" fill="#1A1C1E">胶囊本体（22dp 高，画到 10 倍）：浅底档与深色档各两态</text>
+    <g transform="translate(0,30)">
+      <rect x="0" y="0" width="600" height="60" rx="1" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <g transform="translate(20,20)"><rect x="0" y="0" width="240" height="20" rx="10" fill="#E8EAED"/><circle cx="10" cy="10" r="7" fill="#FFFFFF"/><text x="130" y="14" font-size="10" fill="#1A1C1E">没钉</text></g>
+      <g transform="translate(280,20)"><rect x="0" y="0" width="240" height="20" rx="10" fill="#1E88E5"/><circle cx="230" cy="10" r="7" fill="#FFFFFF"/><text x="110" y="14" font-size="10" fill="#FFFFFF">已钉</text></g>
+      <rect x="620" y="0" width="600" height="60" rx="1" fill="#1E2024" stroke="#D6DAE0"/>
+      <g transform="translate(640,20)"><rect x="0" y="0" width="240" height="20" rx="10" fill="#33363B"/><circle cx="10" cy="10" r="7" fill="#E6E7E9"/><text x="130" y="14" font-size="10" fill="#E6E7E9">没钉</text></g>
+      <g transform="translate(900,20)"><rect x="0" y="0" width="240" height="20" rx="10" fill="#90CAF9"/><circle cx="230" cy="10" r="7" fill="#1A1C1E"/><text x="110" y="14" font-size="10" fill="#1A1C1E">已钉</text></g>
+    </g>
+    <text x="0" y="118" font-size="12" fill="#1A1C1E">两条硬事实（本机 android.jar 现查，不是猜）：</text>
+    <text x="0" y="136" font-size="12" fill="#5F6368">· 真·拖动滑块做不了：RemoteViews 拿不到触摸流，只有 setOnClickPendingIntent / setOnClickResponse /</text>
+    <text x="0" y="152" font-size="12" fill="#5F6368">  setPendingIntentTemplate / setOnClickFillInIntent 这族，SeekBar 也没有 @RemoteView（画不出来）。</text>
+    <text x="0" y="170" font-size="12" fill="#5F6368">· 系统那个胶囊开关 <tspan font-style="italic">可以</tspan> 画：android.widget.Switch 带 @RemoteView（android-33/34/35 三份 jar 都现查过），</text>
+    <text x="0" y="186" font-size="12" fill="#5F6368">  配 setCompoundButtonChecked + setOnCheckedChangeResponse。但它是系统画的观感，且 minSdk 26 的老机器</text>
+    <text x="0" y="202" font-size="12" fill="#B3261E">  不在白名单 → inflate 抛错 = 整条通知被删（v3.83 撞过），必须按 SDK_INT 设闸。所以「形状像滑块、点一下拨过去」</text>
+    <text x="0" y="218" font-size="12" fill="#B3261E">  的自绘胶囊是零风险那一档：底色/钮色仍由我们按深浅色挑，跟旁边那颗角标同一套 notif_chip_bg 语言。</text>
+    <text x="0" y="246" font-size="12" fill="#1A1C1E">触控 266×22dp —— 比现在那颗角标（42×28）宽得多，不会重演小组件那颗胶囊"太小被否"的判决。</text>
+  </g>
+</svg>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 通知里复刻「抽屉那种开关」的三种做法对照（1 单位 = 1dp）。
+     抽屉里那颗是 androidx 的 MaterialSwitch，M3 规格是轨道 52×32dp、钮 20/24dp。
+     左边一格 = 抽屉里那颗（按 M3 尺寸，5 倍）；中间 = 通知里自绘成同一形状的两态（5 倍）；
+     右边 = 真 android.widget.Switch 在 Android 12+ 的默认占位（5 倍），它 32dp 高会把封面那一行顶高。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1120" height="700" fill="#F2F3F5"/>
+  <text x="20" y="26" font-size="18" font-weight="bold" fill="#1A1C1E">「抽屉那种开关样式」怎么进通知（三格都是 5 倍画，标注是真实 dp）</text>
+
+  <!-- ===== 参照：抽屉里那颗 MaterialSwitch（M3 52×32） ===== -->
+  <g transform="translate(40,60)">
+    <text x="0" y="0" font-size="13" font-weight="bold" fill="#1A1C1E">参照 · 抽屉里那颗</text>
+    <text x="0" y="18" font-size="11" fill="#5F6368">MaterialSwitch，M3 规格 52×32dp</text>
+    <g transform="translate(0,40)">
+      <rect x="0" y="0" width="260" height="160" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <g transform="translate(20,50)">
+        <rect x="0" y="0" width="260" height="160" fill="none"/>
+        <!-- 轨道 52×32 → 260×160 -->
+        <rect x="0" y="0" width="260" height="160" rx="80" fill="#1E88E5"/>
+        <circle cx="200" cy="80" r="60" fill="#FFFFFF"/>
+        <circle cx="200" cy="80" r="26" fill="#1E88E5"/>
+      </g>
+    </g>
+    <text x="0" y="230" font-size="11" fill="#5F6368">轨道实心主色、钮白且钮里有主色小勾</text>
+    <text x="0" y="248" font-size="11" fill="#5F6368">颜色来自 App 主题（brand）</text>
+  </g>
+
+  <!-- ===== A · 自绘成同一形状 ===== -->
+  <g transform="translate(380,60)">
+    <text x="0" y="0" font-size="13" font-weight="bold" fill="#1A1C1E">A · 自绘同一形状（推荐）</text>
+    <text x="0" y="18" font-size="11" fill="#5F6368">两份 shape  drawable，轨道 36×22、钮 14</text>
+    <g transform="translate(0,40)">
+      <rect x="0" y="0" width="300" height="160" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <g transform="translate(18,60)">
+        <rect x="0" y="0" width="180" height="110" rx="55" fill="#E8EAED"/>
+        <circle cx="55" cy="55" r="45" fill="#FFFFFF"/>
+      </g>
+      <text x="110" y="140" font-size="11" fill="#5F6368" text-anchor="middle">没钉 22dp</text>
+      <g transform="translate(170,60)">
+        <rect x="0" y="0" width="180" height="110" rx="55" fill="#1E88E5"/>
+        <circle cx="125" cy="55" r="45" fill="#FFFFFF"/>
+        <circle cx="125" cy="55" r="18" fill="#1E88E5"/>
+      </g>
+      <text x="260" y="140" font-size="11" fill="#5F6368" text-anchor="middle">已钉 22dp</text>
+    </g>
+    <text x="0" y="230" font-size="11" fill="#1A1C1E">轨道 36×22dp（抽屉那颗等比缩到 22 高）</text>
+    <text x="0" y="248" font-size="11" fill="#5F6368">钮里那个小勾用第三份 drawable 叠上去，跟抽屉一致</text>
+  </g>
+
+  <!-- ===== B · 真 Switch ===== -->
+  <g transform="translate(740,60)">
+    <text x="0" y="0" font-size="13" font-weight="bold" fill="#1A1C1E">B · 真 android.widget.Switch</text>
+    <text x="0" y="18" font-size="11" fill="#5F6368">带 @RemoteView（现查 33/34/35 都有）</text>
+    <g transform="translate(0,40)">
+      <rect x="0" y="0" width="300" height="160" rx="8" fill="#FFFFFF" stroke="#D6DAE0"/>
+      <g transform="translate(40,32)">
+        <rect x="0" y="0" width="220" height="96" rx="48" fill="#F3B33D"/>
+        <circle cx="164" cy="48" r="36" fill="#FFFFFF"/>
+      </g>
+      <text x="150" y="150" font-size="11" fill="#B3261E" text-anchor="middle">默认 32dp 高、颜色是橙的</text>
+    </g>
+    <text x="0" y="230" font-size="11" fill="#B3261E">· 颜色由 SystemUI 主题决定，不跟 brand</text>
+    <text x="0" y="248" font-size="11" fill="#B3261E">· 32dp 高把封面行顶到 50 → 整卡约 138dp</text>
+  </g>
+
+  <!-- ===== 下面：通知整卡长什么样（推荐档 A：文字在左、开关在右、整行可点） ===== -->
+  <g transform="translate(20,340) scale(1.5)">
+    <rect x="-4" y="-4" width="348" height="136" rx="12" fill="#E6E9EF"/>
+    <text x="10" y="12" font-size="8" fill="#5F6368">系统头部 30dp</text>
+    <rect x="12" y="36" width="40" height="40" rx="4" fill="#8AB4D6"/>
+    <text x="62" y="52" font-size="9.5" font-weight="bold" fill="#1A1C1E">一键设置 · 山脊与云</text>
+    <g transform="translate(286,42)">
+      <rect x="0" y="0" width="36" height="22" rx="11" fill="#1E88E5"/>
+      <circle cx="25" cy="11" r="7" fill="#FFFFFF"/>
+      <circle cx="25" cy="11" r="3" fill="#1E88E5"/>
+    </g>
+    <text x="62" y="70" font-size="8.5" fill="#5F6368">风景 · 顺序 · 每 30分钟</text>
+    <text x="252" y="70" font-size="8.5" fill="#5F6368">下次 10:39</text>
+    <g transform="translate(0,84)">
+      <rect x="12" y="8" width="42" height="28" rx="6" fill="#E8EAED"/>
+      <text x="33" y="26" font-size="9" font-weight="bold" fill="#1E88E5" text-anchor="middle">桌面</text>
+      <rect x="60" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <path d="M106,15 L96,22 L106,29z" fill="#1A1C1E"/>
+      <rect x="152" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <rect x="176" y="15" width="4" height="14" fill="#1A1C1E"/><rect x="184" y="15" width="4" height="14" fill="#1A1C1E"/>
+      <rect x="244" y="0" width="90" height="44" rx="6" fill="#F7F8FA"/>
+      <path d="M282,15 L292,22 L282,29z" fill="#1A1C1E"/>
+    </g>
+    <rect x="0" y="0" width="340" height="128" fill="none" stroke="#C9CDD3" stroke-width="0.8" rx="10"/>
+  </g>
+  <text x="20" y="552" font-size="13" font-weight="bold" fill="#1A1C1E">A 档落到通知里：文字在左、开关在右（跟抽屉那一排同一读法），整行 266×22dp 都是触控区</text>
+  <text x="20" y="571" font-size="12" fill="#1E88E5">开关 22dp 高 → 文字列 22 + 2 + 16 = 40 = 与封面同高 → 整卡约 128dp，与 v3.102 一分不差</text>
+  <text x="20" y="589" font-size="12" fill="#5F6368">第三行「风景 · 顺序 · 每 30分钟 · 下次 10:39」保持现状；角标 + 三颗键那一排原样回到 44dp</text>
+
+  <g transform="translate(590,552)">
+    <text x="0" y="14" font-size="13" font-weight="bold" fill="#1A1C1E">没选过图时（你说要直接不显示这颗开关）</text>
+    <text x="0" y="36" font-size="12" fill="#1A1C1E">A 推荐：那一行画回壁纸标题 —— 整张卡等于 v3.102，一行都不空</text>
+    <text x="0" y="54" font-size="12" fill="#5F6368">配好之后标题让位给这一行开关（「不显示标题」从这一刻起生效）</text>
+    <text x="0" y="76" font-size="12" fill="#1A1C1E">B 也可以：那一行空着 —— 整卡仍 128dp，但封面右侧只剩一行小字，缺块</text>
+    <text x="0" y="94" font-size="12" fill="#B3261E">代价两条都是"要不要留标题"这一件事，选 A 就没有空位</text>
+  </g>
+</svg>

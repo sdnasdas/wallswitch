@@ -8,7 +8,7 @@ import org.json.JSONObject;
 import java.util.List;
 
 /**
- * 「一键设置」：在抽屉里指定一张已有库里的已有壁纸，常驻通知上那颗图钉键按一下就把它同时钉到
+ * 「一键设置」：在抽屉里指定一张已有库里的已有壁纸，常驻通知标题那一行那颗开关按一下就把它同时钉到
  * 桌面和锁屏，并把两面的自动切换停在这一张上；再按一次退回钉住之前的那一整套状态。
  *
  * <h3>三样存储，都在 prefs {@code settings} 里，只有本类读写</h3>
@@ -86,7 +86,7 @@ public class PinnedWallpaper {
                 title == null || title.isEmpty() ? ctx.getString(R.string.untitled) : title);
     }
 
-    /** 配好了（两张键都在）—— 通知上那颗图钉画不画就看它，与"屏上是不是正钉着"是两回事。 */
+    /** 配好了（两张键都在）—— 通知上那颗开关画不画就看它，与"屏上是不是正钉着"是两回事。 */
     public static boolean isConfigured(Context ctx) {
         return libId(ctx) != null && wallpaperId(ctx) != null;
     }
@@ -129,7 +129,7 @@ public class PinnedWallpaper {
      * 把指定那张钉到两面，并把两面停住。前置检查任一条不过<b>不动任何状态</b>。
      * 调用方放后台线程。
      *
-     * @return 错误码，null 表示成功（成功不弹提示：通知封面与标题当场变成这张就是反馈）
+     * @return 错误码，null 表示成功（成功不弹提示：开关当场拨到右、封面变成这张、「下次」变「已暂停」就是反馈）
      */
     public static String apply(Context ctx) {
         final String libId = libId(ctx);
@@ -175,7 +175,7 @@ public class PinnedWallpaper {
      * 退回 {@link #apply} 之前那一整套：两面的槽（库/模式/间隔/暂停）、旧库那一面的进度四件套、
      * 屏上那张、以及定时那半截倒计时。调用方放后台线程。
      *
-     * @return 需要说给用户听的错误码，null 表示全部退回（成功同样不弹：通知当场变回旧封面旧标题）
+     * @return 需要说给用户听的错误码，null 表示全部退回（成功同样不弹：开关落回左档、封面当场变回旧那张）
      */
     public static String undo(Context ctx) {
         String raw = prefs(ctx).getString(KEY_UNDO, null);

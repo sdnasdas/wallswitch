@@ -16,9 +16,9 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * 常驻「音乐播放器样式」切换通知：封面 + 当前这张的标题 + 「库名 · 模式 · 每 X · 下次时间」
- * + 一颗「桌面/锁屏」角标 + 上一张/暂停·继续/下一张三颗键（{@link NotifActionReceiver}），
- * 角标正下方还挂一颗图钉 = {@link PinnedWallpaper} 的「一键设置 / 撤回」。
+ * 常驻「音乐播放器样式」切换通知：封面 + 「一键设置」那颗开关（占掉原来显示壁纸标题的那一行）
+ * + 「库名 · 模式 · 每 X · 下次时间」+ 一颗「桌面/锁屏」角标 + 上一张/暂停·继续/下一张三颗键
+ * （{@link NotifActionReceiver}）。开关那件事归 {@link PinnedWallpaper}。
  *
  * <h3>一条通知，作用面靠角标翻</h3>
  * v3.80 试过"桌面与锁屏各一条、各一个渠道"（好在系统里分别调横幅与锁屏显示），实际用下来还是嫌两条啰嗦，
@@ -95,7 +95,7 @@ public class StatusNotifier {
     private static final int REQ_NEXT = 2;
     private static final int REQ_PAUSE = 3;
     private static final int REQ_SCOPE = 4;
-    // 「一键设置」那颗图钉：钉与撤共用这一个号（动作在点击时现读，见 NotifActionReceiver）
+    // 「一键设置」那颗开关：钉与撤共用这一个号（动作在点击时现读，见 NotifActionReceiver）
     private static final int REQ_PIN = 5;
     // 切换中那张封面糊完之后的长边像素：40dp 的显示尺寸用得上 96px 就够用
     private static final int FROST_PX = 96;
@@ -202,12 +202,8 @@ public class StatusNotifier {
     /** 构建通知：一份完整视图（不提供展开态），小图标用全透明替身（见 notif_icon_transparent）。 */
     private static Notification build(Context ctx, boolean forHome, LibraryStore.Library lib, boolean busy) {
         String currentId = Switcher.getCurrent(ctx, lib.id, forHome);
-        String title = currentId == null ? null : WallpaperStore.getTitle(ctx, currentId);
-        if (title == null || title.isEmpty()) {
-            title = ctx.getString(R.string.untitled);
-        }
         Bitmap cover = currentId == null ? null : WallpaperStore.getThumb(ctx, currentId);
-        RemoteViews views = buildViews(ctx, forHome, lib, title, cover, busy);
+        RemoteViews views = buildViews(ctx, forHome, lib, cover, busy);
         Intent open = new Intent(ctx, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openPending = PendingIntent.getActivity(ctx, 0, open,
@@ -225,11 +221,10 @@ public class StatusNotifier {
                 .build();
     }
 
-    /** 通知正文视图：封面 + 标题 + 库/模式/间隔/下次切换（或「切换中…」）+ 作用面角标 + 三颗键。 */
+    /** 通知正文视图：封面 + 「一键设置」那颗开关 + 库/模式/间隔/下次切换 + 作用面角标 + 三颗键。 */
     private static RemoteViews buildViews(Context ctx, boolean forHome, LibraryStore.Library lib,
-            String title, Bitmap cover, boolean busy) {
+            Bitmap cover, boolean busy) {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.notification_status);
-        views.setTextViewText(R.id.notif_title, title);
         views.setTextViewText(R.id.notif_lib, summaryLine(ctx, forHome, lib));
         if (cover != null) {
             views.setImageViewBitmap(R.id.notif_cover, busy ? frost(cover) : cover);
@@ -266,34 +261,35 @@ public class StatusNotifier {
                 keyPending(ctx, busy, REQ_PAUSE, NotifActionReceiver.ACTION_PAUSE));
         views.setOnClickPendingIntent(R.id.notif_next,
                 keyPending(ctx, busy, REQ_NEXT, NotifActionReceiver.ACTION_NEXT));
-        bindPinKey(ctx, views, busy, tint);
+        bindOneTap(ctx, views, busy, tint);
         return views;
     }
 
     /**
-     * 「一键设置」那颗图钉（压在作用面角标正下方）：抽屉里没选过东西就整块不画 —— 画出来第二行要长
-     * 10dp（那列变成 28+2+24，第二行由 44 抬到 54），那 10dp 是拿整卡高度换的，见布局顶上那笔账。
+     * 「一键设置」那颗开关（占掉原来壁纸标题那一行）：抽屉里没选过图就整行 GONE —— 这一行不留标题，
+     * 空出来的位置由封面那 40dp 兜住，所以整卡高度与升级前一分不差。
      *
-     * <p>一颗键两个含义，靠底色分档而不是靠文字：浅底 + 正文色图钉 = 还没钉（点它去钉），
-     * 实心主色 + 反相图钉 = 已经钉上了（点它撤回）。这一对「实心 / 描边」是控制台小组件翻面卡片
-     * 已经在用的语言，不用重新学。钉还是撤由接收端在点击时现读 {@link PinnedWallpaper#canUndo}，
-     * 这里只负责把档位画对 —— 与那颗作用面角标同一个"显示与动作同源"的规矩。
+     * <p>读法照抽屉里那一排：文字在左、开关在右，点击 PendingIntent 挂在行容器上（文字与图都不是
+     * 监听者，不吃点击），所以整片 266×22dp 都是触控区。状态由「钮在左/在右 + 轨道色」表示；
+     * 钉还是撤仍在点击时现读 {@link PinnedWallpaper#canUndo}，这里只画档位 —— 与那颗作用面角标
+     * 同一套"显示与动作同源"的规矩。
+     *
+     * <p>切换中只把文字染成次级色、整行锁掉，开关图形不动：那份图是 layer-list 的两块实心色，
+     * setColorFilter 会把轨道与钮压成同一个颜色（等于把状态抹了），所以不给它上滤镜。
      */
-    private static void bindPinKey(Context ctx, RemoteViews views, boolean busy, int tint) {
+    private static void bindOneTap(Context ctx, RemoteViews views, boolean busy, int tint) {
         if (!PinnedWallpaper.isConfigured(ctx)) {
-            views.setViewVisibility(R.id.notif_pin, View.GONE);
+            views.setViewVisibility(R.id.notif_one_tap, View.GONE);
             return;
         }
         boolean pinned = PinnedWallpaper.canUndo(ctx);
-        views.setViewVisibility(R.id.notif_pin, View.VISIBLE);
-        // RemoteViews 没有 setBackgroundResource 这个直调方法（真 android.jar 现查：只有反射那一族），
-        // 走 setInt + View.setBackgroundResource(int) —— 与旁边几颗键染色的 setColorFilter 同一机制
-        views.setInt(R.id.notif_pin, "setBackgroundResource",
-                pinned ? R.drawable.notif_pin_bg_active : R.drawable.notif_chip_bg);
-        // 切换中一律落到次级色（连实心档也退下来）：那颗键此刻按不动，不该还显示成"已钉住"的亮态
-        views.setInt(R.id.notif_pin, "setColorFilter",
-                busy || !pinned ? tint : ctx.getColor(R.color.notif_pin_on_active));
-        views.setOnClickPendingIntent(R.id.notif_pin,
+        views.setViewVisibility(R.id.notif_one_tap, View.VISIBLE);
+        views.setTextViewText(R.id.notif_one_tap_label,
+                ctx.getString(pinned ? R.string.pinned_switch_on : R.string.pinned_switch_off));
+        views.setTextColor(R.id.notif_one_tap_label, tint);
+        views.setImageViewResource(R.id.notif_one_tap_switch,
+                pinned ? R.drawable.notif_switch_on : R.drawable.notif_switch_off);
+        views.setOnClickPendingIntent(R.id.notif_one_tap,
                 keyPending(ctx, busy, REQ_PIN, NotifActionReceiver.ACTION_PIN));
     }
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 常驻通知「一键设置」那颗开关的**已钉住**档：轨道填满 brand（#1E88E5 / 夜 #90CAF9），
+     圆钮拨到**右边**、颜色用 notif_on_brand_ink（浅底上是白、夜间浅蓝轨道上是深墨 —— 那一族色专管
+     "压在 brand 实心底上的东西"，两份文件都得与 notif_switch_off 逐条同构，只有钮的 left/right 镜像
+     （4↔18）和两色不同，否则两档之间会看着"跳位置"）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="36dp" android:height="22dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/brand" />
+            <corners android:radius="11dp" />
+        </shape>
+    </item>
+    <item android:left="18dp" android:top="4dp" android:right="4dp" android:bottom="4dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/notif_on_brand_ink" />
+        </shape>
+    </item>
+</layer-list>

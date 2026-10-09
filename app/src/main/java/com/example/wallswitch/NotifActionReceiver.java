@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 常驻通知上五颗键的落点：「上一张 / 暂停·继续 / 下一张」按 {@link StatusNotifier#currentScope}
  * 当时指的那一面执行 {@link Switcher#prev}/{@link Switcher#next} 或 {@link TimerScheduler#setPaused}，
  * 「桌面/锁屏」那颗角标执行 {@link StatusNotifier#toggleScope} 并立刻重画通知，
- * 角标正下方那颗图钉执行 {@link PinnedWallpaper#apply} 或 {@link PinnedWallpaper#undo}。
+ * 标题那一行那颗「一键设置」开关执行 {@link PinnedWallpaper#apply} 或 {@link PinnedWallpaper#undo}。
  * 语义与守卫跟桌面小组件、App 内卡片保持一致。
  *
  * <p>范围为什么在点击时现读、不从 intent 里带：只剩一条通知，"卡片显示哪一面"和"键打在哪一面"必须同源，
@@ -39,7 +39,7 @@ public class NotifActionReceiver extends BroadcastReceiver {
     public static final String ACTION_PAUSE = "com.example.wallswitch.NOTIF_PAUSE";
     // 常驻通知「桌面 / 锁屏」角标的 action：只翻作用面，不切图
     public static final String ACTION_SCOPE = "com.example.wallswitch.NOTIF_SCOPE";
-    // 常驻通知那颗图钉的 action：把指定那张钉到两面，或者把这一次钉退回去掉。
+    // 常驻通知那颗「一键设置」开关的 action：把指定那张钉到两面，或者把这一次钉退回去掉。
     // 两个含义共用一条 action —— 做哪件事由点击时现读 PinnedWallpaper#canUndo 决定，
     // 不塞 extras：省得"这颗 PendingIntent 到底带的是哪件事"变成第二个来源（与那颗作用角标同一本账）。
     public static final String ACTION_PIN = "com.example.wallswitch.NOTIF_PIN";
@@ -83,9 +83,11 @@ public class NotifActionReceiver extends BroadcastReceiver {
                     return;
                 }
                 if (pin) {
-                    // 那颗图钉两个含义：能退就退，退不了就钉（判据现读，见 PinnedWallpaper#canUndo）。
+                    // 那颗开关两个含义：能退就退，退不了就钉（判据现读，见 PinnedWallpaper#canUndo）。
                     // 两条都要解码 + 一次锁屏 setBitmap，几秒才落回正常态，所以一定越过 400ms 门槛、
-                    // 会看到转圈 —— 正是"按下去了、还没完"该有的样子
+                    // 会看到转圈 —— 正是"按下去了、还没完"该有的样子。
+                    // 开关图形是自绘的两份静态图，不会像真 Switch 那样先自己翻态，所以失败分支不需要
+                    // 补一次重画把钮拨回来 —— 重画只由成功路径做。
                     String error = PinnedWallpaper.canUndo(app)
                             ? PinnedWallpaper.undo(app) : PinnedWallpaper.apply(app);
                     if (error != null) {

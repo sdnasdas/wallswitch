@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 常驻通知「一键设置」那颗开关的**没钉**档：轨道用 divider 色（浅 #E8EAED / 夜 #33363B），
+     圆钮停在**左边**、用次级文字色（在浅灰轨道上够压得住）。36×22dp，钮 14dp、四周留 4dp。
+     形状照抽屉里那颗 MaterialSwitch（M3 规格 52×32dp）等比缩到 22dp 高 —— 那颗的类是 androidx 的
+     MaterialSwitch，RemoteViews 白名单只认 framework 里带 @RemoteView 的类，androidx 一个都不行，
+     所以样式只能自绘；自绘还多拿到一样：颜色仍跟我们的 brand / 夜间变体走，不受系统动态取色摆布。
+     坐标全是手算的定值（轨道 36×22 圆角 11；钮 left4/top4/right18/bottom4 → 14×14），
+     改尺寸要两处一起改（on 那份的 left/right 是镜像：18 与 4）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="36dp" android:height="22dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/divider" />
+            <corners android:radius="11dp" />
+        </shape>
+    </item>
+    <item android:left="4dp" android:top="4dp" android:right="18dp" android:bottom="4dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/text_secondary" />
+        </shape>
+    </item>
+</layer-list>
