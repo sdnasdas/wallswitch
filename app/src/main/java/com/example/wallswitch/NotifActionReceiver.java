@@ -43,8 +43,8 @@ public class NotifActionReceiver extends BroadcastReceiver {
     // 两个含义共用一条 action —— 做哪件事由点击时现读 PinnedWallpaper#canUndo 决定，
     // 不塞 extras：省得"这颗 PendingIntent 到底带的是哪件事"变成第二个来源（与那颗作用角标同一本账）。
     public static final String ACTION_PIN = "com.example.wallswitch.NOTIF_PIN";
-    // 动作跑过这么久还没完，才把通知切成「切换中…」。桌面那面 200ms 内就完事，门槛挡住的是无谓的闪一下；
-    // 锁屏那面走 setBitmap 全图解码，几秒才落回正常态，一定越过这个门槛
+    // 动作跑过这么久还没完，才把通知切成「切换中…」。门槛挡住的是无谓的闪一下：
+    // 桌面那面 200ms 内就完事；锁屏那面要等一次静态存档写入（阻塞系统调用，含框架落盘与广播）
     private static final long BUSY_DELAY_MS = 400;
 
     @Override
@@ -84,7 +84,7 @@ public class NotifActionReceiver extends BroadcastReceiver {
                 }
                 if (pin) {
                     // 那颗开关两个含义：能退就退，退不了就钉（判据现读，见 PinnedWallpaper#canUndo）。
-                    // 两条都要解码 + 一次锁屏 setBitmap，几秒才落回正常态，所以一定越过 400ms 门槛、
+                    // 两条都要跑一次桌面标脏 + 锁屏静态存档写入，后者是阻塞系统调用，越过 400ms 门槛就
                     // 会看到转圈 —— 正是"按下去了、还没完"该有的样子。
                     // 开关图形是自绘的两份静态图，不会像真 Switch 那样先自己翻态，所以失败分支不需要
                     // 补一次重画把钮拨回来 —— 重画只由成功路径做。

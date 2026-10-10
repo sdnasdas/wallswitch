@@ -1850,7 +1850,7 @@ public class MainActivity extends AppCompatActivity {
     private void applySlotLib(boolean forHome, String libId) {
         LibraryStore.setSlotLib(this, forHome, libId);
         // 桌面这一面由引擎在画：换了占位库要主动标脏，否则得等下次亮屏（onVisibilityChanged 重放）
-        // 才换成新库那张 —— 刚选完看不出动，像没生效。锁屏那面走 setBitmap，由下面的 syncTakeover 负责。
+        // 才换成新库那张 —— 刚选完看不出动，像没生效。锁屏那面走静态存档，由下面的 syncTakeover 负责。
         // 引擎没被系统选中时 ENGINES 是空的，这一声就是空响，不必额外判断。
         if (forHome) {
             WallSwitchService.notifyWallpaperChanged();
@@ -3569,7 +3569,7 @@ public class MainActivity extends AppCompatActivity {
                 WallpaperStore.delete(MainActivity.this, item.id);
                 refreshList();
                 // 删掉的若是桌面/锁屏的当前壁纸，立刻清指针并推进到下一张上屏
-                // （锁屏路径要解码 + setBitmap 系统调用，放后台线程；用 Application 上下文，
+                // （锁屏路径是阻塞的系统调用，放后台线程；用 Application 上下文，
                 //  线程可能在 Activity 销毁后才跑完）
                 new Thread(() -> Switcher.reapplyIfCurrent(getApplicationContext(), item.libId, item.id),
                         "reapply-wallpaper").start();

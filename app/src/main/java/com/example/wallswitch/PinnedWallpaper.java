@@ -52,7 +52,7 @@ public class PinnedWallpaper {
 
     /** 钉住的那张（或它所在的库）已经不在库里了。 */
     public static final String ERROR_MISSING = "pin_missing";
-    /** 桌面切上了、锁屏那一次 setBitmap 没成 —— 不回滚，两面照样停住，只如实说一句。 */
+    /** 桌面切上了、锁屏那一次静态存档写入没成 —— 不回滚，两面照样停住，只如实说一句。 */
     public static final String ERROR_LOCK_NOT_APPLIED = "lock_not_applied";
     /** 撤回时那一面本来没有占位库：槽能退回空，屏上原本那张我们手上没有副本，只能停在这张。 */
     public static final String ERROR_LOCK_LEFT_ON_SCREEN = "lock_left";

@@ -36,7 +36,7 @@ import java.util.Locale;
  * <ul>
  *   <li>桌面：引擎已激活（{@link WallSwitchService#isActive}）就是接管中；没激活就需要用户
  *       去系统选择器确认一次（{@link #RESULT_NEED_ACTIVATION}）。没有启用库时引擎显示纯色。</li>
- *   <li>锁屏：有独立锁屏库 → 用 setBitmap 设成那张；没有 → 不动（引擎已盖住锁屏）。</li>
+ *   <li>锁屏：有独立锁屏库 → 把那张的原始字节写进系统静态存档；没有 → 不动（引擎已盖住锁屏）。</li>
  *   <li>关闭途径只有一条：用户在系统设置里换成别的壁纸。本 App <b>任何路径都不再改写系统壁纸</b>
  *       （历史上 clear()/还原存档曾把系统壁纸写坏，已彻底移除）。</li>
  * </ul>
@@ -263,14 +263,12 @@ public final class TakeoverManager {
         if (file == null || !file.exists()) {
             return 0;
         }
-        Bitmap bitmap = WallpaperStore.decodeBounded(file, WallpaperStore.maxWallpaperDim(ctx));
-        if (bitmap == null) {
-            return 0;
-        }
-        try {
-            WallpaperManager wm = WallpaperManager.getInstance(ctx);
-            // 必须显式传 FLAG_LOCK：简化版 setBitmap(bitmap) 会连锁屏一起改
-            int newId = wm.setBitmap(bitmap, null, true, WallpaperManager.FLAG_LOCK);
+        // 喂原始字节：成品图本来就是按屏幕长边存好的 PNG（存量老数据可能是 JPEG，框架两种都收），
+        // 解成位图再由框架编回 PNG 等于两次整屏像素运算 + 一个十几 MB 堆峰值，白跑一圈
+        try (InputStream in = new FileInputStream(file)) {
+            // 必须显式传 FLAG_LOCK：不带 which 的三参版会连桌面一起改
+            int newId = WallpaperManager.getInstance(ctx)
+                    .setStream(in, null, true, WallpaperManager.FLAG_LOCK);
             if (newId != 0) {
                 prefs(ctx).edit()
                         .putInt(KEY_LOCK_ID, newId)
@@ -280,8 +278,6 @@ public final class TakeoverManager {
             return newId;
         } catch (Exception e) {
             return 0;
-        } finally {
-            bitmap.recycle();
         }
     }
 

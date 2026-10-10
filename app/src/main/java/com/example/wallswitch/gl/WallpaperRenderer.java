@@ -502,7 +502,7 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             // 起了播但第一帧还没到 → 往下继续画静态图。
             // 这里以前是直接 return，等于把画面空着 100~200ms（解码器出第一帧的延迟）：
             // 表面没内容时合成器会露出底下的系统静态壁纸，而系统里那份只有
-            // setBitmap(FLAG_LOCK) 写的**锁屏**图（桌面的静态兜底已按要求删掉），
+            // 静态存档写进去的**锁屏**图（桌面的静态兜底已按要求删掉），
             // 于是真机上表现为「从任何 App 回桌面，闪一下锁屏壁纸，约 1 秒后自己好」。
         }
         drawStatic();

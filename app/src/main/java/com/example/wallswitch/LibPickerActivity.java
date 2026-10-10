@@ -236,10 +236,10 @@ public class LibPickerActivity extends AppCompatActivity {
                     // 选「不切换」（newId=null）时同样标脏，让它立刻落回"没有启用库"的纯色态。
                     WallSwitchService.notifyWallpaperChanged();
                     // 引擎没被系统选中时上面那声标脏没人接得住：如实说一句，别让人以为已经换上了。
-                    // 这一句只在桌面档说 —— 锁屏走 setBitmap，跟引擎活没活无关
+                    // 这一句只在桌面档说 —— 锁屏走静态存档，跟引擎活没活无关
                     needActivate = newId != null && !WallSwitchService.isActive(app);
                 } else {
-                    // 锁屏这一面由 setBitmap 在画。不走 TakeoverManager.apply()：它开头先查桌面，
+                    // 锁屏这一面由静态存档在画。不走 TakeoverManager.apply()：它开头先查桌面，
                     // 桌面有库而引擎没激活时直接返回，刚选的锁屏库就上不了屏（"按了没反应"）
                     TakeoverManager.applyLockOnly(app);
                 }

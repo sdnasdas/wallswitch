@@ -26,8 +26,8 @@ import java.util.List;
  *       引擎未激活时<b>不做任何切换</b>，只把 {@code engine_inactive} 交给界面提示去开开关
  *       （按需求删除了原来的静态 setBitmap 兜底：那条链路只保证"系统服务存好了图"，
  *       最终显示依赖 Launcher 二次加载，正是幽灵图的来源）。</li>
- *   <li><b>锁屏</b>：引擎只认"系统壁纸"这一件事，同时盖住桌面和锁屏，无法单独控制锁屏；
- *       所以锁屏保留一次 {@code setBitmap(FLAG_LOCK)}。桌面与锁屏因此可以各自独立设置。</li>
+ *   <li><b>锁屏</b>：引擎只有一块画布，画不出与桌面不同的第二张；所以锁屏要独立就得把那张写进
+ *       系统静态存档（{@code setStream(..., FLAG_LOCK)}）。桌面与锁屏因此可以各自独立设置。</li>
  * </ul>
  */
 public class Switcher {
@@ -68,7 +68,7 @@ public class Switcher {
      */
     public static boolean next(Context ctx, String libId, boolean forHome) {
         // 「开启接管」关着 = 本 App 不接管系统壁纸：手动切换、定时切换、小组件点按一律不写系统。
-        // 这里是所有上屏路径的唯一收口（桌面引擎与锁屏 setBitmap 都在下面），拦一道即可全覆盖。
+        // 这里是所有上屏路径的唯一收口（桌面引擎与锁屏静态存档都在下面），拦一道即可全覆盖。
         if (!TakeoverManager.isEnabled(ctx)) {
             lastError = "takeover_off";
             // 别让通知/状态行沿用上一轮的旧标题，否则看起来像切成功了
@@ -254,7 +254,7 @@ public class Switcher {
     /**
      * 指针落定 + 上屏（{@link #next} 与 {@link #setCurrent} 共用）：
      * 写 _current、按范围上屏、记下这次切到的标题、刷新小组件。
-     * 桌面走引擎（未激活时如实报 engine_inactive）；锁屏走一次 setBitmap。
+     * 桌面走引擎（未激活时如实报 engine_inactive）；锁屏走一次静态存档写入。
      */
     private static boolean applyById(Context ctx, String libId, String wallpaperId, boolean forHome) {
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -302,7 +302,7 @@ public class Switcher {
 
     /**
      * 覆盖/删除某张壁纸后，把改动推上屏（v3.14）：该图若是某范围（桌面/锁屏）的当前壁纸——
-     * 覆盖：指针不变，按新文件内容重新上屏（桌面通知引擎重绘，锁屏重新 setBitmap）；
+     * 覆盖：指针不变，按新文件内容重新上屏（桌面通知引擎重绘，锁屏重新写一次静态存档）；
      * 删除：清掉指向它的指针，再推进到库里下一张。
      * 该库未启用 / 不覆盖该范围 / 接管总开关关着时只清指针、不上屏（那时它本来也不在屏上）。
      * 锁屏路径涉及解码与系统调用，调用方放后台线程。
@@ -333,7 +333,7 @@ public class Switcher {
                         WallSwitchService.notifyWallpaperChanged();
                     }
                 } else {
-                    // 系统里存的是 setBitmap(FLAG_LOCK) 时的位图副本，必须重设一次
+                    // 系统里存的是那次写进去的字节副本，改文件不会自己跟上，必须重设一次
                     TakeoverManager.setLockFromFile(ctx, full, wallpaperId);
                 }
             }

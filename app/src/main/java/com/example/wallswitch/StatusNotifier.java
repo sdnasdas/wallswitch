@@ -233,7 +233,7 @@ public class StatusNotifier {
             views.setViewVisibility(R.id.notif_cover, View.GONE);
         }
         // 切换中：封面糊掉 + 盖一层半透 veil + 转圈，不加文字。封面此时显示的已经是"即将上屏那一张"——
-        // applyById 第一件事就是写 _current，慢的是后面的 setBitmap（真机反馈与代码一致），
+        // applyById 第一件事就是写 _current，慢的是后面的那次静态存档写入（真机反馈与代码一致），
         // 糊掉正好读成"这张还没落定"，比在副标题行写「切换中…」更对得上事实
         views.setViewVisibility(R.id.notif_busy, busy ? View.VISIBLE : View.GONE);
         views.setViewVisibility(R.id.notif_cover_frost, busy && cover != null ? View.VISIBLE : View.GONE);

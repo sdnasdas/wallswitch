@@ -355,7 +355,7 @@ public class EditActivity extends AppCompatActivity {
             if (itemId != null) {
                 WallpaperStore.overwrite(this, itemId, result);
                 // 覆盖后立刻把改动推上屏（这张若是桌面/锁屏的当前壁纸），不等下一次切换。
-                // 锁屏路径要解码 + setBitmap 系统调用，放后台线程；线程会跑在 finish() 之后，
+                // 锁屏路径是阻塞的系统调用，放后台线程；线程会跑在 finish() 之后，
                 // 所以只能用 Application 上下文（拿 Activity 当 Context 会被 lint 判 context leak）
                 new Thread(() -> {
                     WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
