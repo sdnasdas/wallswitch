@@ -846,6 +846,12 @@ public class WallSwitchService extends GLWallpaperService {
                     + perfMotionFrames.get() + " 帧"
                     + "（每次约 162 帧 = 完整播完一条 2.7 秒的实况）\n"
                     + "实况诊断: " + (lastMotionDiag != null ? lastMotionDiag : "无") + "\n"
+                    // 攒真实量级用的探针（进程内累计，随进程重启归零）：判「要不要把 library.json 换成
+                    // SQLite」靠的是这两个数，不是猜 —— 缓存命中多、单次解析只有几毫秒，就说明瓶颈不在解析
+                    + "元数据表 library.json: 真解析 " + WallpaperStore.metaParses.get()
+                    + " 次 / 缓存命中 " + WallpaperStore.metaCacheHits.get() + " 次 / 解析累计 "
+                    + WallpaperStore.metaParseMs.get() + " ms（最近一次 "
+                    + WallpaperStore.metaItems + " 条、" + WallpaperStore.metaBytes + " 字节）\n"
                     + "故障诊断: " + (lastFaultDiag != null ? lastFaultDiag : "无（当前正常显示中）") + "\n"
                     + (lastFaultDiag != null
                     ? "判读: 引擎读不到当前壁纸或 GL 渲染异常（异常态）\n"

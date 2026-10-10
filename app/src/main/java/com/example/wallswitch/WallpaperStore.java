@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.BitmapRegionDecoder;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 
 import org.json.JSONArray;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 壁纸库存储层。
@@ -101,19 +103,80 @@ public class WallpaperStore {
         }
     }
 
+    /**
+     * library.json 的解析缓存。<b>文件是权威，这份缓存是派生物</b>：
+     * 命中条件是「文件长度 + 修改时间」跟上次读时一致，所以别的写路径（备份还原、别的线程）
+     * 换过文件，指纹就变、下一次自然重读。
+     *
+     * <p>为什么要它：一次手动切换的链路里这份表被解析 6~8 遍（{@code loadByLib}、{@code getTitle}、
+     * {@code TimerScheduler.switchDetail → getTitle}、{@code StatusNotifier → slotLib}、
+     * 小组件 {@code scopeThumbId}、引擎 {@code drawCurrent}），而 {@code libAdapter.setItems}
+     * 刷新库列表时是「每个库各解析一遍」。全都在同一进程内（Activity / Service / Worker / Receiver
+     * 同一个进程，备份还原也是），所以一个 static 缓存加指纹判失效就够，不需要跨进程一致。
+     *
+     * <p>为什么交出去的是新 {@code ArrayList} 而不是缓存本身：调用方会往列表里增删条目，
+     * 共享同一个 List 就把缓存改掉了。条目对象是共享的，这靠一条<b>不变量</b>兜着：
+     * 改了 {@code Item} 的字段就必须跟着调 {@link #saveLibrary}（现在三个改写点
+     * {@code setTitle}、{@code saveCropRect}、{@code migrateLegacyToLib} 都是改完立刻存），
+     * 写完回填缓存 —— 缓存里就是盘上的内容。<b>以后谁加一个"改字段不存"的调用点，就会读到
+     * 一份文件里并不存在的状态</b>，这条是这份缓存唯一的前提，别破。
+     */
+    private static volatile List<Item> cachedItems;
+    private static volatile String cachedStamp;
+
+    /** 自记探针：读盘+解析的次数、命中缓存的次数、累计耗时、最近一次的条目数与文件字节数。 */
+    public static final AtomicLong metaParses = new AtomicLong();
+    public static final AtomicLong metaCacheHits = new AtomicLong();
+    public static final AtomicLong metaParseMs = new AtomicLong();
+    public static volatile long metaBytes;
+    public static volatile int metaItems;
+
+    /** 缓存指纹：长度 + 修改时间。原子写是 rename 换文件，所以这两项一定跟着变。 */
+    private static String fileStamp(File file) {
+        return file.length() + ":" + file.lastModified();
+    }
+
+    /**
+     * 让解析缓存立刻作废。
+     *
+     * <p>给<b>不走 {@link #saveLibrary} 的写手</b>用：备份还原是把包里的 `library.json` 直接
+     * `extract` 到 filesDir 的（`BackupStore` 的还原循环里那条分支），指纹理论上会因为长度/时间变化
+     * 自己失效，但那是在赌修改时间的精度 —— 换一个明确的作废调用，不靠时序。
+     */
+    public static void invalidateCache() {
+        cachedItems = null;
+        cachedStamp = null;
+    }
+
     /** 从 library.json 读取壁纸库列表，文件不存在时返回空列表。 */
     public static List<Item> load(Context context) {
         List<Item> result = new ArrayList<>();
         File libFile = new File(context.getFilesDir(), LIB_FILE);
         if (!libFile.exists()) {
+            // 文件没了就把缓存一起抹掉：留着的话，"文件不存在"和"缓存里有内容"会同时成立
+            cachedItems = null;
+            cachedStamp = null;
             return result;
+        }
+        String stamp = fileStamp(libFile);
+        List<Item> cached = cachedItems;
+        if (cached != null && stamp.equals(cachedStamp)) {
+            metaCacheHits.incrementAndGet();
+            return new ArrayList<>(cached);
         }
         JSONArray arr;
+        byte[] raw;
+        long t0 = SystemClock.elapsedRealtime();
         try {
-            arr = MetaFiles.readJson(context, LIB_FILE, Files.readAllBytes(libFile.toPath()));
+            raw = Files.readAllBytes(libFile.toPath());
+            arr = MetaFiles.readJson(context, LIB_FILE, raw);
         } catch (Exception | OutOfMemoryError ignored) {
+            // 读不动或整份解析不出（MetaFiles 的退让救回也救不了）：不缓存，下次照样重来一遍
             return result;
         }
+        metaParseMs.addAndGet(SystemClock.elapsedRealtime() - t0);
+        metaParses.incrementAndGet();
+        metaBytes = raw.length;
         try {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.getJSONObject(i);
@@ -133,7 +196,10 @@ public class WallpaperStore {
         } catch (Exception ignored) {
             // 数组本身已经过解析（或前缀救回），单个条目缺 id 属于历史脏数据，跳过该条
         }
-        return result;
+        metaItems = result.size();
+        cachedItems = result;
+        cachedStamp = stamp;
+        return new ArrayList<>(result);
     }
 
     /** 把相册选中的图片原样复制进收件箱，返回仅带 id 与标题的条目（尚未入库）。失败时清理半截文件后再抛出。 */
@@ -929,5 +995,12 @@ public class WallpaperStore {
             arr.put(obj);
         }
         MetaFiles.writeJson(context, LIB_FILE, arr.toString());
+        // 落盘成功才回填缓存（写失败抛出去，走不到这两行）：交出去的字节就是这份表，
+        // 所以缓存与文件此刻必然一致，不用等下一次指纹比对再重读
+        File libFile = new File(context.getFilesDir(), LIB_FILE);
+        cachedItems = new ArrayList<>(items);
+        cachedStamp = fileStamp(libFile);
+        metaItems = items.size();
+        metaBytes = libFile.length();
     }
 }

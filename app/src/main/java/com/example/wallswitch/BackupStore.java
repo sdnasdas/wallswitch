@@ -245,6 +245,9 @@ public final class BackupStore {
                     r.prefsKeys += applyPrefs(context, n, readAll(zip, e));
                 }
             }
+            // 上面那条 library.json 是直接 extract 到 filesDir 的，绕过了 WallpaperStore.saveLibrary
+            // 的缓存回填 —— 这里明着作废一次，不靠"长度/修改时间总会变"去赌
+            WallpaperStore.invalidateCache();
             dropMissingImages(context);
             retagUnknownLibs(context, restoredLibIds);
             r.items = WallpaperStore.load(context).size();
