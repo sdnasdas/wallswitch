@@ -728,19 +728,25 @@ public class WallpaperStore {
     }
 
     /**
-     * 解码裁剪页源图：在像素预算内取<b>最小</b>的 2 的幂采样（采样越小越清晰），解码后不再二次缩小。
-     * 原来的 decodeBounded 会在采样之后再用 scaleToFit 缩到一个固定上限，等于把预算里还剩的
-     * 清晰度又扔掉一次 —— 这是「尽可能清晰」的关键一步。
-     * 返回位图像素数不超过 decodePixelBudget()，因此内存可控。
+     * 解码裁剪页源图：在<b>预览</b>预算内取最小的 2 的幂采样（采样越小越清晰），解码后不再二次缩小。
+     *
+     * <p>预算为什么不再是"堆的 1/16、封顶 24MP"：v3.9 起导出走 {@link #decodeRegion} 回原图取那块
+     * 原生像素，这张预览位图只剩下两件事——在屏上显示、算取景框矩形，它的像素数<b>不进成品图</b>。
+     * 按老预算，README 里那张 6736×8981 的原图会以 sample=2 解成 15MP（约 60MB）常驻编辑页，
+     * 连导几张就是几次几十兆的分配与回收；换成 {@link #cropSourceBudget} 后同一张走 sample=4，
+     * 约 3.8MP（15MB）。留 2 倍屏幕的余量，为的是铺满那一档之后稍微捏一点还有真实像素。
+     *
+     * <p>区域解码拿不到的格式（HEIF）需要更多像素，那一路由 {@link #decodeRegion} 内部的整图兜底
+     * 自己按区域算采样，不再依赖这张预览图的大小。
      */
-    public static Bitmap decodeCropSource(File file) {
+    public static Bitmap decodeCropSource(Context context, File file) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
             return null;
         }
-        long budget = decodePixelBudget();
+        long budget = cropSourceBudget(context);
         int sample = 1;
         while (pixelsAt(bounds.outWidth, bounds.outHeight, sample) > budget) {
             sample *= 2;
@@ -751,11 +757,87 @@ public class WallpaperStore {
     }
 
     /**
+     * 裁剪页预览的像素预算：屏幕像素的 2 倍，但仍不超过 {@link #decodePixelBudget()}，
+     * 免得在小屏机上把这条链的 OOM 保险一并削掉。
+     */
+    private static long cropSourceBudget(Context context) {
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        return Math.min(decodePixelBudget(), 2L * dm.widthPixels * dm.heightPixels);
+    }
+
+    /**
+     * 区域解码拿不到 {@code BitmapRegionDecoder} 时的第二条（HEIF 首当其冲——整图能解能显示，
+     * 区域解码器却不认）：整图按「区域缩到 maxDim 后仍有足够真实像素」的 2 的幂采样解一张，
+     * 再把区域映射到那张图上裁下来。
+     *
+     * <p>为什么在存储层单开一条、而不是让调用方退回"从预览图裁"：预览图现在只有屏幕 2 倍像素，
+     * 捏着放大过就撑不起 maxDim，成品图会跟着掉分辨率。坐标换算跟 {@link #decodeRegion} 同一套口径
+     * （两轴各按「解码图 / 原图」比例），两条并排放着，不在调用方另立第二套换算。
+     */
+    private static Bitmap decodeRegionFromWhole(File file, Rect region, int maxDim) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+        int fullW = bounds.outWidth;
+        int fullH = bounds.outHeight;
+        if (fullW <= 0 || fullH <= 0) {
+            return null;
+        }
+        int longest = Math.max(region.width(), region.height());
+        int sample = 1;
+        // 放粗条件与 decodeRegion 一致：再粗一倍后区域仍不低于 maxDim 就继续放粗
+        while (sample * 2L * maxDim <= longest) {
+            sample *= 2;
+        }
+        // 第二条上限按「整图」算，跟 decodeRegion 按「区域」算不一样：这条兜底解码的是整张图而不是那一块。
+        // 少了它，一张 6736×8981 的 HEIF 在铺满那一档会按 sample=1 解出 60MP（约 240MB）——直接 OOM
+        long budget = decodePixelBudget();
+        while (pixelsAt(fullW, fullH, sample) > budget) {
+            sample *= 2;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = sample;
+        Bitmap full = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+        if (full == null) {
+            return null;
+        }
+        Bitmap scaled = null;
+        try {
+            float kx = full.getWidth() / (float) fullW;
+            float ky = full.getHeight() / (float) fullH;
+            Rect src = new Rect(
+                    Math.max(0, Math.round(region.left * kx)),
+                    Math.max(0, Math.round(region.top * ky)),
+                    Math.min(full.getWidth(), Math.round(region.right * kx)),
+                    Math.min(full.getHeight(), Math.round(region.bottom * ky)));
+            if (src.width() <= 0 || src.height() <= 0) {
+                return null;
+            }
+            // 矩形正好等于整张图时 createBitmap 直接返回同一实例（省一次几十 MB 的拷贝），
+            // 所以回收要按身份判：这份像素是不是归 full 管、是不是就是最终要交出去的那份
+            Bitmap sub = Bitmap.createBitmap(full, src.left, src.top, src.width(), src.height());
+            scaled = scaleToFit(sub, maxDim);
+            if (sub != full && sub != scaled && !sub.isRecycled()) {
+                sub.recycle();
+            }
+            return scaled;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        } finally {
+            // scaled 就是 full 时（小图、没采样也没缩放）不能回收，否则交出的是废位图
+            if (scaled != full && !full.isRecycled()) {
+                full.recycle();
+            }
+        }
+    }
+
+    /**
      * 只解码原图里的某个区域：导出时按实际取景框回原图取那一块，
      * 这样「放大多少倍」都能拿到原图分辨率，不再依赖事先猜测的放大余量。
      *
      * 采样取「该区域最长边不低于 maxDim」的最小 2 的幂（越小越清晰），解完再精确缩到 maxDim。
-     * 格式不支持、区域越界等情况下返回 null，调用方回退到「从内存位图裁」。
+     * 区域解码器不认的格式（HEIF）改走 {@link #decodeRegionFromWhole}，不再向调用方报缺；
+     * 只有区域越界、文件读不动这类情况才返回 null，调用方回退到「从内存位图裁」。
      */
     public static Bitmap decodeRegion(File file, Rect region, int maxDim) {
         if (file == null || region == null || region.width() <= 0 || region.height() <= 0) {
@@ -765,7 +847,7 @@ public class WallpaperStore {
         try {
             decoder = BitmapRegionDecoder.newInstance(file.getAbsolutePath(), false);
             if (decoder == null) {
-                return null;
+                return decodeRegionFromWhole(file, region, maxDim);
             }
             int longest = Math.max(region.width(), region.height());
             int sample = 1;

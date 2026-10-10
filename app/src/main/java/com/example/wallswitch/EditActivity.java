@@ -59,6 +59,17 @@ public class EditActivity extends AppCompatActivity {
     private String inboxId;
     private String itemId;
     private String libId;
+    /**
+     * 这一次编辑落盘（新增或覆盖）的是哪一张，由 {@link #onConfirm()} 写好。
+     *
+     * <p>为什么要有它：MainActivity 回来时要把这张的缩略图缓存失效掉，否则格子里停在旧图。
+     * 原先是无条件把两个缩略图缓存整份清空，于是批量导入时每回一次 App 就把整屏格子在主线程
+     * 重解一遍 JPEG —— 只有这一次动过的那一张需要重解。
+     * 用 static 而不是 {@code setResult}：这里是普通 {@code startActivity} 进来的（编辑页可能由
+     * 收件箱队列连着开好几轮，见 MainActivity#onResume 那条 pending 分支），没有回调可接。
+     * volatile：写它的可能是确认那一下的线程，读它在另一个 Activity 的 onResume。
+     */
+    static volatile String lastTouchedId;
     // 裁剪源图文件：导入模式 = 收件箱文件；重编模式 = 库内全图
     private File sourceFile;
     // 原图像素尺寸（区域解码要把取景框映射回原图坐标）
@@ -162,7 +173,7 @@ public class EditActivity extends AppCompatActivity {
     private void startDecode() {
         setLoading(true);
         new Thread(() -> {
-            final Bitmap decoded = WallpaperStore.decodeCropSource(sourceFile);
+            final Bitmap decoded = WallpaperStore.decodeCropSource(EditActivity.this, sourceFile);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     if (decoded != null) {
@@ -358,8 +369,15 @@ public class EditActivity extends AppCompatActivity {
             // 记下这次的可见矩形，下次点格子进来就落回这里。必须排在入库/覆盖之后：
             // 导入模式的条目是 confirmImport 刚建的那一条，提前写会找不到条目
             saveCropRectIfNeeded(itemId != null ? itemId : inboxId);
+            // 落盘成功了才说"这张变过"：失败时缩略图压根没重写，让缓存跟着失效只会白解一次
+            lastTouchedId = itemId != null ? itemId : inboxId;
         } catch (Exception e) {
             Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
+        } finally {
+            // 成品图那份位图是这一次新建的，编码完再没人引用；留到 GC 就等于多占一会儿几十 MB
+            if (!result.isRecycled()) {
+                result.recycle();
+            }
         }
         finish();
     }
@@ -402,6 +420,15 @@ public class EditActivity extends AppCompatActivity {
             WallpaperStore.cancelImport(this, inboxId);
         }
         finish();
+    }
+
+    @Override
+    protected void onDestroy() {
+        // 预览那张大位图没人再画了，主动还掉（正常路径下它只是随 Activity 一起变垃圾，等 GC）
+        if (cropView != null) {
+            cropView.releaseBitmap();
+        }
+        super.onDestroy();
     }
 
     /**

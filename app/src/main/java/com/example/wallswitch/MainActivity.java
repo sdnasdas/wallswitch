@@ -742,9 +742,15 @@ public class MainActivity extends AppCompatActivity {
             openEdit(pending.get(0), currentLibId());
             return;
         }
-        // 可能在裁剪页覆盖过图：缩略图缓存清掉再刷，避免显示旧图
-        wallpaperAdapter.clearThumbs();
-        libAdapter.clearThumbs();
+        // 裁剪页这次动过哪一张，就只重解那一张的缩略图。原来是 evictAll()：批量导入时每回一次
+        // App 就把整屏格子在主线程重解一遍 JPEG（一屏十来张，每张 0.5~1MB 的解码），而其中
+        // 只有这一张真的变过
+        String touched = EditActivity.lastTouchedId;
+        if (touched != null) {
+            EditActivity.lastTouchedId = null;
+            wallpaperAdapter.evictThumb(touched);
+            libAdapter.evictThumb(touched);
+        }
         refreshCurrentPage();
     }
 
@@ -3222,6 +3228,14 @@ public class MainActivity extends AppCompatActivity {
             return decoded;
         }
 
+        /**
+         * 只失效一张（裁剪页覆盖过谁就重解谁）。刻意不 recycle 摘下来的那张：
+         * 屏幕上可能还有一个 ImageView 正拿着它，回收会画崩；交给 GC，代价只有一张。
+         */
+        void evictThumb(String id) {
+            thumbs.remove(id);
+        }
+
         void setItems(List<LibraryStore.Library> newItems) {
             rows.clear();
             for (LibraryStore.Library lib : newItems) {
@@ -3476,6 +3490,11 @@ public class MainActivity extends AppCompatActivity {
                 thumbs.put(id, decoded);
             }
             return decoded;
+        }
+
+        /** 只失效一张，理由同 {@code LibAdapter#evictThumb}。 */
+        void evictThumb(String id) {
+            thumbs.remove(id);
         }
 
         void setItems(List<WallpaperStore.Item> newItems) {

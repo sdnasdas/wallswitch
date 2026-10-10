@@ -131,7 +131,11 @@ public void restoreSourceRect(RectF rectInBitmap)
 ## 11. 已知未处理
 
 - **EXIF 旋转**：`BitmapFactory` 解码会按 EXIF 转正，而导出走的 `BitmapRegionDecoder` 按编码后的原始像素坐标解释区域（:653-674）。本期沿用现成坐标系，因此**不会新增方向问题，也不会修掉既有那条差异**。真机上如果哪天发现「带旋转信息的原图，成品图方向不对」，那是既有行为，单独一期修。
-- **HEIF 原图**：`decodeCropSource` 能解能显示，但 `BitmapRegionDecoder` 不支持区域解码 → 导出走现成兜底 `cropView.export(maxDim)`（`EditActivity.java:150-153`），清晰度略低于 JPEG 原图路径。参数照常有效（矩形语义与原图坐标无关）。
+- **HEIF 原图**：`decodeCropSource` 能解能显示，但 `BitmapRegionDecoder` 不支持区域解码。这条路现在由
+  `WallpaperStore.decodeRegionFromWhole()` 接住——整图按「区域缩到 maxDim 后仍够真实像素」的采样解一张
+  再裁，坐标口径与区域解码同一套，所以 HEIF 的成品图不再退到"从预览图裁"（预览图现在只有屏幕 2 倍像素，
+  放大过就撑不起 maxDim）。只有连整图解码都失败时，才落到 `cropView.export(maxDim)` 那最后一档。
+  参数照常有效（矩形语义与原图坐标无关）。
 - 壁纸被删了但导出目录里的副本留着 —— 今天就这样，本期不动。
 
 ## 12. 验收用例（真机手工，无 adb）

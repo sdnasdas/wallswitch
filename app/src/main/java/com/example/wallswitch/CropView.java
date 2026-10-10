@@ -77,6 +77,21 @@ public class CropView extends View {
         invalidate();
     }
 
+    /**
+     * 释放编辑用位图（页面销毁时调用）。
+     *
+     * <p>为什么不等 GC：这张图按屏幕像素 2 倍的预算解码，量级是十几到几十 MB，
+     * 而页面一关就再没人画它。导出用的位图是 {@link #export} 或区域解码各自新建的，
+     * 不共享这里的像素，所以回收它不会碰到成品图那份数据。
+     */
+    public void releaseBitmap() {
+        if (bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
+        bitmap = null;
+        matrixReady = false;
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
