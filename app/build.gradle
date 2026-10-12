@@ -23,8 +23,8 @@ android {
         // 免得装机时出现两个内容不同却同名的包
         // 110/3.103 是「一键设置」那颗图钉叠在角标正下方那一版（整卡被顶到 138dp，位置也没定好），
         // 已改成标题那一行的自绘开关 —— 110 那个包同样不回收
-        versionCode 116
-        versionName "3.109"
+        versionCode 117
+        versionName "3.110"
     }
 
     signingConfigs {
@@ -68,4 +68,13 @@ dependencies {
     implementation 'androidx.activity:activity:1.9.3'
     // 定时切换后端：≥15 分钟间隔用 WorkManager（系统批量合并、Doze 友好、自动重启恢复）
     implementation 'androidx.work:work-runtime:2.9.1'
+    // 本地单测：原 check/ 下的纯 JVM 夹具 2026-10-12 挪进 app/src/test 走 Gradle
+    // （junit4 跑断言；org.json 必须给真依赖 —— android.jar 里的 org.json 在单测里
+    //  会抛 "not mocked"，用不了）
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    // stax-api：AGP 把 android.jar 当 bootclasspath，里面没有 javax.xml.stream
+    // （Android 用 XmlPullParser），而夹具复刻的 SharedPreferences 落盘解析在 JVM 上
+    // 用 StAX 跑。仅编译期需要（运行期 JDK 的 java.xml 模块提供，classpath 不生效）。
+    testImplementation 'javax.xml.stream:stax-api:1.0-2'
 }

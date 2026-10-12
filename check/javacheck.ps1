@@ -1,8 +1,11 @@
-# 本地 Java 类型检查：JDK17 + 本机 android.jar + androidx 桩类型（无需 Gradle/完整 SDK）
+# 本地 Java 类型检查（应急层）：JDK17 + 本机 android.jar + androidx 桩类型。
+# 日常检查已改用 check\gradlecheck.cmd（Gradle 分层验收）—— 那条路线覆盖更全
+# （真依赖、真 R 按 XML 生成、SDK 35、警告可见）且更快。本脚本只在 Gradle 起不来时兜底，
+# 注意它抓不到资源/manifest/真依赖差异，R 桩也不看 XML。
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File check\javacheck.ps1
 $ErrorActionPreference = 'Continue'
 $javac = 'C:\Users\EDY\.jdks\corretto-17.0.20.1\bin\javac.exe'
-$androidJar = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platforms\android-34\android.jar'
+$androidJar = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platforms\android-35\android.jar'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $root '..\app\src\main\java'
 $wallSrc = Join-Path $src 'com\example\wallswitch'
@@ -52,7 +55,6 @@ $javacArgs = @(
     '-J-Duser.country=US',
     '-proc:none',
     '-encoding', 'UTF-8',
-    '-nowarn',
     '-d', (Join-Path $work 'out'),
     '-cp', $androidJar,
     '-sourcepath', "$src;$(Join-Path $work 'stubs');$stubs"
