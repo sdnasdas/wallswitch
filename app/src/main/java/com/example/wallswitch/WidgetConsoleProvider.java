@@ -134,9 +134,9 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
     // 每种格位自带：向哪个 provider 递交、用哪份布局、横竖各几格、两向各自的固定开销 dp。
     // 竖版：横向 2 格 = 内边距 8 + 外侧留白 6 + 列间距 18 → 32dp；纵向 3 行 = 内边距 8 + 6×3 → 26dp。
     // 横版：横向 3 格 = 内边距 8 + 外侧留白 6 + 两处列间距 36 → 50dp；纵向 2 行 = 内边距 8 + 6×2 → 20dp。
-    private static final Spec SPEC_CONSOLE = new Spec("竖", WidgetConsoleProvider.class,
+    private static final Spec SPEC_CONSOLE = new Spec(WidgetConsoleProvider.class,
             R.layout.widget_console, 2, 3, 32, 26);
-    private static final Spec SPEC_CONSOLE_WIDE = new Spec("横", WidgetConsoleWideProvider.class,
+    private static final Spec SPEC_CONSOLE_WIDE = new Spec(WidgetConsoleWideProvider.class,
             R.layout.widget_console_wide, 3, 2, 50, 20);
     /** 渲染时依次递交这两份视图；没摆上桌面的那份在 getAppWidgetIds 那步就跳过，连解码都不做。 */
     private static final Spec[] SPECS = {SPEC_CONSOLE, SPEC_CONSOLE_WIDE};
@@ -169,7 +169,6 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
      * 只是那一格静默不动）。
      */
     private static final class Spec {
-        final String label;
         final Class<?> provider;
         final int layoutRes;
         final int cols;
@@ -177,9 +176,8 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
         final int hSpareDp;
         final int vSpareDp;
 
-        Spec(String label, Class<?> provider, int layoutRes, int cols, int rows,
+        Spec(Class<?> provider, int layoutRes, int cols, int rows,
              int hSpareDp, int vSpareDp) {
-            this.label = label;
             this.provider = provider;
             this.layoutRes = layoutRes;
             this.cols = cols;
@@ -362,53 +360,6 @@ public class WidgetConsoleProvider extends AppWidgetProvider {
             return min;
         }
         return Math.min(min, max);
-    }
-
-    /**
-     * 【一次性探针，验完删】把桌面报回来的原始数与算式结果拼成几行短字，由 App 开屏时弹出来。
-     *
-     * <p>它已经立过一次功：真机两张图证明 {@code OPTION_APPWIDGET_MIN_*} 报的就是<b>当前占位</b>
-     * （3×2 时 224x132、拉到整屏时 304x428，跟着占位变），所以 MIN/MAX 的语义、{@link #slotDp}
-     * 取小的那个、{@code onAppWidgetOptionsChanged} 有没有来 —— 三条都不是根因。
-     * 真凶是 {@link #render} 里拿地板值当 {@code Math.min} 的种子，等于给边长加了个 44dp 的假上限。
-     *
-     * <p>这一版留着它只为确认修完之后的数（3×2 那档应该是 格 56dp、卡 218x132）。
-     * 删除清单：本方法、{@code Spec#label}（只为这行输出而加）、MainActivity 里调它并弹 Toast 那一段。
-     */
-    static String diagnose(Context ctx) {
-        AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
-        StringBuilder sb = new StringBuilder();
-        for (Spec spec : SPECS) {
-            int[] ids = manager.getAppWidgetIds(new ComponentName(ctx, spec.provider));
-            if (ids == null || ids.length == 0) {
-                continue;
-            }
-            for (int id : ids) {
-                Bundle o;
-                try {
-                    o = manager.getAppWidgetOptions(id);
-                } catch (Exception ignored) {
-                    o = null;
-                }
-                if (o == null) {
-                    sb.append(spec.label).append(" bundle=null\n");
-                    continue;
-                }
-                int minW = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH);
-                int maxW = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH);
-                int minH = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT);
-                int maxH = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT);
-                int cell = cellDpFor(manager, id, spec);
-                // 每行都压到 14 字符以内：MagicOS 的 Toast 按行裁，上一版第二行 "max 408x5..." 就是
-                // 被横向截断的（长行看不到数，等于白弹）
-                sb.append(spec.label).append(" min").append(minW).append('x').append(minH).append('\n')
-                        .append("max").append(maxW).append('x').append(maxH).append('\n')
-                        .append("格").append(cell).append("dp 卡")
-                        .append(spec.hSpareDp + spec.cols * cell).append('x')
-                        .append(spec.vSpareDp + spec.rows * cell).append('\n');
-            }
-        }
-        return sb.toString();
     }
 
     /** 构建六格视图：深浅色两档外观 + 图标态 + 当前范围的缩略图 + 各格的点按目标 + 算出来的格子边长。

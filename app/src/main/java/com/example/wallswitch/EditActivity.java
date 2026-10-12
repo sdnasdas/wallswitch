@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.File;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * 编辑页：全屏手势裁剪。两种模式：
@@ -86,6 +87,8 @@ public class EditActivity extends AppCompatActivity {
     private TextView noticeText;
     private View noticeLinkButton;
     private ActivityResultLauncher<PickVisualMediaRequest> linkOriginalLauncher;
+    /** 确认落盘是否在跑：跑着的时候再次确认/取消/关联原图都不接新活。 */
+    private volatile boolean confirmRunning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -249,17 +252,11 @@ public class EditActivity extends AppCompatActivity {
      * 只在源是原图时写：换算用的是「原图 / 解码位图」的比例，源换成成品图时这套比例对不上，
      * 记下来的矩形读回来会给出错误构图。
      */
-    private void saveCropRectIfNeeded(String id) {
+    private void saveCropRectIfNeeded(String id, RectF visible, int srcW, int srcH) {
         if (!sourceIsOriginal || originalWidth <= 0 || originalHeight <= 0) {
             return;
         }
-        int srcW = cropView.getSourceWidth();
-        int srcH = cropView.getSourceHeight();
         if (srcW <= 0 || srcH <= 0) {
-            return;
-        }
-        RectF visible = new RectF();
-        if (!cropView.getVisibleSourceRect(visible)) {
             return;
         }
         // 与 exportByRegion 同一套换算（两轴分别算，避开 inSampleSize 向上取整的偏差），再夹回原图范围
@@ -282,7 +279,7 @@ public class EditActivity extends AppCompatActivity {
      * `docs/reedit-from-original-design.md` 的「§6.1 以后删这一条时要动哪几处」。
      */
     private void pickOriginalForLinking() {
-        if (itemId == null || linkOriginalLauncher == null) {
+        if (confirmRunning || itemId == null || linkOriginalLauncher == null) {
             return;
         }
         PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
@@ -332,31 +329,61 @@ public class EditActivity extends AppCompatActivity {
         }
     }
 
+    /** 取消按钮置灰：确认落盘跑着的几秒里不接取消，避免与后台线程抢收件箱文件。 */
+    private void setCancelEnabled(boolean enabled) {
+        View cancel = findViewById(R.id.btn_cancel);
+        if (cancel != null) {
+            cancel.setEnabled(enabled);
+        }
+    }
+
     /**
      * 确认：按当前取景框做区域解码（回原图取那一块）。
      * 导入模式入库为新壁纸；重编模式覆盖原壁纸文件（保留 id/标题/归属库）。
      * 区域解码拿不到（格式不支持等）时回退到「从内存位图裁」，再不行才报失败。
+     *
+     * <p>v3.114 起整条落盘链（区域解码 + PNG 无损编码 + 缩略图）搬后台线程：这是数秒级重活，
+     * 主线程陪跑就是「点确认卡两三秒」。取景框在这里先量好再交给后台 ——
+     * {@link #exportByRegion}/{@link #saveCropRectIfNeeded} 都要读视图状态，后台线程不摸视图。
      */
     private void onConfirm() {
-        Bitmap result = exportByRegion();
-        if (result == null) {
-            result = cropView.export(maxDim);
-        }
-        if (result == null) {
-            Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
-            if (itemId == null) {
-                WallpaperStore.cancelImport(this, inboxId);
-            }
-            finish();
+        if (confirmRunning) {
             return;
         }
+        confirmRunning = true;
+        setLoading(true);
+        setCancelEnabled(false);
+        RectF visible = new RectF();
+        boolean hasVisible = cropView.getVisibleSourceRect(visible);
+        int srcW = cropView.getSourceWidth();
+        int srcH = cropView.getSourceHeight();
         final Context appCtx = getApplicationContext();
+        new Thread(() -> confirmInBackground(appCtx, visible, hasVisible, srcW, srcH),
+                "edit-confirm").start();
+    }
+
+    /** 落盘链主体（后台线程）：导出 → 入库/覆盖 → 记构图，收尾回主线程报结果并关页。 */
+    private void confirmInBackground(Context appCtx, RectF visible, boolean hasVisible,
+                                     int srcW, int srcH) {
+        Bitmap result = hasVisible ? exportByRegion(visible, srcW, srcH) : null;
+        if (result == null) {
+            result = cropFallbackOnUi();
+        }
+        boolean saved = false;
+        String touchedId = null;
         try {
-            if (itemId != null) {
-                WallpaperStore.overwrite(this, itemId, result);
+            if (result == null) {
+                // 两条导出路都失败：导入模式把收件箱丢掉，与取消同一口径
+                if (itemId == null) {
+                    WallpaperStore.cancelImport(appCtx, inboxId);
+                }
+            } else if (itemId != null) {
+                WallpaperStore.overwrite(appCtx, itemId, result);
+                touchedId = itemId;
+                saved = true;
                 // 覆盖后立刻把改动推上屏（这张若是桌面/锁屏的当前壁纸），不等下一次切换。
-                // 锁屏路径是阻塞的系统调用，放后台线程；线程会跑在 finish() 之后，
-                // 所以只能用 Application 上下文（拿 Activity 当 Context 会被 lint 判 context leak）
+                // 锁屏路径是阻塞的系统调用，放独立线程；用的是 Application 上下文
+                //（拿 Activity 当 Context 会被 lint 判 context leak）
                 new Thread(() -> {
                     WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
                     if (item != null && item.libId != null && !item.libId.isEmpty()) {
@@ -364,40 +391,71 @@ public class EditActivity extends AppCompatActivity {
                     }
                 }, "reapply-wallpaper").start();
             } else {
-                WallpaperStore.confirmImport(this, inboxId, result, libId);
+                WallpaperStore.confirmImport(appCtx, inboxId, result, libId);
+                touchedId = inboxId;
+                saved = true;
             }
             // 记下这次的可见矩形，下次点格子进来就落回这里。必须排在入库/覆盖之后：
             // 导入模式的条目是 confirmImport 刚建的那一条，提前写会找不到条目
-            saveCropRectIfNeeded(itemId != null ? itemId : inboxId);
-            // 落盘成功了才说"这张变过"：失败时缩略图压根没重写，让缓存跟着失效只会白解一次
-            lastTouchedId = itemId != null ? itemId : inboxId;
+            if (saved) {
+                saveCropRectIfNeeded(touchedId, visible, srcW, srcH);
+            }
         } catch (Exception e) {
-            Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
+            saved = false;
         } finally {
             // 成品图那份位图是这一次新建的，编码完再没人引用；留到 GC 就等于多占一会儿几十 MB
-            if (!result.isRecycled()) {
+            if (result != null && !result.isRecycled()) {
                 result.recycle();
             }
         }
-        finish();
+        // 落盘成功了才说"这张变过"：失败时缩略图压根没重写，让缓存跟着失效只会白解一次
+        if (saved) {
+            lastTouchedId = touchedId;
+        }
+        final boolean ok = saved;
+        runOnUiThread(() -> {
+            confirmRunning = false;
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (!ok) {
+                Toast.makeText(this, R.string.save_failed, Toast.LENGTH_SHORT).show();
+            }
+            finish();
+        });
+    }
+
+    /**
+     * 内存裁剪回退：要摸 cropView 的位图与矩阵，跳回主线程做（latch 同步等它跑完）。
+     * 页面已销毁（确认途中用户按了返回）时返回 null，由失败分支收口。
+     */
+    private Bitmap cropFallbackOnUi() {
+        final Bitmap[] out = new Bitmap[1];
+        final CountDownLatch done = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                if (!isFinishing() && !isDestroyed()) {
+                    out[0] = cropView.export(maxDim);
+                }
+            } finally {
+                done.countDown();
+            }
+        });
+        try {
+            done.await();
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        return out[0];
     }
 
     /**
      * 区域解码导出：把「当前可见区域」从解码图坐标映射回原图坐标，直接从原图取那一块。
      * 放得越大，可见区域在原图上越小 —— 但取的是原图原生像素，所以始终能给出满屏幕分辨率，
-     * 不再受「事先解码了一张多大的图」限制。
+     * 不再受「事先解码了一张多大的图」限制。取景框与解码图尺寸由调用方（主线程）量好传入。
      */
-    private Bitmap exportByRegion() {
-        if (originalWidth <= 0 || originalHeight <= 0) {
-            return null;
-        }
-        int srcW = cropView.getSourceWidth();
-        int srcH = cropView.getSourceHeight();
-        if (srcW <= 0 || srcH <= 0) {
-            return null;
-        }
-        RectF visible = new RectF();
-        if (!cropView.getVisibleSourceRect(visible)) {
+    private Bitmap exportByRegion(RectF visible, int srcW, int srcH) {
+        if (originalWidth <= 0 || originalHeight <= 0 || srcW <= 0 || srcH <= 0) {
             return null;
         }
         // 解码图 → 原图：两轴各自换算，避开 inSampleSize 向上取整带来的偏差
@@ -416,6 +474,10 @@ public class EditActivity extends AppCompatActivity {
 
     /** 取消：导入模式丢弃收件箱文件；重编模式不动任何文件，直接返回。 */
     private void onCancel() {
+        if (confirmRunning) {
+            // 落盘跑着的时候不接取消：几秒后确认链自己收尾，页面照关
+            return;
+        }
         if (itemId == null) {
             WallpaperStore.cancelImport(this, inboxId);
         }
