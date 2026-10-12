@@ -2,6 +2,7 @@ name: Build APK
 
 on:
   push:
+    branches: [main]
   workflow_dispatch:
 
 # 发滚动 Release 需要写权限；不显式声明的话默认 GITHUB_TOKEN 可能只有读权限
