@@ -1,3 +1,7 @@
+package com.example.wallswitch.check;
+
+import org.junit.Test;
+
 /**
  * 裁剪矩形往返（本期唯一一处「写错也不报错」的数学）。
  *
@@ -14,34 +18,27 @@
  * 那只会让断言在骗后来人。
  *
  * android.jar 里的 Matrix/RectF 在 JVM 上一调用就抛 Stub!，所以这里用纯 double 复刻同一套算式。
- * 改了生产代码那三段换算，记得同步这里（与 BackupRoundtripTest 同一套约定）。
- * 跑法：check/croprect.cmd。输出保持纯 ASCII —— 本机控制台是 GBK。
+ * 改了生产代码那三段换算，记得同步这里（与 BackupPrefsParseTest 同一套约定）。
+ *
+ * <p>2026-10-12 从 check/ 挪进 Gradle 单测：原「main + pass/fail 计数器」跑法改为
+ * JUnit，near/check 助手失败即抛 AssertionError（带原消息格式）。
  */
 public class CropRectTest {
-
-    static int pass = 0;
-    static int fail = 0;
 
     /** 与 CropView.MAX_SCALE_FACTOR 一致 */
     static final double MAX_SCALE_FACTOR = 8d;
 
     static void near(String what, double expect, double actual, double tol) {
         double diff = Math.abs(expect - actual);
-        if (diff <= tol) {
-            pass++;
-        } else {
-            fail++;
-            System.out.println("FAIL " + what + ": expect " + fmt(expect)
+        if (diff > tol) {
+            throw new AssertionError("FAIL " + what + ": expect " + fmt(expect)
                     + " actual " + fmt(actual) + " diff " + fmt(diff) + " tol " + fmt(tol));
         }
     }
 
     static void check(String what, boolean ok) {
-        if (ok) {
-            pass++;
-        } else {
-            fail++;
-            System.out.println("FAIL " + what);
+        if (!ok) {
+            throw new AssertionError("FAIL " + what);
         }
     }
 
@@ -138,25 +135,45 @@ public class CropRectTest {
     static final int ORIG_W = 4032, ORIG_H = 3024;
     static final int BMP_W = 2016, BMP_H = 1512;
 
-    public static void main(String[] args) {
-        // 1) 刚进页面的 fit-cover 默认态，居中
+    /** 1) 刚进页面的 fit-cover 默认态，居中 */
+    @Test
+    public void coverCenter() {
         fromView("cover-center", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 1, 0.5, 0.5);
-        // 2) 同一个默认态但贴左上角（默认态下左右还有可挪余量时）
-        fromView("cover-topleft", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 1, 0, 0);
-        // 3) 捏到 3 倍、居中 —— 「稍微高一点矮一点」的微调日常就落在这附近
-        fromView("zoom-3x-center", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 3, 0.5, 0.42);
-        // 4) 捏到上限 8 倍并贴右下边界：clampTranslate 起作用 + round2 误差最大的现场
-        fromView("zoom-8x-bottomright", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 8, 1, 1);
-        // 5) 原图没被降采样（小图 / kx=ky=1），确认这条退化路径也精确往返
-        fromView("no-resample", 1080, 2400, 1080, 2400, VIEW_W, VIEW_H, 1.6, 0.25, 0.75);
-        // 6) 超宽原图 6000x4000 被解成 3000x2000：横向余量大，贴左边缘
-        fromView("wide-orig", 6000, 4000, 3000, 2000, VIEW_W, VIEW_H, 2, 0, 0.5);
-        // 7) 竖长原图（比取景框还窄）：cover 由高度决定，左右反而没余量
-        fromView("narrow-orig", 2000, 5000, 1000, 2500, VIEW_W, VIEW_H, 1, 0.5, 0.2);
+    }
 
-        System.out.println("== crop rect: " + pass + " passed, " + fail + " failed ==");
-        if (fail > 0) {
-            System.exit(1);
-        }
+    /** 2) 同一个默认态但贴左上角（默认态下左右还有可挪余量时） */
+    @Test
+    public void coverTopleft() {
+        fromView("cover-topleft", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 1, 0, 0);
+    }
+
+    /** 3) 捏到 3 倍、居中 —— 「稍微高一点矮一点」的微调日常就落在这附近 */
+    @Test
+    public void zoom3xCenter() {
+        fromView("zoom-3x-center", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 3, 0.5, 0.42);
+    }
+
+    /** 4) 捏到上限 8 倍并贴右下边界：clampTranslate 起作用 + round2 误差最大的现场 */
+    @Test
+    public void zoom8xBottomright() {
+        fromView("zoom-8x-bottomright", ORIG_W, ORIG_H, BMP_W, BMP_H, VIEW_W, VIEW_H, 8, 1, 1);
+    }
+
+    /** 5) 原图没被降采样（小图 / kx=ky=1），确认这条退化路径也精确往返 */
+    @Test
+    public void noResample() {
+        fromView("no-resample", 1080, 2400, 1080, 2400, VIEW_W, VIEW_H, 1.6, 0.25, 0.75);
+    }
+
+    /** 6) 超宽原图 6000x4000 被解成 3000x2000：横向余量大，贴左边缘 */
+    @Test
+    public void wideOrig() {
+        fromView("wide-orig", 6000, 4000, 3000, 2000, VIEW_W, VIEW_H, 2, 0, 0.5);
+    }
+
+    /** 7) 竖长原图（比取景框还窄）：cover 由高度决定，左右反而没余量 */
+    @Test
+    public void narrowOrig() {
+        fromView("narrow-orig", 2000, 5000, 1000, 2500, VIEW_W, VIEW_H, 1, 0.5, 0.2);
     }
 }

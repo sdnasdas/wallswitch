@@ -1,56 +1,47 @@
 package com.example.wallswitch.gl;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 /**
  * 实况段定位与取景框换算（本期唯一一处「写错也不报错」的字节算术）。
  *
- * <p>和 CropRectTest / BackupRoundtripTest 不同，这里**不复刻算式，直接编译生产源码**：
+ * <p>和 CropRectTest / BackupPrefsParseTest 不同，这里**不复刻算式，直接测生产源码**：
  * {@link MotionSource} 刻意只用 java.io / java.util，不 import 任何 android 类型，
- * 所以夹具能把真文件一起 javac 进来跑断言。复刻就有两处定义、就会漂，能避免就避免。
+ * 所以断言跑的是真代码而不是副本。复刻就有两处定义、就会漂，能避免就避免。
+ * （方法可见性是包级，所以本夹具留在 {@code com.example.wallswitch.gl} 包内。）
  *
  * <p>样本 B 是真机数据：小红书存下来的实况，走微信「文件」通道取回，2,140,607 字节，
  * JPEG 封面 1440x1920（1,341,120 字节，含 EOI）+ MP4 799,447 字节 + 40 字节 trailer
  * {@code "0:1000" + "LIVE_799447"}。下面这些数字全是从那个文件上实测出来的，别顺手改。
  *
- * <p>跑法：{@code check/motion.cmd}。输出保持纯 ASCII —— 本机控制台是 GBK。
+ * <p>2026-10-12 从 check/ 挪进 Gradle 单测：原「main + pass/fail 计数器」跑法改为
+ * JUnit（gradle testDebugUnitTest），不再需要 motion.cmd 把生产源码和夹具一起 javac。
  */
 public class MotionParseTest {
-
-    static int pass = 0;
-    static int fail = 0;
 
     /** 样本 B 的真实数字。 */
     static final long SAMPLE_SIZE = 2140607L;
     static final long SAMPLE_VIDEO_START = 1341120L;
     static final long SAMPLE_VIDEO_LEN = 799447L;
 
-    public static void main(String[] args) {
-        trailerRealSample();
-        trailerRejects();
-        xmpBothOrdersAndLegacy();
-        ftypScan();
-        cropRectCrossResolution();
-        cropForViewport();
-        System.out.println();
-        System.out.println("== MotionSource: " + pass + " passed, " + fail + " failed ==");
-        if (fail > 0) {
-            System.exit(1);
-        }
-    }
-
     // ---- ① 尾部 trailer ---------------------------------------------------------------
 
-    static void trailerRealSample() {
+    @Test
+    public void trailerRealSample() {
         long[] r = MotionSource.parseTrailer(bytes(trailerOf("LIVE_" + SAMPLE_VIDEO_LEN)),
                 SAMPLE_SIZE);
         range("trailer/真样本", r, SAMPLE_VIDEO_START, SAMPLE_VIDEO_LEN);
-        System.out.println("  [ok]   trailer/真样本  起点 = 文件大小 - 40 - N = "
-                + (SAMPLE_SIZE - 40 - SAMPLE_VIDEO_LEN));
-        pass++;
     }
 
-    static void trailerRejects() {
+    @Test
+    public void trailerRejects() {
         // 普通 JPEG 的最后 40 字节（熵编码数据），不该被认成 trailer
         byte[] junk = new byte[40];
         for (int i = 0; i < 40; i++) {
@@ -71,7 +62,8 @@ public class MotionParseTest {
 
     // ---- ② XMP（Google 动态照片 1.0 与旧 Microvideo） -----------------------------------
 
-    static void xmpBothOrdersAndLegacy() {
+    @Test
+    public void xmpBothOrdersAndLegacy() {
         String xmp = "<x:xmpmeta><Container:Directory><Seq>"
                 + "<li><rdf:Seq>"
                 + "<rdf:li Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/>"
@@ -113,7 +105,8 @@ public class MotionParseTest {
 
     // ---- ③ 扫 ftyp ---------------------------------------------------------------------
 
-    static void ftypScan() {
+    @Test
+    public void ftypScan() {
         byte[] jpeg = new byte[1000];
         jpeg[0] = (byte) 0xFF;
         jpeg[1] = (byte) 0xD8;
@@ -139,7 +132,8 @@ public class MotionParseTest {
 
     // ---- ④ 取景框：跨分辨率必须一致 ------------------------------------------------------
 
-    static void cropRectCrossResolution() {
+    @Test
+    public void cropRectCrossResolution() {
         // 原图 1440x1920 上取 (360,480)-(1080,1440)：归一化后与帧的实际分辨率无关
         float[] n = MotionSource.normalizedRect(new float[]{360f, 480f, 1080f, 1440f},
                 1440, 1920);
@@ -159,7 +153,8 @@ public class MotionParseTest {
         }
     }
 
-    static void cropForViewport() {
+    @Test
+    public void cropForViewport() {
         // 子矩形是正方形（0.5*1080 x 0.5*1440 不等）→ 用 1080x1440 帧、视口 1264x2800
         float[] n = MotionSource.normalizedRect(new float[]{360f, 480f, 1080f, 1440f}, 1440, 1920);
         float vp = 1264f / 2800f;
@@ -184,46 +179,22 @@ public class MotionParseTest {
     // ---- 断言小工具 ----------------------------------------------------------------------
 
     static void range(String what, long[] got, long expectStart, long expectLen) {
-        if (got == null || got.length != 2 || got[0] != expectStart || got[1] != expectLen) {
-            bad(what, "{" + expectStart + "," + expectLen + "}",
-                    got == null ? "null" : java.util.Arrays.toString(got));
-            return;
-        }
-        ok(what);
+        assertNotNull(what + " -> null (expected {" + expectStart + "," + expectLen + "})", got);
+        assertEquals(what + " -> length", 2, got.length);
+        assertEquals(what + " -> start (expected " + expectStart + ")", expectStart, got[0]);
+        assertEquals(what + " -> len (expected " + expectLen + ")", expectLen, got[1]);
     }
 
     static void nul(String what, long[] got) {
-        if (got == null) {
-            ok(what);
-        } else {
-            bad(what, "null", java.util.Arrays.toString(got));
-        }
+        assertNull(what + " -> " + Arrays.toString(got), got);
     }
 
     static void nul(String what, float[] got) {
-        if (got == null) {
-            ok(what);
-        } else {
-            bad(what, "null", java.util.Arrays.toString(got));
-        }
+        assertNull(what + " -> " + Arrays.toString(got), got);
     }
 
     static void near(String what, float expect, float actual) {
-        if (Math.abs(expect - actual) <= 1e-4f) {
-            ok(what);
-        } else {
-            bad(what, String.valueOf(expect), String.valueOf(actual));
-        }
-    }
-
-    static void ok(String what) {
-        pass++;
-        System.out.println("  [ok]   " + what);
-    }
-
-    static void bad(String what, String expect, String actual) {
-        fail++;
-        System.out.println("  [FAIL] " + what + "  期望 " + expect + " 实得 " + actual);
+        assertEquals(what + " (expected " + expect + ")", expect, actual, 1e-4);
     }
 
     static byte[] bytes(String s) {
