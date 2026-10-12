@@ -8,13 +8,16 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.view.MotionEvent;
@@ -105,6 +108,22 @@ public class WallSwitchService extends GLWallpaperService {
     /** 默认间隔 1 秒。 */
     public static final long MOTION_LOOP_GAP_DEFAULT_MS = 1000L;
 
+    // ---- 温度闸门：循环档的自动续播在设备发热时停一停（长按播放不受影响）----------------
+
+    /** 闸门生效期间重查温度的间隔：期间画面停在静态封面帧，零渲染。 */
+    private static final long GATE_RECHECK_MS = 30_000L;
+    /** 电池温度闸门阈值（0.1℃ 单位）：41℃ 触发、39℃ 解除，留 2℃ 迟滞防来回抖。 */
+    private static final int GATE_BATTERY_TEMP_ON = 410;
+    private static final int GATE_BATTERY_TEMP_OFF = 390;
+    /** PowerManager.THERMAL_STATUS_MODERATE 的字面量（厂商温控开始压档的信号）。 */
+    private static final int THERMAL_STATUS_MODERATE_LEVEL = 2;
+    /** API 29+ 的热档位缓存：-1 = 尚未取到。由监听器与首次读取共同维护。 */
+    private static volatile int thermalStatus = -1;
+    private static boolean thermalListenerRegistered;
+    /** API 26~28 电池温度闸门的迟滞状态（BATTERY_GATE_LOCK 内读写）。 */
+    private static boolean batteryGateOn;
+    private static final Object BATTERY_GATE_LOCK = new Object();
+
     /** 活着的引擎实例（系统可能同时存在预览引擎与正式引擎，通知时全部刷新）。 */
     private static final List<WallEngine> ENGINES = new CopyOnWriteArrayList<>();
 
@@ -129,6 +148,8 @@ public class WallSwitchService extends GLWallpaperService {
     public static final AtomicLong perfMotionStarts = new AtomicLong();
     /** 实况绘制帧数：除以起播次数≈每次播了多少帧，用来看播放是否卡或抽风。 */
     public static final AtomicLong perfMotionFrames = new AtomicLong();
+    /** 热退避跳过的循环起播次数：温度闸门生效期间循环档不再自动续播的累计次数。 */
+    public static final AtomicLong perfThermalSkips = new AtomicLong();
     /**
      * 引擎收到过多少次壁纸触摸事件 —— 这是判断「荣耀桌面到不到底把触摸转给壁纸引擎」的唯一手段
      * （用户不用 adb）。一直是 0 就说明「按住播放」这条路在这台机器上走不通。
@@ -207,9 +228,77 @@ public class WallSwitchService extends GLWallpaperService {
         return gap < 0 ? 0 : gap;
     }
 
+    /**
+     * Service 起来时取一次热档位并挂上监听（API 29+，进程内一次、随进程生命周期）。
+     * 档位由厂商温控引擎（Thermal HAL 2.0）聚合各热区后报上来，MODERATE = 开始压频。
+     * 任何一步失败都静默降级：闸门常开不拦截，只少一层保护，绝不能因此弄坏引擎。
+     */
+    private static void setupThermalListener(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return;
+        }
+        try {
+            PowerManager pm = ctx.getSystemService(PowerManager.class);
+            if (pm == null) {
+                return;
+            }
+            thermalStatus = pm.getCurrentThermalStatus();
+            if (!thermalListenerRegistered) {
+                thermalListenerRegistered = true;
+                pm.addThermalStatusListener(level -> thermalStatus = level);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 温度闸门现在是否生效（循环档的自动起播要等一等，长按那级「用户动作」不受限）。
+     * API 29+：PowerManager 热档位 ≥ MODERATE；更低版本：电池温度 ≥41℃ 触发、≤39℃ 解除。
+     */
+    static boolean isMotionGated(Context ctx) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            int level = thermalStatus;
+            if (level < 0) {
+                // onCreate 没来得及初始化（理论到不去）：现场补读一次，失败按不闸
+                try {
+                    PowerManager pm = ctx.getSystemService(PowerManager.class);
+                    level = pm != null ? pm.getCurrentThermalStatus() : 0;
+                    thermalStatus = level;
+                } catch (Throwable ignored) {
+                    level = 0;
+                }
+            }
+            return level >= THERMAL_STATUS_MODERATE_LEVEL;
+        }
+        synchronized (BATTERY_GATE_LOCK) {
+            int tenths = readBatteryTempTenths(ctx);
+            if (tenths >= GATE_BATTERY_TEMP_ON) {
+                batteryGateOn = true;
+            } else if (tenths >= 0 && tenths <= GATE_BATTERY_TEMP_OFF) {
+                batteryGateOn = false;
+            }
+            // 中间地带（39~41℃）或读不到（-1）：保持上一个状态，不抖
+            return batteryGateOn;
+        }
+    }
+
+    /** 读电池温度（0.1℃ 单位）；读不到返回 -1。粘性广播同步取，不注册常驻 receiver。 */
+    private static int readBatteryTempTenths(Context ctx) {
+        try {
+            Intent sticky = ctx.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            return sticky == null ? -1
+                    : sticky.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
+        // 热档位监听（API 29+）：闸门要读的那档温度信号，随引擎进程常驻
+        setupThermalListener(getApplicationContext());
         // 记下当前深浅色档：之后只有真的翻档才重发小组件与通知（见 WallEngine#onConfigurationChanged）
         lastNightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"
@@ -301,6 +390,23 @@ public class WallSwitchService extends GLWallpaperService {
         };
         /** 循环档排下来的「下一轮」。任何停播动作都必须先把它从队列里撤掉。 */
         private final Runnable loopTick = () -> startMotionForCurrent(true);
+        /**
+         * 温度闸门生效期间排的「定期重查」：温度降下来就恢复循环。
+         * 与 loopTick 同级——任何停播动作都必须把它一并从队列里撤掉。
+         */
+        private final Runnable gateTick = new Runnable() {
+            @Override
+            public void run() {
+                if (!MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
+                    return;
+                }
+                if (isMotionGated(WallSwitchService.this)) {
+                    mainHandler.postDelayed(this, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
+            }
+        };
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -375,6 +481,13 @@ public class WallSwitchService extends GLWallpaperService {
         /** 一轮实况自然播完（GL 线程调过来）：循环档按设置的间隔排下一轮。 */
         void onMotionCycleEnded() {
             mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
+            if (isMotionGated(WallSwitchService.this)) {
+                // 发热闸门：这轮播完不再自动续播，画面停静态封面帧，30 秒后重查温度
+                perfThermalSkips.incrementAndGet();
+                mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                return;
+            }
             mainHandler.postDelayed(loopTick, motionLoopGapMs(WallSwitchService.this));
         }
 
@@ -386,8 +499,14 @@ public class WallSwitchService extends GLWallpaperService {
         /** 按当前这一档接上或断开实况（设置页改完立刻调，不用等下一次重绘）。 */
         void applyMotionMode() {
             mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
             if (MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
-                startMotionForCurrent(true);
+                if (isMotionGated(WallSwitchService.this)) {
+                    perfThermalSkips.incrementAndGet();
+                    mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
             } else {
                 stopMotion();
             }
@@ -461,6 +580,7 @@ public class WallSwitchService extends GLWallpaperService {
         private void stopMotion() {
             // 排着却没到的那一轮也必须撤掉，否则「已经离开桌面了，2 秒后又自己播起来」
             mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
             holdPlaying = false;
             WallpaperRenderer r = renderer;
             if (r != null) {
@@ -473,6 +593,7 @@ public class WallSwitchService extends GLWallpaperService {
             ENGINES.remove(this);
             mainHandler.removeCallbacks(holdFired);
             mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
             if (renderer != null) {
                 queueEvent(renderer::release);
             }
@@ -544,7 +665,13 @@ public class WallSwitchService extends GLWallpaperService {
             // 循环档：每次重绘（进桌面 / 切完图 / Surface 重建）都确认一遍该不该在播。
             // renderer.startMotion 对「同一区间且还在播」直接返回，所以这样反复调不会重开解码器
             if (MOTION_LOOP.equals(motionMode(WallSwitchService.this)) && lastFaultDiag == null) {
-                startMotionForCurrent(true);
+                if (isMotionGated(WallSwitchService.this)) {
+                    perfThermalSkips.incrementAndGet();
+                    mainHandler.removeCallbacks(gateTick);
+                    mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
             }
         }
 
@@ -846,6 +973,8 @@ public class WallSwitchService extends GLWallpaperService {
                     + perfMotionFrames.get() + " 帧"
                     + "（每次约 162 帧 = 完整播完一条 2.7 秒的实况）\n"
                     + "实况诊断: " + (lastMotionDiag != null ? lastMotionDiag : "无") + "\n"
+                    + "热退避跳过起播: " + perfThermalSkips.get() + " 次"
+                    + "（温度闸门生效期间循环档不再自动续播，长按播放不受影响）\n"
                     // 攒真实量级用的探针（进程内累计，随进程重启归零）：判「要不要把 library.json 换成
                     // SQLite」靠的是这两个数，不是猜 —— 缓存命中多、单次解析只有几毫秒，就说明瓶颈不在解析
                     + "元数据表 library.json: 真解析 " + WallpaperStore.metaParses.get()
