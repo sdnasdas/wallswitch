@@ -96,13 +96,13 @@ public class LibPickerActivity extends AppCompatActivity {
         Map<String, Integer> counts = new HashMap<>();
         Map<String, String> firstId = new HashMap<>();
         for (WallpaperStore.Item item : all) {
-            if (item.libId == null) {
-                continue;
-            }
-            Integer seen = counts.get(item.libId);
-            counts.put(item.libId, seen == null ? 1 : seen + 1);
-            if (!firstId.containsKey(item.libId)) {
-                firstId.put(item.libId, item.id);
+            // 一张可以挂在好几个库里，在它挂着的每个库里各数一次、各当一次「库内第一张」
+            for (String owner : item.libIds) {
+                Integer seen = counts.get(owner);
+                counts.put(owner, seen == null ? 1 : seen + 1);
+                if (!firstId.containsKey(owner)) {
+                    firstId.put(owner, item.id);
+                }
             }
         }
         // 「不切换」占第 0 行（与 App 内选库列表同一档序），其余依次是各个库（顺序 = 首页拖拽排序）。

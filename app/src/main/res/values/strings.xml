@@ -16,6 +16,31 @@
     <string name="lib_delete_batch_title">删除 %1$d 个壁纸库？</string>
     <string name="lib_delete_batch_msg">库和库里的壁纸会一并删除，无法恢复</string>
     <string name="lib_delete_check_desc">勾选要删除的库</string>
+    <!-- 壁纸页顶栏「整理」：多选之后把这几张在壁纸库之间移动 / 复制（多归属共享同一份图，
+         复制不占磁盘）/ 从本库移除（只有这一条可能真删东西，所以只有它二次确认） -->
+    <string name="organize_title">整理</string>
+    <string name="organize_exit">退出整理</string>
+    <string name="organize_count">整理 · 已选 %1$d 张</string>
+    <string name="organize_move">移动到其它库…</string>
+    <string name="organize_copy">复制到其它库…</string>
+    <string name="organize_remove">从本库移除</string>
+    <string name="organize_move_title">移动到哪个库</string>
+    <string name="organize_copy_title">复制到哪个库</string>
+    <string name="organize_none">先勾选要整理的壁纸</string>
+    <string name="organize_no_other_lib">还没有别的库：先回库列表新建一个，再来整理</string>
+    <string name="organize_same_lib">这张已经在这个库里了</string>
+    <string name="organize_lib_sub_current">当前在看 · %1$d 张壁纸</string>
+    <string name="organize_lib_sub_already">%1$d 张壁纸 · 这次选里的 %2$d 张已在这里</string>
+    <string name="organize_copied">已复制 %1$d 张到「%2$s」</string>
+    <string name="organize_copied_skipped">已复制 %1$d 张到「%2$s」（另 %3$d 张本来就在）</string>
+    <string name="organize_copied_all_already">这 %1$d 张本来就都在「%2$s」里，没动</string>
+    <string name="organize_moved">已移动 %1$d 张到「%2$s」</string>
+    <string name="organize_removed">已移出 %1$d 张，其中 %2$d 张已从手机彻底删掉</string>
+    <string name="organize_removed_shared">已移出 %1$d 张：都还挂在别的库里，图片一张没动</string>
+    <string name="organize_remove_title">从「%2$s」移出 %1$d 张？</string>
+    <string name="organize_remove_msg_all">这 %1$d 张只挂在这一个库里，移出会把成品图、缩略图和原图一起从手机上删掉，找不回来</string>
+    <string name="organize_remove_msg_mixed">其中 %1$d 张只挂在这个库里，移出会把成品图、缩略图和原图一起从手机上删掉；另外 %2$d 张还挂在别的库，移出只是这一页不再显示</string>
+    <string name="organize_failed">整理没成（元数据没写进去），什么都没动，再试一次</string>
     <string name="lib_name_hint">库名称（留空自动命名）</string>
     <string name="lib_interval">切换间隔</string>
     <!-- v3.60 间隔滚轮：时/分两列，分钟按 15 步进（WorkManager 系统下限 15 分钟） -->

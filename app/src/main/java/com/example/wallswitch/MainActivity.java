@@ -32,6 +32,7 @@ import android.util.LruCache;
 import android.view.Gravity;
 import android.view.GestureDetector;
 import android.view.LayoutInflater;
+import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
@@ -137,6 +138,16 @@ public class MainActivity extends AppCompatActivity {
     private String renamingLibId;
     // 顶栏删除按钮（库页专用）：普通态 = 垃圾桶进删除态，删除态 = 勾图标确认批量删除
     private MenuItem libDeleteItem;
+    // 顶栏「整理」那几条（壁纸页专用，都在溢出菜单里）：
+    // 普通态只有「整理」；整理态多给「移动到其它库…」「复制到其它库…」「从本库移除」，并把「整理」翻成「退出整理」
+    private MenuItem wpOrganizeItem;
+    private MenuItem wpMoveItem;
+    private MenuItem wpCopyItem;
+    private MenuItem wpRemoveItem;
+    /** 整理动作的三档（{@link #applyOrganizeChange} 的 kind）：复制只挂归属，移动摘挂各一次，移出可能删文件。 */
+    private static final int ORGANIZE_COPY = 1;
+    private static final int ORGANIZE_MOVE = 2;
+    private static final int ORGANIZE_REMOVE = 3;
     // v3.60 范围槽位（只在库列表页显示）：v3.65 起两张竖排卡片改成左右滑块，一次只显示一面
     private View slotCards;
     private RecyclerView slotPager;
@@ -209,6 +220,7 @@ public class MainActivity extends AppCompatActivity {
         libAdapter = new LibAdapter();
         wallpaperAdapter = new WallpaperAdapter();
         setupLibDeleteMenu();
+        setupWallpaperOrganizeMenu();
         setupLibDrag();
         setupSlotCards();
         setupBackPressed();
@@ -262,6 +274,11 @@ public class MainActivity extends AppCompatActivity {
                     exitLibDeleteMode();
                     return;
                 }
+                if (wallpaperAdapter.isOrganizeMode()) {
+                    // 整理多选态：返回键 = 退出整理态（勾选作废），而不是直接回库列表
+                    exitOrganizeMode();
+                    return;
+                }
                 if (wallpaperAdapter.hideRevealed()) {
                     return;
                 }
@@ -294,6 +311,7 @@ public class MainActivity extends AppCompatActivity {
     private void applyLibPage() {
         showingWallpapers = false;
         exitLibDeleteMode();
+        exitOrganizeMode();
         Toolbar toolbar = findViewById(R.id.toolbar);
         toolbar.setTitle(R.string.app_title);
         toolbar.setNavigationIcon(R.drawable.ic_menu);
@@ -304,6 +322,8 @@ public class MainActivity extends AppCompatActivity {
         refreshLibs();
         refreshSlotCards();
         updateLibDeleteToolbar();
+        // 「整理」那几条是壁纸页专属，回库列表页要收掉（不然顶栏留着一个空溢出菜单钮）
+        updateWallpaperOrganizeToolbar();
     }
 
     /** 壁纸网格页入口：库已经不在了就不切页。 */
@@ -337,6 +357,8 @@ public class MainActivity extends AppCompatActivity {
         refreshSlotCards();
         // 删除按钮是库页专属，进壁纸页要收起来
         updateLibDeleteToolbar();
+        // 壁纸页专属的「整理」那几条反过来要露出来，标题按整理态重算
+        updateWallpaperOrganizeToolbar();
     }
 
     /**
@@ -1476,6 +1498,314 @@ public class MainActivity extends AppCompatActivity {
             }
             return true;
         });
+    }
+
+    /**
+     * 壁纸页顶栏的「整理」菜单：多选模式的入口与三条动作都在溢出菜单（那三点）里。
+     * 为什么不走格子长按浮出的那一排：那排三个 48dp 圆键 + 8dp 间距已经把 ~172dp 的格子宽占满，
+     * 塞不下第四个键；而移动/复制/移出本来就是「一次选几张」之后做的事，多选模式配菜单更顺。
+     * 菜单照 {@link #setupLibDeleteMenu} 的规矩用代码加（本地类型检查的 R 桩不含 menu 资源），
+     * 也刻意不新增图标资源 —— 三条都是文字动作，用系统那三点钮就够，不用为它画四个矢量图。
+     */
+    private void setupWallpaperOrganizeMenu() {
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        Menu menu = toolbar.getMenu();
+        wpOrganizeItem = menu.add(0, 0, 1, R.string.organize_title);
+        wpOrganizeItem.setVisible(false);
+        wpOrganizeItem.setOnMenuItemClickListener(item -> {
+            if (wallpaperAdapter.isOrganizeMode()) {
+                exitOrganizeMode();
+            } else {
+                enterOrganizeMode();
+            }
+            return true;
+        });
+        wpMoveItem = menu.add(0, 0, 2, R.string.organize_move);
+        wpMoveItem.setVisible(false);
+        wpMoveItem.setOnMenuItemClickListener(item -> {
+            showOrganizeTargetDialog(true);
+            return true;
+        });
+        wpCopyItem = menu.add(0, 0, 3, R.string.organize_copy);
+        wpCopyItem.setVisible(false);
+        wpCopyItem.setOnMenuItemClickListener(item -> {
+            showOrganizeTargetDialog(false);
+            return true;
+        });
+        wpRemoveItem = menu.add(0, 0, 4, R.string.organize_remove);
+        wpRemoveItem.setVisible(false);
+        wpRemoveItem.setOnMenuItemClickListener(item -> {
+            confirmRemoveSelected();
+            return true;
+        });
+    }
+
+    /** 进整理多选态：格子点按改成勾选，右下角「＋添加壁纸」收起（与库页删除态同一个规矩）。 */
+    private void enterOrganizeMode() {
+        wallpaperAdapter.setOrganizeMode(true);
+        findViewById(R.id.btn_add).setVisibility(View.GONE);
+        updateWallpaperOrganizeToolbar();
+    }
+
+    /** 退整理多选态：勾选清空，「＋」与库名标题回到原样。 */
+    private void exitOrganizeMode() {
+        if (!wallpaperAdapter.isOrganizeMode()) {
+            return;
+        }
+        wallpaperAdapter.setOrganizeMode(false);
+        findViewById(R.id.btn_add).setVisibility(View.VISIBLE);
+        updateWallpaperOrganizeToolbar();
+    }
+
+    /**
+     * 壁纸页顶栏随整理态刷新：普通态只给「整理」，整理态给三条动作 + 「退出整理」，
+     * 标题从库名换成「已选 N 张」（照库页删除态那本账的写法）。
+     */
+    private void updateWallpaperOrganizeToolbar() {
+        if (wpOrganizeItem == null) {
+            return;
+        }
+        boolean organize = wallpaperAdapter.isOrganizeMode();
+        wpOrganizeItem.setVisible(showingWallpapers);
+        wpOrganizeItem.setTitle(getString(organize ? R.string.organize_exit : R.string.organize_title));
+        wpMoveItem.setVisible(showingWallpapers && organize);
+        wpCopyItem.setVisible(showingWallpapers && organize);
+        wpRemoveItem.setVisible(showingWallpapers && organize);
+        if (!showingWallpapers) {
+            return;
+        }
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        if (organize) {
+            toolbar.setTitle(getString(R.string.organize_count, wallpaperAdapter.selectedCount()));
+        } else {
+            LibraryStore.Library lib = currentLib();
+            toolbar.setTitle(lib == null ? getString(R.string.app_title) : lib.name);
+        }
+    }
+
+    /**
+     * 整理态点「移动到其它库…／复制到其它库…」：先问去哪个库。
+     * 两个动作都不二次确认 —— 多归属下它们只是给这张多挂/少挂一个归属，零磁盘、随时能搬回来；
+     * 会真删东西的只有「从本库移除」，那条走 {@link #confirmRemoveSelected}。
+     */
+    private void showOrganizeTargetDialog(final boolean move) {
+        final List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            Toast.makeText(this, R.string.organize_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String src = currentLibId();
+        if (src == null || currentLib() == null) {
+            return;
+        }
+        final List<LibraryStore.Library> libs = LibraryStore.load(this);
+        boolean hasOther = false;
+        for (LibraryStore.Library lib : libs) {
+            if (!lib.id.equals(src)) {
+                hasOther = true;
+                break;
+            }
+        }
+        if (!hasOther) {
+            Toast.makeText(this, R.string.organize_no_other_lib, Toast.LENGTH_LONG).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(move ? R.string.organize_move_title : R.string.organize_copy_title)
+                .setAdapter(new OrganizeLibAdapter(libs, src, ids), (dialog, which) -> {
+                    LibraryStore.Library target = libs.get(which);
+                    if (target.id.equals(src)) {
+                        // 这一行是压暗的当前库，理论上点不到；真点到了就如实说一句，弹窗不收
+                        Toast.makeText(this, R.string.organize_same_lib, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    applyOrganizeChange(move ? ORGANIZE_MOVE : ORGANIZE_COPY,
+                            ids, src, target.id, target.name);
+                })
+                .setNegativeButton(R.string.close, null)
+                .show();
+    }
+
+    /**
+     * 整理态点「从本库移除」：只有它可能把图从手机上没掉，所以只有它可能要二次确认，
+     * 而且把账算明：几张只挂在这个库里（移出 = 成品图、缩略图、原图一起没），
+     * 几张还挂在别的库里（移出 = 这一页不再显示）。
+     *
+     * <p>预演出「一张都不会删」时直接办、不弹窗 —— 那时候它和移动一样是可逆的（复制回来就完），
+     * 拦一道确认只是白让人多点一下。
+     */
+    private void confirmRemoveSelected() {
+        final List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            Toast.makeText(this, R.string.organize_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String src = currentLibId();
+        LibraryStore.Library lib = currentLib();
+        if (src == null || lib == null) {
+            return;
+        }
+        int[] preview = WallpaperStore.previewRemovalFromLib(this, ids, src);
+        if (preview[0] == 0) {
+            applyOrganizeChange(ORGANIZE_REMOVE, ids, src, null, null);
+            return;
+        }
+        String msg = preview[1] == 0
+                ? getString(R.string.organize_remove_msg_all, preview[0])
+                : getString(R.string.organize_remove_msg_mixed, preview[0], preview[1]);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.organize_remove_title, ids.size(), lib.name))
+                .setMessage(msg)
+                .setPositiveButton(R.string.confirm, (dialog, which) ->
+                        applyOrganizeChange(ORGANIZE_REMOVE, ids, src, null, null))
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /**
+     * 三条整理动作的共同落点：一次元数据改写（{@code library.json} 整表原子重写，图片文件不动，
+     * 只有摘到「不再挂任何库」才删那三份），然后收整理态、刷网格，并把「这张刚从哪个库被摘走」
+     * 的当前指针各自核对一遍。
+     *
+     * <p>收尾与长按垃圾桶同一条链路：摘走的若是那个库屏上那一张，清指针并推进下一张上屏，
+     * 真推进了就连带重排那一轮的定时（都在 {@link Switcher#reapplyIfCurrent} 内部）。
+     * 锁屏那一路是阻塞的系统调用，所以照旧放后台线程、用 Application 上下文。
+     */
+    private void applyOrganizeChange(int kind, List<String> ids, String fromLibId,
+                                     String toLibId, String toName) {
+        int destroyed = 0;
+        int affected = ids.size();
+        try {
+            if (kind == ORGANIZE_COPY) {
+                // 已经在目标库里的那些不该被计入「复制了几张」，不然报数比实际动的大
+                affected = WallpaperStore.addToLib(this, ids, toLibId);
+            } else if (kind == ORGANIZE_MOVE) {
+                destroyed = WallpaperStore.moveToLib(this, ids, fromLibId, toLibId);
+            } else {
+                destroyed = WallpaperStore.removeFromLib(this, ids, fromLibId);
+            }
+        } catch (Exception | OutOfMemoryError e) {
+            Toast.makeText(this, R.string.organize_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (kind != ORGANIZE_COPY) {
+            repointPinnedAwayFrom(fromLibId, ids);
+        }
+        exitOrganizeMode();
+        refreshList();
+        final List<String> touched = new ArrayList<>(ids);
+        final String src = fromLibId;
+        new Thread(() -> {
+            for (String id : touched) {
+                Switcher.reapplyIfCurrent(getApplicationContext(), src, id);
+            }
+        }, "reapply-organize").start();
+        if (kind == ORGANIZE_COPY) {
+            Toast.makeText(this, affected == 0
+                    ? getString(R.string.organize_copied_all_already, ids.size(), toName)
+                    : (affected == ids.size()
+                            ? getString(R.string.organize_copied, affected, toName)
+                            : getString(R.string.organize_copied_skipped, affected, toName,
+                                    ids.size() - affected)), Toast.LENGTH_SHORT).show();
+        } else if (kind == ORGANIZE_MOVE) {
+            Toast.makeText(this, getString(R.string.organize_moved, ids.size(), toName),
+                    Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, destroyed == 0
+                    ? getString(R.string.organize_removed_shared, ids.size())
+                    : getString(R.string.organize_removed, ids.size(), destroyed),
+                    Toast.LENGTH_SHORT).show();
+        }
+        // 收尾就这两下，与长按删一张同口径：这一页的网格跟上，库行的张数与槽位卡片的代表图
+        // 等回库列表页时 applyLibPage 各自重算（壁纸页上那排卡片本来就是收起的，不在这里白刷）
+    }
+
+    /**
+     * 图钉跟着走：一键设置钉住的那张刚从某个库被摘走、但还挂在别的库里，就把 {@code pin_lib}
+     * 改成它剩下的第一个归属。不改的话下次按通知上那颗开关会走 {@code inLibrary} 判定失败，
+     * 报「那张已不在库里」，而图明明还在手机上、那个库也还看得到它。
+     *
+     * <p>整张彻底没了（归属摘空）就照旧不管：与现在删一张的口径一致，那次是真没图可钉了。
+     */
+    private void repointPinnedAwayFrom(String fromLibId, List<String> ids) {
+        String pinId = PinnedWallpaper.wallpaperId(this);
+        if (pinId == null || !ids.contains(pinId)
+                || !fromLibId.equals(PinnedWallpaper.libId(this))) {
+            return;
+        }
+        WallpaperStore.Item after = WallpaperStore.get(this, pinId);
+        if (after == null || after.libIds.isEmpty()) {
+            return;
+        }
+        PinnedWallpaper.set(this, after.libId, pinId);
+        refreshPinnedRow();
+        StatusNotifier.update(this);
+    }
+
+    /**
+     * 整理动作的选库列表：行样式沿用一键设置第一级那套（代表图 + 库名 + 张数）。
+     * 正在看的这个库压暗、不可选（移动和复制都是往别的库挂/摘归属，挂到自己头上没有意义）；
+     * 副标题顺带说清「这次选里的有几张已经在这个库里」，免得点了复制才发现是白点。
+     */
+    private class OrganizeLibAdapter extends BaseAdapter {
+
+        private final List<LibraryStore.Library> libs;
+        private final String srcLibId;
+        private final Map<String, Integer> counts = new HashMap<>();
+        private final Map<String, Integer> already = new HashMap<>();
+
+        OrganizeLibAdapter(List<LibraryStore.Library> libs, String srcLibId, List<String> ids) {
+            this.libs = libs;
+            this.srcLibId = srcLibId;
+            counts.putAll(WallpaperStore.libMemberCounts(MainActivity.this));
+            for (WallpaperStore.Item item : WallpaperStore.load(MainActivity.this)) {
+                if (!ids.contains(item.id)) {
+                    continue;
+                }
+                // 共享的一张在它挂着的每个库里都算「已经在」，逐归属数
+                for (String owner : item.libIds) {
+                    Integer seen = already.get(owner);
+                    already.put(owner, seen == null ? 1 : seen + 1);
+                }
+            }
+        }
+
+        @Override
+        public int getCount() {
+            return libs.size();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            return libs.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @NonNull
+        @Override
+        public View getView(int position, View convertView, @NonNull ViewGroup parent) {
+            View row = newPinRow(convertView, parent);
+            LibraryStore.Library lib = libs.get(position);
+            int count = counts.get(lib.id) == null ? 0 : counts.get(lib.id);
+            int had = already.get(lib.id) == null ? 0 : already.get(lib.id);
+            ((TextView) row.findViewById(R.id.tv_pick_name)).setText(lib.name);
+            ((TextView) row.findViewById(R.id.tv_pick_sub)).setText(
+                    lib.id.equals(srcLibId)
+                            ? getString(R.string.organize_lib_sub_current, count)
+                            : (had > 0
+                                    ? getString(R.string.organize_lib_sub_already, count, had)
+                                    : getString(R.string.lib_count, count)));
+            bindThumb((ImageView) row.findViewById(R.id.img_pick_thumb),
+                    slotThumbId(lib.id, true), R.drawable.ic_tab_wallpaper, 10);
+            // 这一列是 ListView 复用的视图，两档都得显式赋值，不然滚回来还带着上一行的状态
+            row.findViewById(R.id.iv_pick_check).setVisibility(View.INVISIBLE);
+            row.setAlpha(lib.id.equals(srcLibId) ? 0.4f : 1f);
+            return row;
+        }
     }
 
     /**
@@ -2836,8 +3166,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 库内长按浮出的「设为首页」：把这张壁纸立刻设为**桌面**壁纸，并把该库的桌面指针移到这里
-     * （之后自动切换就从它往下走）。库没启用桌面范围时只提示，不静默改范围 ——
+     * 库内长按浮出的「设为首页」：把这张壁纸立刻设为**桌面**壁纸，并把当前这个库的桌面指针移到这里
+     * （之后自动切换就从它往下走；一张挂在几个库时，「当前这个库」就是屏上正在看的这一页，
+     * 别按条目的主归属判 —— 那只是归属集合的第一个，跟他在哪个库里点这张没关系）。
+     * 库没启用桌面范围时只提示，不静默改范围 ——
      * 改范围会连带停用同范围的库，那种事该由用户在库设置里决定。
      * 含引擎通知 / 解码与系统调用，放后台线程。
      */
@@ -2846,7 +3178,10 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.status_takeover_off, Toast.LENGTH_LONG).show();
             return;
         }
-        LibraryStore.Library lib = LibraryStore.get(this, item.libId);
+        // 一张现在能同时挂在几个库里，而「这个库的桌面指针」是按库各一份的账：
+        // 所以按当前页正在看的这个库判，不按条目的主归属（那只是集合第一个，跟他在看哪个库没关系）
+        String viewLibId = currentLibId();
+        LibraryStore.Library lib = viewLibId == null ? null : LibraryStore.get(this, viewLibId);
         if (lib == null || !LibraryStore.ownsScope(this, lib.id, true)) {
             Toast.makeText(this, R.string.set_as_home_unavailable, Toast.LENGTH_LONG).show();
             return;
@@ -2960,13 +3295,7 @@ public class MainActivity extends AppCompatActivity {
         PinLibPickerAdapter(List<LibraryStore.Library> libs, String liveLibId) {
             this.libs = libs;
             this.liveLibId = liveLibId;
-            for (WallpaperStore.Item item : WallpaperStore.load(MainActivity.this)) {
-                if (item.libId == null) {
-                    continue;
-                }
-                Integer seen = counts.get(item.libId);
-                counts.put(item.libId, seen == null ? 1 : seen + 1);
-            }
+            counts.putAll(WallpaperStore.libMemberCounts(MainActivity.this));
         }
 
         @Override
@@ -3453,12 +3782,20 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 壁纸网格适配器（两列正方形）：点格直接进裁剪页重编；长按浮出铅笔（改标题小窗）/ 红垃圾桶
      * （直接删，不确认）两个圆形图标，点空白处或返回手势收起。
+     *
+     * <p>整理多选态（顶栏「整理」进入）把这一页的手感整个换掉：点格 = 勾选（格子右上角露复选框、
+     * 图压暗），长按不再浮出那一排，进裁剪页也进不去 —— 三条动作（移动/复制/移出）都在顶栏菜单里，
+     * 所以这一态下格子上不新增任何按钮。
      */
     private class WallpaperAdapter extends RecyclerView.Adapter<WpHolder> {
 
         private List<WallpaperStore.Item> items = new ArrayList<>();
         // 长按浮出操作图标的格子下标（同一时间只允许一格；-1 = 没有）
         private int revealed = -1;
+        // 整理多选态（顶栏「整理」进入）：点格勾选，三个动作走顶栏菜单
+        private boolean organizeMode;
+        // 勾选按壁纸 id 记，不按格子下标：一次整理会把选中的那几张从这一页摘走，下标会串位
+        private final Set<String> selectedIds = new HashSet<>();
 
         // 缩略图内存缓存（上限 8MB）：网格一屏要绑 6~8 张，每次刷新都重新解码会掉帧。
         // v3.15 缩略图边长跟着屏幕（单张 0.5~1MB），上限跟着调大才够铺满可见格
@@ -3490,6 +3827,8 @@ public class MainActivity extends AppCompatActivity {
         void setItems(List<WallpaperStore.Item> newItems) {
             items = newItems;
             revealed = -1;
+            // 数据一换，之前的勾选就不成立了（移动/移除会把选中的那几张摘出这一页）
+            selectedIds.clear();
             notifyDataSetChanged();
         }
 
@@ -3508,6 +3847,49 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
 
+        boolean isOrganizeMode() {
+            return organizeMode;
+        }
+
+        int selectedCount() {
+            return selectedIds.size();
+        }
+
+        /** 勾中的那几张 id，按这一页的显示顺序给（弹窗与报数都用它）。 */
+        List<String> selectedIdsInOrder() {
+            List<String> ids = new ArrayList<>();
+            for (WallpaperStore.Item item : items) {
+                if (selectedIds.contains(item.id)) {
+                    ids.add(item.id);
+                }
+            }
+            return ids;
+        }
+
+        /** 进/出整理多选态（退出与数据重灌都清空勾选）。 */
+        void setOrganizeMode(boolean on) {
+            organizeMode = on;
+            selectedIds.clear();
+            revealed = -1;
+            notifyDataSetChanged();
+        }
+
+        /** 点格子勾选/取消勾选，并让顶栏的「已选 N 张」跟上。 */
+        private void toggleSelect(WallpaperStore.Item item, int position) {
+            if (position < 0 || position >= items.size()
+                    || !items.get(position).id.equals(item.id)) {
+                // 视图刚被回收重绑过，这次的 position 已经不代表这一张：不猜，让它等下一次点击
+                return;
+            }
+            if (selectedIds.contains(item.id)) {
+                selectedIds.remove(item.id);
+            } else {
+                selectedIds.add(item.id);
+            }
+            notifyItemChanged(position);
+            updateWallpaperOrganizeToolbar();
+        }
+
         @NonNull
         @Override
         public WpHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -3522,10 +3904,19 @@ public class MainActivity extends AppCompatActivity {
             holder.imgThumb.setImageBitmap(thumbFor(item.id));
             // 格子下方显示壁纸标题（未命名则用占位文案）
             holder.tvTitle.setText(itemTitle(item));
-            holder.actions.setVisibility(position == revealed ? View.VISIBLE : View.GONE);
-            // 点格：有浮出图标时先收起（相当于取消），否则直接进裁剪页重编（源是原图，并复原上次取景框）
+            boolean selected = selectedIds.contains(item.id);
+            // 整理态：右上角露复选框，勾中的那张整幅压暗一档（缩略图本身深浅不定，只有盖一层才看得出成色）
+            holder.cbSelect.setVisibility(organizeMode ? View.VISIBLE : View.GONE);
+            holder.cbSelect.setChecked(selected);
+            holder.imgThumb.setImageAlpha(organizeMode && selected ? 110 : 255);
+            holder.actions.setVisibility(!organizeMode && position == revealed ? View.VISIBLE : View.GONE);
+            // 点格：整理态 = 勾选；否则有浮出图标时先收起（相当于取消），不然直接进裁剪页重编（源是原图，并复原上次取景框）
             holder.itemView.setOnClickListener(v -> {
                 if (holder.press.dragged()) {
+                    return;
+                }
+                if (organizeMode) {
+                    toggleSelect(item, holder.getBindingAdapterPosition());
                     return;
                 }
                 if (hideRevealed()) {
@@ -3533,8 +3924,11 @@ public class MainActivity extends AppCompatActivity {
                 }
                 openEditItem(item);
             });
-            // 长按浮出预览/删除图标
+            // 长按浮出预览/删除图标（整理态不给这一排，避免「一边勾选一边弹出单张动作」两套手势打架）
             holder.itemView.setOnLongClickListener(v -> {
+                if (organizeMode) {
+                    return false;
+                }
                 int old = revealed;
                 revealed = position;
                 if (old >= 0) {
@@ -3556,13 +3950,19 @@ public class MainActivity extends AppCompatActivity {
             // 红垃圾桶 → 直接删除，不再确认
             holder.btnDelete.setOnClickListener(v -> {
                 revealed = -1;
+                // 按下去就是删整张：它挂在几个库里，那几个库的「屏上这张」指针都得各自核对一遍
+                //（一张同时占着桌面和锁屏两面时，只按主归属清会漏掉另一面）
+                final List<String> owners = new ArrayList<>(item.libIds);
                 WallpaperStore.delete(MainActivity.this, item.id);
                 refreshList();
                 // 删掉的若是桌面/锁屏的当前壁纸，立刻清指针并推进到下一张上屏
                 // （锁屏路径是阻塞的系统调用，放后台线程；用 Application 上下文，
                 //  线程可能在 Activity 销毁后才跑完）
-                new Thread(() -> Switcher.reapplyIfCurrent(getApplicationContext(), item.libId, item.id),
-                        "reapply-wallpaper").start();
+                new Thread(() -> {
+                    for (String owner : owners) {
+                        Switcher.reapplyIfCurrent(getApplicationContext(), owner, item.id);
+                    }
+                }, "reapply-wallpaper").start();
             });
         }
 
@@ -3612,6 +4012,8 @@ public class MainActivity extends AppCompatActivity {
         final ImageView imgThumb;
         final TextView tvTitle;
         final View actions;
+        /** 整理多选态的勾选框（自己不吃点击，点格子任意处都算勾选）。 */
+        final CheckBox cbSelect;
         final View btnEdit;
         final View btnSetHome;
         final View btnDelete;
@@ -3624,6 +4026,7 @@ public class MainActivity extends AppCompatActivity {
             imgThumb = itemView.findViewById(R.id.img_thumb);
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
             actions = itemView.findViewById(R.id.item_actions);
+            cbSelect = itemView.findViewById(R.id.cb_wp_select);
             btnEdit = itemView.findViewById(R.id.btn_edit);
             btnSetHome = itemView.findViewById(R.id.btn_set_home);
             btnDelete = itemView.findViewById(R.id.btn_delete);

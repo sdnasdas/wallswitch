@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 壁纸格（v3.14）：两列正方形网格的一格。1:1 缩略图 + 下方标题；
      点格直接进裁剪页重编；长按浮出半透明压暗层与三个圆形图标（铅笔=改标题小窗 /
-     设为首页 / 红垃圾桶，无文字），点空白或返回手势收起。 -->
+     设为首页 / 红垃圾桶，无文字），点空白或返回手势收起。
+     顶栏「整理」的多选态是另一套手感：右上角复选框显形、勾中的那张整幅压暗，
+     长按那一排与进裁剪页都不响应（三个动作在顶栏溢出菜单里，不在格子上加键）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -84,6 +86,23 @@
                     android:tint="@android:color/white" />
             </LinearLayout>
         </FrameLayout>
+
+        <!-- 整理多选态的勾选框（顶栏「整理」进来才显形，压在右上角的圆形卡片底上才在深浅图上都看得清）。
+             自己不吃点击也不抢焦点：点格子任意处都算勾选，与库行删除态同一条规矩。
+             排在长按浮出层之后，是为了让它盖在那层压暗之上。 -->
+        <CheckBox
+            android:id="@+id/cb_wp_select"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:background="@drawable/circle_surface"
+            android:buttonTint="@color/brand"
+            android:clickable="false"
+            android:focusable="false"
+            android:padding="4dp"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
     <TextView

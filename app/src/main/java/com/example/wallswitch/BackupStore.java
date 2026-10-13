@@ -341,8 +341,9 @@ public final class BackupStore {
     /**
      * 归属兜底：新装机第一次启动会自己建一个「默认库」（随机新 id），包里的壁纸指向的是旧库 id，
      * 对不上就全落在一个不存在的库里 = 文件在、界面上进不去也管不了。
-     * 以「包里那份 libraries.json」为准（它整体覆盖了自建的默认库），把指向未知库的条目
-     * 改挂到包里真实存在的那个库上；只有真出现未知归属时才改写 library.json。
+     * 以「包里那份 libraries.json」为准（它整体覆盖了自建的默认库），把归属集合里指向未知库的那些
+     * 摘掉；摘到一张都不剩才挂到包里真实存在的那个库上。只有真出现未知归属时才改写 library.json。
+     * 多归属（一张挂在好几个库）在这里只是逐条判归属，共享的那份图不会因为某个库对不上而被删。
      */
     private static void retagUnknownLibs(Context context, java.util.Set<String> libIds) {
         try {
@@ -357,8 +358,14 @@ public final class BackupStore {
             }
             boolean changed = false;
             for (WallpaperStore.Item item : items) {
-                if (item.libId == null || item.libId.isEmpty() || !libIds.contains(item.libId)) {
-                    item.libId = fallback;
+                for (String lid : new java.util.ArrayList<>(item.libIds)) {
+                    if (!libIds.contains(lid)) {
+                        item.leaveLib(lid);
+                        changed = true;
+                    }
+                }
+                if (item.libIds.isEmpty()) {
+                    item.joinLib(fallback);
                     changed = true;
                 }
             }

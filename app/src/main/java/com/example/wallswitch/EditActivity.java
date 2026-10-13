@@ -386,8 +386,12 @@ public class EditActivity extends AppCompatActivity {
                 //（拿 Activity 当 Context 会被 lint 判 context leak）
                 new Thread(() -> {
                     WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
-                    if (item != null && item.libId != null && !item.libId.isEmpty()) {
-                        Switcher.reapplyIfCurrent(appCtx, item.libId, itemId);
+                    if (item != null) {
+                        // 一张现在可能挂在好几个库里，而「当前壁纸」指针是按库各存一份的：
+                        // 它同时在 A 库（桌面）和 B 库（锁屏）当屏上那张时，两边都得跟上这次重编
+                        for (String libId : new java.util.ArrayList<>(item.libIds)) {
+                            Switcher.reapplyIfCurrent(appCtx, libId, itemId);
+                        }
                     }
                 }, "reapply-wallpaper").start();
             } else {

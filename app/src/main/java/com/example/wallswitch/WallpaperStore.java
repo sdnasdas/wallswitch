@@ -21,7 +21,9 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -32,8 +34,22 @@ import java.util.concurrent.atomic.AtomicLong;
  * - thumbs/     缩略图，同名，最长边 256px
  * - inbox/      待编辑收件箱，文件名 &lt;uuid&gt;，保留原始字节
  * - originals/  原图（重复调整的源），文件名 &lt;uuid&gt;，保留原始字节；历史数据可能没有
- * 元数据：filesDir/library.json，JSON 数组，每个元素 {"id":"&lt;uuid&gt;","home":true,"lock":true}
+ * 元数据：filesDir/library.json，JSON 数组，每个元素 {"id":"&lt;uuid&gt;","lib_id":"&lt;库 uuid&gt;"}
  * 条目另可带 src_w/src_h/crop_l/crop_t/crop_r/crop_b —— 上次成品图在原图坐标下的裁剪矩形
+ *
+ * <h3>归属可以是多个库（v3.11x 整理功能）</h3>
+ * 一份图片文件可以同时挂在几个壁纸库下，各库看到的是<b>同一份像素</b>：
+ * 在 A 库点格子重编（挪位置、重新裁）改的就是那一份，B 库那张跟着一起变，构图参数也共用
+ * （原图字节一样，所以记在原图坐标下的矩形对两边都成立）。因此：
+ * <ul>
+ *   <li>「复制到别的库」只是多挂一个归属，不拷文件、不占磁盘；「移动」= 从这个库摘、挂到那个库。</li>
+ *   <li>只有归属被摘空（一张不再挂在任何库）才删三份文件；删一个库同理 —— 只摘掉那个库的归属，
+ *       还挂在别的库的图与元数据都留着。</li>
+ *   <li>权威是条目里的 {@code libIds} 这份集合。{@code lib_id} 退化成「主归属 = 集合第一个」，
+ *       只为降级回滚留着（老版本只认这一个键，读回来这张就落在它挂的第一个库里，不会出现
+ *       文件在、界面进不去的孤儿）。所以 {@code lib_ids} 只在归属多于一个时才写，
+ *       单归属的老文件格式一个字节都不变。</li>
+ * </ul>
  */
 public class WallpaperStore {
 
@@ -81,10 +97,18 @@ public class WallpaperStore {
         return Math.max(MIN_WALLPAPER_DIM, Math.min(screenLongSide(context), MAX_WALLPAPER_DIM));
     }
 
-    /** 壁纸条目元数据：id 为图片文件标识，libId 为所属壁纸库 id，title 为壁纸标题（可空）。 */
+    /**
+     * 壁纸条目元数据：id 为图片文件标识，libIds 为它挂在的壁纸库集合（可多于一库），title 为壁纸标题（可空）。
+     *
+     * <p>{@link #libId} 不是第二份真相：它恒等于 {@code libIds} 的第一个（集合空时为空串），
+     * 存在的唯一理由是老版本只认 library.json 里的 {@code lib_id} —— 装回旧包时这张仍落在
+     * 它挂着的一个库里，而不是被 {@code lib_id} 为空的分支整个塞进默认库。
+     */
     public static class Item {
         public String id;
         public String libId;
+        /** 挂在的库 id 集合，按挂上的先后排；判定归属一律用它（{@link #inLib}），别再用 libId 比等。 */
+        public final List<String> libIds = new ArrayList<>();
         // 壁纸标题：默认取导入时的原文件名（去扩展名），可在预览弹窗里改；历史数据可能为空
         public String title;
         // 上次成品图是从原图的哪块矩形导出的。坐标一律是**原图像素坐标**，与导出用的区域解码同一套，
@@ -100,6 +124,35 @@ public class WallpaperStore {
         /** 有没有可复原的构图参数（尺寸有效 + 矩形不退化）。 */
         public boolean hasCropRect() {
             return srcWidth > 0 && srcHeight > 0 && cropRight > cropLeft && cropBottom > cropTop;
+        }
+
+        /** 这张挂不挂在某个库里（多归属下的唯一正确问法）。 */
+        public boolean inLib(String libId) {
+            return libId != null && libIds.contains(libId);
+        }
+
+        /** 挂上某个库（已经在就不动）。 */
+        public void joinLib(String libId) {
+            if (libId != null && !libId.isEmpty() && !libIds.contains(libId)) {
+                libIds.add(libId);
+            }
+            syncPrimaryLib();
+        }
+
+        /**
+         * 从某个库摘下来。
+         *
+         * @return true = 摘完不再挂任何库（调用方得把这张连文件一起清掉，并处理各库指针）
+         */
+        public boolean leaveLib(String libId) {
+            libIds.remove(libId);
+            syncPrimaryLib();
+            return libIds.isEmpty();
+        }
+
+        /** 主归属跟着集合第一个走，两处不能各说各话。 */
+        private void syncPrimaryLib() {
+            libId = libIds.isEmpty() ? "" : libIds.get(0);
         }
     }
 
@@ -183,6 +236,21 @@ public class WallpaperStore {
                 Item item = new Item();
                 item.id = obj.getString("id");
                 item.libId = obj.optString("lib_id", "");
+                // 归属集合：多于一个才有这个键（见类注释），老文件/老包读不到就按 lib_id 单归属接上
+                JSONArray belongs = obj.optJSONArray("lib_ids");
+                if (belongs != null) {
+                    for (int b = 0; b < belongs.length(); b++) {
+                        String lid = belongs.optString(b, "");
+                        if (!lid.isEmpty() && !item.libIds.contains(lid)) {
+                            item.libIds.add(lid);
+                        }
+                    }
+                }
+                if (item.libIds.isEmpty() && !item.libId.isEmpty()) {
+                    item.libIds.add(item.libId);
+                } else if (!item.libIds.isEmpty()) {
+                    item.libId = item.libIds.get(0);
+                }
                 item.title = obj.optString("title", "");
                 // 裁剪矩形：旧文件/旧包读不出就是 0，按「没有参数」处理
                 item.srcWidth = obj.optInt("src_w", 0);
@@ -391,7 +459,7 @@ public class WallpaperStore {
         List<Item> items = load(context);
         Item item = new Item();
         item.id = id;
-        item.libId = libId == null ? "" : libId;
+        item.joinLib(libId);
         item.title = pendingTitle(context, inboxId);
         items.add(item);
         saveLibrary(context, items);
@@ -470,14 +538,13 @@ public class WallpaperStore {
         return ids;
     }
 
-    /** 删除壁纸：移除全图、缩略图文件，并从 library.json 中移除记录。 */
+    /**
+     * 彻底删除一张壁纸：三份文件与记录一起没，<b>所有库</b>里都不再出现它。
+     * 只想让它从某一个库消失（还挂在别的库时不碰文件）用 {@link #removeFromLib}。
+     */
     public static void delete(Context context, String id) {
         try {
-            File thumbFile = getThumbFile(context, id);
-            deleteFullFiles(context, id);
-            Files.deleteIfExists(thumbFile.toPath());
-            // 原图跟着条目一起走，否则留下的孤儿文件既占地方（几百 KB～几 MB）又再也认不回来
-            Files.deleteIfExists(getOriginalFile(context, id).toPath());
+            destroyStoredFiles(context, id);
             List<Item> items = load(context);
             List<Item> remain = new ArrayList<>();
             for (Item item : items) {
@@ -494,44 +561,220 @@ public class WallpaperStore {
         }
     }
 
-    /** 加载指定壁纸库内的全部壁纸（按添加顺序）。 */
+    /**
+     * 删掉一张壁纸的三份文件（成品图 / 缩略图 / 原图）。
+     * 只在「这张不再挂任何库」时调用 —— 多归属下这些文件是各库共用的，提前删就让别的库也黑图。
+     * 实况段就躺在原图字节尾部，所以它跟着原图一起走，不需要单独清理。
+     */
+    private static void destroyStoredFiles(Context context, String id) throws IOException {
+        deleteFullFiles(context, id);
+        try {
+            Files.deleteIfExists(getThumbFile(context, id).toPath());
+            // 原图跟着条目一起走，否则留下的孤儿文件既占地方（几百 KB～几 MB）又再也认不回来
+            Files.deleteIfExists(getOriginalFile(context, id).toPath());
+        } catch (Exception | OutOfMemoryError ignored) {
+        }
+    }
+
+    /** 列出指定壁纸库内的全部壁纸（按添加顺序）。 */
     public static List<Item> loadByLib(Context context, String libId) {
         List<Item> result = new ArrayList<>();
         for (Item item : load(context)) {
-            if (item.libId != null && item.libId.equals(libId)) {
+            if (item.inLib(libId)) {
                 result.add(item);
             }
         }
         return result;
     }
 
-    /** 删除整个壁纸库的壁纸（文件与元数据），删除库时调用。 */
+    /**
+     * 各库的张数（一次遍历算完，省得按库循环各解析一遍 library.json）。
+     * 共享的那张在它挂着的每个库里各数一次 —— 「这一库里能看到几张」就是用户要的那个数，
+     * 不是「手机上有几种不同的图」。
+     */
+    public static Map<String, Integer> libMemberCounts(Context context) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (Item item : load(context)) {
+            for (String libId : item.libIds) {
+                Integer seen = counts.get(libId);
+                counts.put(libId, seen == null ? 1 : seen + 1);
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * 把若干张壁纸<b>复制</b>到某个库（多归属下这就是「再挂一个归属」，零文件 IO）。
+     * 已经在这个库里的跳过。
+     *
+     * @return 真正新增的张数（调用方拿 ids.size() 减它就是「本来就在」的张数）
+     */
+    public static int addToLib(Context context, List<String> ids, String libId) throws Exception {
+        if (ids == null || ids.isEmpty() || libId == null || libId.isEmpty()) {
+            return 0;
+        }
+        List<Item> items = load(context);
+        int added = 0;
+        for (Item item : items) {
+            if (ids.contains(item.id) && !item.inLib(libId)) {
+                item.joinLib(libId);
+                added++;
+            }
+        }
+        if (added > 0) {
+            saveLibrary(context, items);
+        }
+        return added;
+    }
+
+    /**
+     * 把若干张壁纸从 fromLibId <b>移动</b>到 toLibId：摘掉来源的归属、挂上目标的归属。
+     * 摘与挂是同一次改写，所以没有任何一张会因为移动而变成孤儿（返回值恒为 0，
+     * 留着只是让三条动作共用一个收尾口径）。
+     *
+     * @return 因本次操作而彻底消失的张数（移动恒为 0）
+     */
+    public static int moveToLib(Context context, List<String> ids, String fromLibId, String toLibId)
+            throws Exception {
+        return changeMembership(context, ids, fromLibId, toLibId);
+    }
+
+    /**
+     * 把若干张壁纸从某个库<b>移除</b>（这一个库不再看得到它们）。
+     * 只挂在这一个库的那些会被彻底删掉（成品图、缩略图、原图三份文件）。
+     *
+     * @return 被彻底删掉的张数
+     */
+    public static int removeFromLib(Context context, List<String> ids, String fromLibId)
+            throws Exception {
+        return changeMembership(context, ids, fromLibId, null);
+    }
+
+    /**
+     * 摘除前的预演，给确认弹窗算账用。
+     *
+     * @return {@code {会被彻底删掉的张数, 还挂在别的库、只是这个库不再显示的张数}}
+     */
+    public static int[] previewRemovalFromLib(Context context, List<String> ids, String fromLibId) {
+        int destroyed = 0;
+        int shared = 0;
+        if (ids == null || fromLibId == null) {
+            return new int[]{0, 0};
+        }
+        for (Item item : load(context)) {
+            if (!ids.contains(item.id) || !item.inLib(fromLibId)) {
+                continue;
+            }
+            // 归属多于一个 = 摘掉这一个还有地方看它
+            if (item.libIds.size() > 1) {
+                shared++;
+            } else {
+                destroyed++;
+            }
+        }
+        return new int[]{destroyed, shared};
+    }
+
+    /**
+     * 移动与移除的共同主体：一次读-改-写整份表，只在真改动时落盘。toLibId 传 null = 只摘不挂。
+     *
+     * <p>移动过去的那几条写回时挪到<b>表尾</b>（只移动做，移除不动原位）：库内的顺序就是它们在
+     * library.json 里出现的先后，留在原位等于插进目标库队列的中间，把那个库「顺序模式下次从第几张
+     * 接着放」的索引整体后移一位 —— 到点会跳过或重复一张。挪到表尾就和导入那一条链路完全一致。
+     */
+    private static int changeMembership(Context context, List<String> ids, String fromLibId,
+                                        String toLibId) throws Exception {
+        if (ids == null || ids.isEmpty() || fromLibId == null || fromLibId.isEmpty()) {
+            return 0;
+        }
+        boolean move = toLibId != null && !toLibId.isEmpty();
+        List<Item> items = load(context);
+        List<Item> keep = new ArrayList<>();
+        List<Item> moved = new ArrayList<>();
+        List<String> orphaned = new ArrayList<>();
+        boolean changed = false;
+        for (Item item : items) {
+            if (ids.contains(item.id) && item.inLib(fromLibId)) {
+                changed = true;
+                item.leaveLib(fromLibId);
+                if (move) {
+                    // 先挂目标库再判归属空不空：移动过去的那张永远不会变成孤儿
+                    if (!item.inLib(toLibId)) {
+                        item.joinLib(toLibId);
+                    }
+                    moved.add(item);
+                    continue;
+                }
+                if (item.libIds.isEmpty()) {
+                    // 只挂在这一个库里、这回又没别处去：记录不再进表，文件排到表写成功之后才删
+                    orphaned.add(item.id);
+                    continue;
+                }
+            }
+            keep.add(item);
+        }
+        if (!changed) {
+            return 0;
+        }
+        keep.addAll(moved);
+        // 先写表再删文件：反过来的话整表写失败就成「记录还在、点开是黑图」——
+        // 而这份表是唯一真相，宁可留下几个没人引用的文件（占地方，但不骗界面）
+        saveLibrary(context, keep);
+        for (String id : orphaned) {
+            try {
+                destroyStoredFiles(context, id);
+            } catch (Exception | OutOfMemoryError ignored) {
+                // 表里已经没有这张了，文件删不掉就只是白占地方，不该让整个整理动作报失败
+            }
+            context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
+                    .remove(id)
+                    .apply();
+        }
+        return orphaned.size();
+    }
+
+    /**
+     * 删库时清归属：从被删的库里摘掉这些壁纸，<b>还挂在别的库的一张都不动</b>
+     * （文件与记录都留着，那个库照常轮播）；只挂在这个库的才连带删三份文件。
+     */
     public static void deleteByLib(Context context, String libId) {
         try {
             List<Item> items = load(context);
             List<Item> remain = new ArrayList<>();
+            List<String> orphaned = new ArrayList<>();
+            boolean changed = false;
             for (Item item : items) {
-                if (libId.equals(item.libId)) {
-                    deleteFullFiles(context, item.id);
-                    Files.deleteIfExists(getThumbFile(context, item.id).toPath());
-                    Files.deleteIfExists(getOriginalFile(context, item.id).toPath());
+                if (!item.inLib(libId)) {
+                    remain.add(item);
+                    continue;
+                }
+                changed = true;
+                if (item.leaveLib(libId)) {
+                    // 这库是它唯一的归属：记录连同三份文件一起没，跟删掉一张同口径
+                    orphaned.add(item.id);
                 } else {
                     remain.add(item);
                 }
             }
+            if (!changed) {
+                return;
+            }
             saveLibrary(context, remain);
+            for (String id : orphaned) {
+                destroyStoredFiles(context, id);
+            }
         } catch (Exception ignored) {
         }
     }
 
-    /** 旧版迁移：把没有 lib_id 的历史壁纸全部归入指定库（仅补空值，幂等）。 */
+    /** 旧版迁移：把没有归属的历史壁纸全部归入指定库（仅补空值，幂等）。 */
     public static void migrateLegacyToLib(Context context, String libId) {
         try {
             List<Item> items = load(context);
             boolean changed = false;
             for (Item item : items) {
-                if (item.libId == null || item.libId.isEmpty()) {
-                    item.libId = libId;
+                if (item.libIds.isEmpty()) {
+                    item.joinLib(libId);
                     changed = true;
                 }
             }
@@ -981,6 +1224,11 @@ public class WallpaperStore {
             JSONObject obj = new JSONObject();
             obj.put("id", item.id);
             obj.put("lib_id", item.libId == null ? "" : item.libId);
+            // 归属多于一个才写这份集合：单归属的文件字节跟老版本一模一样，
+            // 老版本读到不认识的 lib_ids 会直接忽略、只看 lib_id（= 第一个归属），降级回滚不丢图
+            if (item.libIds.size() > 1) {
+                obj.put("lib_ids", new JSONArray(item.libIds));
+            }
             obj.put("title", item.title == null ? "" : item.title);
             // 有参数才写这六个键：老条目读出来 srcWidth=0，写回时不带，文件不虚胖；
             // 旧版本读到不认识的键会直接忽略，所以降级回滚不会崩
