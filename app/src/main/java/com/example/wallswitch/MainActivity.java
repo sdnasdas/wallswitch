@@ -1222,6 +1222,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 检查更新：设置页手动入口 + 启动时静默检查（有新版才弹窗，失败不打扰）。
+     * 启动那一次归抽屉里「自动检查更新」那颗开关管，关掉后只剩手动点那一行。
      * 下载走 App 内链路（{@link UpdateDownloader}）：进度条与「点按安装」都收在这一行上，
      * 不再挂系统下载器的通知——那条通知一被划掉，安装包就找不回来了。
      */
@@ -1236,9 +1237,13 @@ public class MainActivity extends AppCompatActivity {
             lastUpdateSource = lastUpdateVersion = null;
             bindUpdateState();
         });
+        bindAutoUpdateSwitch();
         // 上回下的包已经装上了就清账，别让这一行一直挂着「点按安装」
         UpdateDownloader.pruneInstalled(this);
         bindUpdateState();
+        if (!UpdateChecker.autoCheck(this)) {
+            return;
+        }
         // 启动静默检查：只在发现新版时打扰，失败静默（走当前所选源；正下着不打断）
         UpdateChecker.checkAsync(this, (info, error) -> {
             if (error == null && info != null && !isFinishing() && !isDestroyed()
@@ -1247,6 +1252,18 @@ public class MainActivity extends AppCompatActivity {
                 showUpdateDialog(info, UpdateChecker.source(this));
             }
         });
+    }
+
+    /** 「自动检查更新」开关：只管下次启动的那一次静默检查，所以拨动它本轮不会有别的反应。 */
+    private void bindAutoUpdateSwitch() {
+        CompoundButton sw = findViewById(R.id.sw_auto_update_check);
+        if (sw == null) {
+            return;
+        }
+        sw.setOnCheckedChangeListener(null);
+        sw.setChecked(UpdateChecker.autoCheck(this));
+        sw.setOnCheckedChangeListener(
+                (buttonView, isChecked) -> UpdateChecker.setAutoCheck(MainActivity.this, isChecked));
     }
 
     /** 这一行点下去干什么，完全由下载状态决定：下载中不理、有包就装、其余去检查。 */

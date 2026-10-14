@@ -39,6 +39,7 @@ public final class UpdateChecker {
     public static final String DEFAULT_SOURCE = SRC_GITEE;
     private static final String PREFS_NAME = "wallswitch";
     private static final String KEY_SOURCE = "update_source";
+    private static final String KEY_AUTO_CHECK = "update_auto_check";
 
     // ---- Gitee（lxrzyt/wallsw，公开仓库，接口免令牌）----
     private static final String GITEE_API =
@@ -98,6 +99,22 @@ public final class UpdateChecker {
     public static void setSource(Context ctx, String source) {
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putString(KEY_SOURCE, SRC_GITHUB.equals(source) ? SRC_GITHUB : SRC_GITEE)
+                .apply();
+    }
+
+    /**
+     * 启动时是否自动检查更新（抽屉里那颗开关）。默认开：没存过键的老装机与从没碰过开关的
+     * 都读到 true，所以默认值只在这一处定义。
+     */
+    public static boolean autoCheck(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_AUTO_CHECK, true);
+    }
+
+    /** 保存启动自动检查的开关。 */
+    public static void setAutoCheck(Context ctx, boolean enabled) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_AUTO_CHECK, enabled)
                 .apply();
     }
 
