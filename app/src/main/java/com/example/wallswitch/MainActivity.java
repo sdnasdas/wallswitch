@@ -3207,6 +3207,74 @@ public class MainActivity extends AppCompatActivity {
         }, "set-home").start();
     }
 
+    /**
+     * 长按浮出的红垃圾桶。多归属之后这一按的破坏面比过去大：删的是那几库共用的那一份文件，
+     * 别的库里那张也一起没，所以只在「还挂在别的库」时拦一道，把两个出口摆明给他选；
+     * 只挂在本库的照旧一键直接删（v3.115 之前的手感不动）。
+     *
+     * <p>「解除本库关联」走的是整理态那一条移出链路（那张还挂在别的库，所以一张图都不会被删），
+     * 图钉跟随与逐归属的当前指针核对都在里面，不在这里立第二份收尾。
+     */
+    private void handleTrashClick(final WallpaperStore.Item item) {
+        final String src = currentLibId();
+        if (src == null) {
+            return;
+        }
+        StringBuilder others = new StringBuilder();
+        int otherCount = 0;
+        for (String libId : item.libIds) {
+            if (libId.equals(src)) {
+                continue;
+            }
+            LibraryStore.Library lib = LibraryStore.get(this, libId);
+            if (lib == null) {
+                // 归属指向一个已经不在了的库：不该数进「还挂在哪儿」里，那种条目还原时会兜底
+                continue;
+            }
+            if (others.length() > 0) {
+                others.append("、");
+            }
+            others.append("「").append(lib.name).append("」");
+            otherCount++;
+        }
+        if (others.length() == 0) {
+            deleteWallpaperEverywhere(item);
+            return;
+        }
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.delete_confirm_title)
+                // 个数只数点得出名字的那些：连同本库，文案里的数字与列出的库必须对得上
+                .setMessage(getString(R.string.delete_confirm_msg,
+                        itemTitle(item), others.toString(), otherCount + 1))
+                .setPositiveButton(R.string.delete_purge, (d, which) -> deleteWallpaperEverywhere(item))
+                .setNegativeButton(R.string.delete_unlink,
+                        (d, which) -> applyOrganizeChange(ORGANIZE_REMOVE,
+                                java.util.Collections.singletonList(item.id), src, null, null))
+                .setNeutralButton(R.string.cancel, null)
+                .show();
+        // 破坏性那一条不该长成主按钮的蓝：照批量删库确认钮的压法，红字 + 红垃圾桶
+        Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        positive.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_delete, 0, 0, 0);
+        positive.setCompoundDrawableTintList(ColorStateList.valueOf(getColor(R.color.danger)));
+        positive.setTextColor(getColor(R.color.danger));
+    }
+
+    /**
+     * 彻底删除一张：所有库的记录连同三份文件一起没（成品图 / 缩略图 / 原图）。
+     * 它挂在几个库里，那几个库的「屏上这张」指针就得各自核对一遍 —— 一张同时占着桌面和锁屏两面时，
+     * 只按主归属清会漏掉另一面。锁屏那一路是阻塞的系统调用，放后台线程、用 Application 上下文。
+     */
+    private void deleteWallpaperEverywhere(WallpaperStore.Item item) {
+        final List<String> owners = new ArrayList<>(item.libIds);
+        WallpaperStore.delete(this, item.id);
+        refreshList();
+        new Thread(() -> {
+            for (String owner : owners) {
+                Switcher.reapplyIfCurrent(getApplicationContext(), owner, item.id);
+            }
+        }, "reapply-wallpaper").start();
+    }
+
     // ==================== 一键设置（钉住一张到两面，通知标题那一行那颗开关执行） ====================
 
     /** 抽屉那一行的副标题：已选 = 「库名 · 标题」，没选过、或那张/那个库已被删 = 「未设置」。 */
@@ -3780,8 +3848,10 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * 壁纸网格适配器（两列正方形）：点格直接进裁剪页重编；长按浮出铅笔（改标题小窗）/ 红垃圾桶
-     * （直接删，不确认）两个圆形图标，点空白处或返回手势收起。
+     * 壁纸网格适配器（两列正方形）：点格直接进裁剪页重编；长按浮出半透明压暗层与三个圆形图标
+     * （铅笔=改标题小窗 / 房子=设为首页 / 红垃圾桶=删这张），点空白处或返回手势收起。
+     * 垃圾桶那条按归属分流：只挂在本库的直接删、不确认；还挂在别的库的弹一次窗，
+     * 让他选「彻底删除」还是「解除本库关联」（见 {@link #handleTrashClick}）。
      *
      * <p>整理多选态（顶栏「整理」进入）把这一页的手感整个换掉：点格 = 勾选（格子右上角露复选框、
      * 图压暗），长按不再浮出那一排，进裁剪页也进不去 —— 三条动作（移动/复制/移出）都在顶栏菜单里，
@@ -3947,22 +4017,11 @@ public class MainActivity extends AppCompatActivity {
                 hideRevealed();
                 setAsHomeWallpaper(item);
             });
-            // 红垃圾桶 → 直接删除，不再确认
+            // 红垃圾桶 → 只挂在本库的直接删（老手感不变）；还挂在别的库的先问那一句
             holder.btnDelete.setOnClickListener(v -> {
-                revealed = -1;
-                // 按下去就是删整张：它挂在几个库里，那几个库的「屏上这张」指针都得各自核对一遍
-                //（一张同时占着桌面和锁屏两面时，只按主归属清会漏掉另一面）
-                final List<String> owners = new ArrayList<>(item.libIds);
-                WallpaperStore.delete(MainActivity.this, item.id);
-                refreshList();
-                // 删掉的若是桌面/锁屏的当前壁纸，立刻清指针并推进到下一张上屏
-                // （锁屏路径是阻塞的系统调用，放后台线程；用 Application 上下文，
-                //  线程可能在 Activity 销毁后才跑完）
-                new Thread(() -> {
-                    for (String owner : owners) {
-                        Switcher.reapplyIfCurrent(getApplicationContext(), owner, item.id);
-                    }
-                }, "reapply-wallpaper").start();
+                // 先把这一排收回去：弹窗后面留着一格压暗加三个圆键，看起来像这一排还能动
+                hideRevealed();
+                handleTrashClick(item);
             });
         }
 

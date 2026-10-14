@@ -36,7 +36,7 @@
     <string name="organize_copied_all_already">这 %1$d 张本来就都在「%2$s」里，没动</string>
     <string name="organize_moved">已移动 %1$d 张到「%2$s」</string>
     <string name="organize_removed">已移出 %1$d 张，其中 %2$d 张已从手机彻底删掉</string>
-    <string name="organize_removed_shared">已移出 %1$d 张：都还挂在别的库里，图片一张没动</string>
+    <string name="organize_removed_shared">已移出 %1$d 张：这些图还挂在别的库里，一张都没删</string>
     <string name="organize_remove_title">从「%2$s」移出 %1$d 张？</string>
     <string name="organize_remove_msg_all">这 %1$d 张只挂在这一个库里，移出会把成品图、缩略图和原图一起从手机上删掉，找不回来</string>
     <string name="organize_remove_msg_mixed">其中 %1$d 张只挂在这个库里，移出会把成品图、缩略图和原图一起从手机上删掉；另外 %2$d 张还挂在别的库，移出只是这一页不再显示</string>
@@ -86,12 +86,16 @@
     <string name="widget_console_lib_none">不切换（桌面停止自动切换）</string>
     <string name="widget_console_lib_none_lock">不切换（锁屏停止自动切换）</string>
     <string name="timer_enabled">定时切换</string>
-    <string name="delete_confirm_title">删除壁纸</string>
+    <!-- 库内长按浮出的红垃圾桶：只挂在本库的直接删（不弹），还挂在别的库的才拦这一道，
+         两个出口摆在按钮上，文案把「删的是几库共用的那一份文件」说明白 -->
+    <string name="delete_confirm_title">这张图还挂在别的库</string>
     <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->
     <string name="set_as_home">设为首页</string>
     <string name="set_as_home_done">已设为首页壁纸</string>
     <string name="set_as_home_unavailable">桌面范围还没设置这个库：先在「桌面壁纸库」卡片里选上它</string>
-    <string name="delete_confirm_msg">确定要删除这张壁纸吗？</string>
+    <string name="delete_confirm_msg">「%1$s」同时挂在 %2$s 里，连同本库共 %3$d 个库用的是同一份图片文件。\n\n彻底删除：这几个库都不会再有它，成品图、缩略图、原图一起从手机上删掉，找不回来。\n\n解除本库关联：只是本库不再显示它，别的库照常轮播，一张图都不删。</string>
+    <string name="delete_purge">彻底删除</string>
+    <string name="delete_unlink">解除本库关联</string>
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>
     <string name="import_all_failed">图片导入失败，请重试</string>
