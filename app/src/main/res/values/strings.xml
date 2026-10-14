@@ -96,6 +96,11 @@
     <string name="delete_confirm_msg">「%1$s」同时挂在 %2$s 里，连同本库共 %3$d 个库用的是同一份图片文件。\n\n彻底删除：这几个库都不会再有它，成品图、缩略图、原图一起从手机上删掉，找不回来。\n\n解除本库关联：只是本库不再显示它，别的库照常轮播，一张图都不删。</string>
     <string name="delete_purge">彻底删除</string>
     <string name="delete_unlink">解除本库关联</string>
+    <!-- 重编一张挂在几个库里的壁纸：成品图是那几处共用的一份，所以确认那一下先问一句 -->
+    <string name="diverge_title">改动要不要同步到别的库</string>
+    <string name="diverge_msg">这张图的成品图由 %2$d 个库共用，还挂在 %1$s。\n\n同步修改：这几处一起换成新的取景。\n\n只改这个库：另存一条新壁纸挂在本库（新写一份成品图与缩略图，再拷一份原图，会多占这一张的空间），原来那条留给别的库、本库不再显示它。</string>
+    <string name="diverge_sync">同步修改</string>
+    <string name="diverge_fork">只改这个库</string>
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>
     <string name="import_all_failed">图片导入失败，请重试</string>

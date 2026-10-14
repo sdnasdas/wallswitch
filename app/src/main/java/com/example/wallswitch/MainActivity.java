@@ -2490,6 +2490,12 @@ public class MainActivity extends AppCompatActivity {
     private void openEditItem(WallpaperStore.Item item) {
         Intent intent = new Intent(this, EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_ITEM_ID, item.id);
+        // 从哪个库点进来的也带上：那张挂在几个库里时，编辑页要问「只改这个库」还是「同步修改」，
+        // 分叉出来的新条目得有个明确归属的库（没有它就只能一律覆盖）
+        String libId = currentLibId();
+        if (libId != null) {
+            intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
+        }
         startActivity(intent);
     }
 

@@ -301,6 +301,32 @@ public class Switcher {
     }
 
     /**
+     * 重编分叉（一张挂几个库时走「只改这个库」）之后，把<b>这个库</b>里指向原来那张的当前指针
+     * 换成新造的那条，并按新那条的文件重新上屏。逐范围各判一次：一张可以同时占着桌面和锁屏两面。
+     *
+     * <p>为什么不能借 {@link #reapplyIfCurrent}：它按「文件还在不在」判删除，而原来那张的文件还在盘上
+     * （别的库还在用），于是它只会拿旧字节再上屏一次，指针也仍停在旧条目上；
+     * 也不能用 {@code next}：那等于替他换了一张他没选的图。
+     */
+    public static void retargetCurrent(Context ctx, String libId, String fromId, String toId) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        for (boolean forHome : new boolean[]{true, false}) {
+            String base = progressBase(libId, forHome);
+            String current = prefs.getString(base + "_current", null);
+            if (current == null || !current.equals(fromId)) {
+                continue;
+            }
+            if (LibraryStore.ownsScope(ctx, libId, forHome) && TakeoverManager.isEnabled(ctx)) {
+                // 这一面正显示着它：换指针 + 按新那条上图（applyById 里带着刷小组件与通知）
+                applyById(ctx, libId, toId, forHome);
+            } else {
+                // 这一面本来没在它上面（没占槽位或接管关着）：只把账改对，不上屏
+                prefs.edit().putString(base + "_current", toId).apply();
+            }
+        }
+    }
+
+    /**
      * 覆盖/删除某张壁纸后，把改动推上屏（v3.14）：该图若是某范围（桌面/锁屏）的当前壁纸——
      * 覆盖：指针不变，按新文件内容重新上屏（桌面通知引擎重绘，锁屏重新写一次静态存档）；
      * 删除：清掉指向它的指针，再推进到库里下一张。

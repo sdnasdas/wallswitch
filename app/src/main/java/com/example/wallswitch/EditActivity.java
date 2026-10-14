@@ -17,7 +17,10 @@ import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
@@ -49,7 +52,8 @@ public class EditActivity extends AppCompatActivity {
     public static final String EXTRA_INBOX_ID = "inbox_id";
     // 已入库壁纸 id 的 Intent extra key（重编模式：点壁纸格进入）
     public static final String EXTRA_ITEM_ID = "item_id";
-    // 目标壁纸库 id 的 Intent extra key（仅导入模式用）
+    // 目标壁纸库 id 的 Intent extra key：导入模式是「入哪个库」；v3.117 起重编模式也带上，
+    // 表示「从哪个库进来的」——挂在几个库里的那张要分叉，得点名往哪个库挂新条目
     public static final String EXTRA_LIB_ID = "lib_id";
 
     private CropView cropView;
@@ -342,11 +346,74 @@ public class EditActivity extends AppCompatActivity {
      * 导入模式入库为新壁纸；重编模式覆盖原壁纸文件（保留 id/标题/归属库）。
      * 区域解码拿不到（格式不支持等）时回退到「从内存位图裁」，再不行才报失败。
      *
+     * <p>重编一张<b>还挂在别的库</b>的壁纸时先问一句（v3.117）：覆盖改的是那几库共用的一份成品图，
+     * 一次点按会连带把别的库那张也换掉，所以给两个出口 —— 同步修改 / 只改这个库（另存一条新的）。
+     * 这一问插在落盘链起跑之前：选完才量取景框、才动文件，取消就是什么都没做。
+     *
      * <p>v3.114 起整条落盘链（区域解码 + PNG 无损编码 + 缩略图）搬后台线程：这是数秒级重活，
-     * 主线程陪跑就是「点确认卡两三秒」。取景框在这里先量好再交给后台 ——
+     * 主线程陪跑就是「点确认卡两三秒」。取景框在主线程量好再交给后台 ——
      * {@link #exportByRegion}/{@link #saveCropRectIfNeeded} 都要读视图状态，后台线程不摸视图。
      */
     private void onConfirm() {
+        if (confirmRunning) {
+            return;
+        }
+        List<String> otherNames = sharedOtherLibNames();
+        if (otherNames != null) {
+            showDivergeChoice(otherNames);
+            return;
+        }
+        startConfirm(false);
+    }
+
+    /**
+     * 这次重编是不是「一张挂在几个库、改动会让别处跟着变」：是就返回<b>别的</b>那些库的名字
+     * （弹窗要用），否则返回 null（直接按老行为落盘）。
+     *
+     * <p>靠现读而不是进页面时那份快照：他在裁剪页期间可能去整理过归属。
+     * 当前库定不下来（老入口没带 lib_id）也返回 null —— 分叉需要一个明确的「挂到哪个库」。
+     */
+    private List<String> sharedOtherLibNames() {
+        if (itemId == null || libId == null || libId.isEmpty()) {
+            return null;
+        }
+        WallpaperStore.Item item = WallpaperStore.get(this, itemId);
+        if (item == null || item.libIds.size() < 2 || !item.inLib(libId)) {
+            return null;
+        }
+        List<String> names = new ArrayList<>();
+        for (String owner : item.libIds) {
+            if (owner.equals(libId)) {
+                continue;
+            }
+            LibraryStore.Library lib = LibraryStore.get(this, owner);
+            if (lib != null) {
+                names.add(lib.name == null ? "" : lib.name);
+            }
+        }
+        return names.isEmpty() ? null : names;
+    }
+
+    /** 分叉那一步的选择窗：两个出口各讲后果，点外面或返回 = 这次不落盘、留在裁剪页继续调。 */
+    private void showDivergeChoice(List<String> otherNames) {
+        StringBuilder joined = new StringBuilder();
+        for (String name : otherNames) {
+            if (joined.length() > 0) {
+                joined.append("、");
+            }
+            joined.append("「").append(name).append("」");
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.diverge_title)
+                .setMessage(getString(R.string.diverge_msg, joined.toString(), otherNames.size() + 1))
+                .setPositiveButton(R.string.diverge_sync, (dialog, which) -> startConfirm(false))
+                .setNegativeButton(R.string.diverge_fork, (dialog, which) -> startConfirm(true))
+                .setNeutralButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 真正起跑落盘链（取景框在这里量，必须主线程）。{@code fork} = 只改这个库，另存一条新的。 */
+    private void startConfirm(boolean fork) {
         if (confirmRunning) {
             return;
         }
@@ -358,13 +425,26 @@ public class EditActivity extends AppCompatActivity {
         int srcW = cropView.getSourceWidth();
         int srcH = cropView.getSourceHeight();
         final Context appCtx = getApplicationContext();
-        new Thread(() -> confirmInBackground(appCtx, visible, hasVisible, srcW, srcH),
+        new Thread(() -> confirmInBackground(appCtx, visible, hasVisible, srcW, srcH, fork),
                 "edit-confirm").start();
     }
 
-    /** 落盘链主体（后台线程）：导出 → 入库/覆盖 → 记构图，收尾回主线程报结果并关页。 */
+    /**
+     * 分叉后把「一键设置」钉住的那张也跟着换成新那条（只在本库是 pin 所在库时）。
+     * 不换的话下次按通知上那颗开关会走 {@code inLibrary} 判定失败报「那张已不在库里」——
+     * 而本库里这张已经是新那条了，只是 id 换了。别的库的 pin 不动，它们钉的确实是原来那张。
+     */
+    private static void retargetPinnedTo(Context ctx, String libId, String fromId, String toId) {
+        if (libId.equals(PinnedWallpaper.libId(ctx))
+                && fromId.equals(PinnedWallpaper.wallpaperId(ctx))) {
+            PinnedWallpaper.set(ctx, libId, toId);
+            StatusNotifier.update(ctx);
+        }
+    }
+
+    /** 落盘链主体（后台线程）：导出 → 入库/覆盖/分叉 → 记构图，收尾回主线程报结果并关页。 */
     private void confirmInBackground(Context appCtx, RectF visible, boolean hasVisible,
-                                     int srcW, int srcH) {
+                                     int srcW, int srcH, boolean fork) {
         Bitmap result = hasVisible ? exportByRegion(visible, srcW, srcH) : null;
         if (result == null) {
             result = cropFallbackOnUi();
@@ -378,22 +458,38 @@ public class EditActivity extends AppCompatActivity {
                     WallpaperStore.cancelImport(appCtx, inboxId);
                 }
             } else if (itemId != null) {
-                WallpaperStore.overwrite(appCtx, itemId, result);
-                touchedId = itemId;
-                saved = true;
-                // 覆盖后立刻把改动推上屏（这张若是桌面/锁屏的当前壁纸），不等下一次切换。
-                // 锁屏路径是阻塞的系统调用，放独立线程；用的是 Application 上下文
-                //（拿 Activity 当 Context 会被 lint 判 context leak）
-                new Thread(() -> {
-                    WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
-                    if (item != null) {
-                        // 一张现在可能挂在好几个库里，而「当前壁纸」指针是按库各存一份的：
-                        // 它同时在 A 库（桌面）和 B 库（锁屏）当屏上那张时，两边都得跟上这次重编
-                        for (String libId : new java.util.ArrayList<>(item.libIds)) {
-                            Switcher.reapplyIfCurrent(appCtx, libId, itemId);
+                // fork 前置条件不成立（归属在这期间被整理过、当前库对不上）时返回 null，退回覆盖，
+                // 不该把用户这次已经调好的取景丢掉
+                String freshId = fork ? WallpaperStore.forkIntoLib(appCtx, itemId, result, libId) : null;
+                if (freshId != null) {
+                    // 分叉：本库里这条已经是新造的那张；原来那张的文件与记录都留给别的库，
+                    // 所以别处的屏不用重上屏，只有本库要把指针从旧条目挪到新条目
+                    touchedId = freshId;
+                    saved = true;
+                    final String fromId = itemId;
+                    final String toId = freshId;
+                    new Thread(() -> {
+                        Switcher.retargetCurrent(appCtx, libId, fromId, toId);
+                        retargetPinnedTo(appCtx, libId, fromId, toId);
+                    }, "reapply-wallpaper").start();
+                } else {
+                    WallpaperStore.overwrite(appCtx, itemId, result);
+                    touchedId = itemId;
+                    saved = true;
+                    // 覆盖后立刻把改动推上屏（这张若是桌面/锁屏的当前壁纸），不等下一次切换。
+                    // 锁屏路径是阻塞的系统调用，放独立线程；用的是 Application 上下文
+                    //（拿 Activity 当 Context 会被 lint 判 context leak）
+                    new Thread(() -> {
+                        WallpaperStore.Item item = WallpaperStore.get(appCtx, itemId);
+                        if (item != null) {
+                            // 一张现在可能挂在好几个库里，而「当前壁纸」指针是按库各存一份的：
+                            // 它同时在 A 库（桌面）和 B 库（锁屏）当屏上那张时，两边都得跟上这次重编
+                            for (String owner : new java.util.ArrayList<>(item.libIds)) {
+                                Switcher.reapplyIfCurrent(appCtx, owner, itemId);
+                            }
                         }
-                    }
-                }, "reapply-wallpaper").start();
+                    }, "reapply-wallpaper").start();
+                }
             } else {
                 WallpaperStore.confirmImport(appCtx, inboxId, result, libId);
                 touchedId = inboxId;

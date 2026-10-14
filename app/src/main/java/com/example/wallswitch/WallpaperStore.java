@@ -484,6 +484,69 @@ public class WallpaperStore {
     }
 
     /**
+     * 重编分叉：一张挂在几个库里时「只改这个库」那一条。用这次导出的成品图<b>新造一条壁纸</b>
+     * （新 id、新成品图、新缩略图，原图字节拷一份过来）挂到当前库，同时把原来那条从当前库摘掉
+     * —— 原来那条留给别的库，它们看到的还是改动前的取景。
+     *
+     * <p>为什么原图要拷而不是共用：原图是按 id 存在 {@code originals/<id>} 的，两个 id 共用一份就得
+     * 引入引用计数，备份包「每张三个文件」的布局也会跟着变形。拷一次的代价是那张原图字节在盘上
+     * 多存一遍（几 MB），换来的是这两张以后能各自分头取景、各自重复调整。
+     *
+     * <p>顺序是先写文件、后写表（与摘除那条路相反）：这里最坏的失手方式是留下几个没人引用的文件，
+     * 而反过来一旦整表写失败就成「记录在、点开是黑图」。
+     *
+     * @return 新建那条的 id；前置条件不成立（不是多归属、当前库对不上、没有可保存的图）时返回
+     *         null，调用方据此退回覆盖，不丢用户这次的编辑
+     */
+    public static String forkIntoLib(Context context, String srcId, Bitmap result, String libId)
+            throws Exception {
+        Item src = get(context, srcId);
+        if (src == null || result == null || libId == null || libId.isEmpty()
+                || !src.inLib(libId) || src.libIds.size() < 2) {
+            return null;
+        }
+        String newId = UUID.randomUUID().toString();
+        File fullDir = new File(context.getFilesDir(), DIR_FULL);
+        if (!fullDir.exists()) {
+            fullDir.mkdirs();
+        }
+        FileOutputStream fullOut = new FileOutputStream(new File(fullDir, newId + FULL_EXT));
+        result.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
+        fullOut.close();
+        writeThumb(context, newId, result);
+        File srcOriginal = getOriginalFile(context, srcId);
+        if (srcOriginal.isFile() && srcOriginal.length() > 0L) {
+            File freshOriginal = getOriginalFile(context, newId);
+            try {
+                freshOriginal.getParentFile().mkdirs();
+                Files.copy(srcOriginal.toPath(), freshOriginal.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception | OutOfMemoryError e) {
+                // 半截原图比没有原图更糟（解不开还占地方），清掉后退成「缺原图的存量壁纸」
+                try {
+                    Files.deleteIfExists(freshOriginal.toPath());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        // 新条目挂上当前库 + 原来那条从当前库摘掉：必须同一次改写落定，
+        // 分两次写的话中途被杀就留下「两张都在本库」或「两张都不在本库」
+        List<Item> items = load(context);
+        Item fresh = new Item();
+        fresh.id = newId;
+        fresh.joinLib(libId);
+        fresh.title = src.title;
+        items.add(fresh);
+        for (Item item : items) {
+            if (item.id.equals(srcId)) {
+                item.leaveLib(libId);
+            }
+        }
+        saveLibrary(context, items);
+        return newId;
+    }
+
+    /**
      * 用裁剪结果覆盖一张已入库壁纸的全图与缩略图（保留 id、标题与归属库）。
      * 点壁纸格重新裁剪后调用；缩略图一并重生成，列表下次刷新显示新图。
      */
