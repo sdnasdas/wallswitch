@@ -332,6 +332,9 @@
     <string name="log_view_empty">还没有日志记录。\n\n自动切换成功、手动切换、换库都会记一条；「开启接管」关着时定时任务会跳过，那种周期不记。</string>
     <string name="log_view_copy">复制</string>
     <string name="log_view_copied">日志已复制</string>
+    <!-- 日志弹窗内的展示顺序：只影响显示，文件永远按时间顺序追加 -->
+    <string name="log_view_order">最新在前</string>
+    <string name="log_view_clear">清空</string>
     <string name="log_tab_home">桌面</string>
     <string name="log_tab_lock">锁屏</string>
 

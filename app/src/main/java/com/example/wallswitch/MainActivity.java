@@ -71,6 +71,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -845,12 +846,12 @@ public class MainActivity extends AppCompatActivity {
             saveWallpaperRow.setOnClickListener(v -> startSaveCurrentWallpaper());
         }
         // 切换日志：点开直接读私有目录那个文件弹窗展示（不必先设导出目录再去文件管理器翻）；
-        // 长按清空（老版本写的记录是旧格式，换新格式后一般想清掉重记）
+        // 长按是清空的快捷方式（弹窗里那颗「清空」走同一个确认窗）
         View logRow = findViewById(R.id.row_switch_log);
         if (logRow != null) {
             logRow.setOnClickListener(v -> showSwitchLog());
             logRow.setOnLongClickListener(v -> {
-                confirmClearSwitchLog();
+                confirmClearSwitchLog(null);
                 return true;
             });
         }
@@ -3001,9 +3002,14 @@ public class MainActivity extends AppCompatActivity {
                 : getString(R.string.export_dir_unset));
     }
 
-    /** 切换日志那行的状态回显：最近一条记录的时间（没有则提示还没有记录）。纯读文件，放后台线程。 */
-    /** 日志行长按：清空全部记录（老格式记录不会自动改写，留着一堆旧格式照样难看）。 */
-    private void confirmClearSwitchLog() {
+    /**
+     * 清空日志的确认窗（抽屉里长按那一行、日志弹窗里点「清空」都走这一处）：两面一起删，
+     * 日志删了不可回，所以这一发要拦；老格式记录不会自动改写，留着一堆旧格式照样难看。
+     *
+     * @param logDialog 从日志弹窗点进来时传那个窗：确认清了顺手关掉它（里面显示的已经是没了的旧账）；
+     *                  在确认窗按取消则什么都不动，日志窗还开着
+     */
+    private void confirmClearSwitchLog(AlertDialog logDialog) {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.log_clear_title)
                 .setMessage(R.string.log_clear_msg)
@@ -3013,6 +3019,9 @@ public class MainActivity extends AppCompatActivity {
                         if (isFinishing() || isDestroyed()) {
                             return;
                         }
+                        if (logDialog != null && logDialog.isShowing()) {
+                            logDialog.dismiss();
+                        }
                         Toast.makeText(this, R.string.log_clear_done, Toast.LENGTH_SHORT).show();
                         refreshSwitchLogRow();
                     });
@@ -3021,6 +3030,7 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    /** 切换日志那行的状态回显：最近一条记录的时间（没有则提示还没有记录）。纯读文件，放后台线程。 */
     private void refreshSwitchLogRow() {
         final TextView state = findViewById(R.id.tv_switch_log);
         if (state == null) {
@@ -3060,22 +3070,26 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 日志弹窗：顶部 桌面/锁屏 两个 tab（两份文件各记各的账，混在一起看只会看错），
-     * 正文是等宽、可长按选中的可滚动区；当前 tab 非空时给一个「复制」，只复制这一面。
+     * tab 下面一行「最新在前」开关管展示顺序（默认开，只影响显示、文件照旧按时间追加），
+     * 正文是等宽、可长按选中的可滚动区。
+     * 底部三个键：取消／复制／清空——复制复制的是屏上这一面（含当前顺序），清空是两面一起清。
      */
     private void showSwitchLogDialog(String home, String lock) {
         final String[] contents = {home == null ? "" : home, lock == null ? "" : lock};
+        final String[] displayed = new String[contents.length];
         final int[] shown = {0};
+        final boolean[] newestFirst = {SwitchLog.newestFirst(this)};
         final boolean empty = contents[0].trim().isEmpty() && contents[1].trim().isEmpty();
+        final float density = getResources().getDisplayMetrics().density;
 
         final TextView body = new TextView(this);
-        bindLogBody(body, contents[0]);
         body.setTextSize(12f);
         body.setTextIsSelectable(true);
         body.setTypeface(Typeface.MONOSPACE);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        int pad = (int) (16 * density);
         body.setPadding(pad, pad, pad, pad);
 
-        ScrollView scroll = new ScrollView(this);
+        final ScrollView scroll = new ScrollView(this);
         scroll.addView(body);
         final TabLayout tabs = new TabLayout(this);
         tabs.addTab(tabs.newTab().setText(R.string.log_tab_home));
@@ -3084,7 +3098,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
                 shown[0] = tab.getPosition();
-                bindLogBody(body, contents[shown[0]]);
+                bindLogBody(body, displayed[shown[0]]);
             }
 
             @Override
@@ -3096,6 +3110,34 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // 按当前顺序把两面各重排一遍并刷正文；翻完从头看，免得停在旧顺序的中间
+        Runnable rebind = () -> {
+            for (int i = 0; i < contents.length; i++) {
+                displayed[i] = SwitchLog.reorder(contents[i], newestFirst[0]);
+            }
+            bindLogBody(body, displayed[shown[0]]);
+            scroll.scrollTo(0, 0);
+        };
+
+        TextView tvOrder = new TextView(this);
+        tvOrder.setText(R.string.log_view_order);
+        tvOrder.setTextSize(14f);
+        CompoundButton swOrder = new MaterialSwitch(this);
+        swOrder.setChecked(newestFirst[0]);
+        swOrder.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            newestFirst[0] = isChecked;
+            // 顺序是全局偏好：下次点开照旧，不用每次重挑
+            SwitchLog.setNewestFirst(MainActivity.this, isChecked);
+            rebind.run();
+        });
+        LinearLayout orderRow = new LinearLayout(this);
+        orderRow.setOrientation(LinearLayout.HORIZONTAL);
+        orderRow.setGravity(Gravity.CENTER_VERTICAL);
+        orderRow.setPadding(pad, (int) (6 * density), pad, (int) (6 * density));
+        orderRow.addView(tvOrder, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        orderRow.addView(swOrder);
+
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         // 固定高度上限：日志长了在弹窗内部滚动，不会把弹窗撑到超出屏幕
@@ -3103,8 +3145,10 @@ public class MainActivity extends AppCompatActivity {
         column.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
         column.addView(tabs);
+        column.addView(orderRow);
         column.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        rebind.run();
 
         // 用父类型接收：MaterialAlertDialogBuilder 只对 setTitle/setView 做了协变覆盖，
         // setNegativeButton 继承自 AlertDialog.Builder，链式表达式静态类型是 Builder
@@ -3114,12 +3158,19 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.cancel, null);
         if (!empty) {
             builder.setNeutralButton(R.string.log_view_copy,
-                    (dialog, which) -> copySwitchLog(contents[shown[0]]));
+                    (dialog, which) -> copySwitchLog(displayed[shown[0]]));
+            builder.setPositiveButton(R.string.log_view_clear, null);
         }
-        builder.show();
+        AlertDialog dialog = builder.show();
+        if (!empty) {
+            // 盖掉「清空」那点下去的默认行为（默认会把日志窗一起关掉）：这里只是先浮出确认窗，
+            // 用户在确认窗按取消时日志得还留在屏上
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> confirmClearSwitchLog(dialog));
+        }
     }
 
-    /** 弹窗正文换内容（切 tab 时用）：空的那一面给一句说明，不留白屏。 */
+    /** 弹窗正文换内容（切 tab、翻顺序时都用）：空的那一面给一句说明，不留白屏。 */
     private void bindLogBody(TextView body, String content) {
         body.setText(content == null || content.trim().isEmpty()
                 ? getString(R.string.log_view_empty) : content);

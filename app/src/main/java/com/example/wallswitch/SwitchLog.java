@@ -9,7 +9,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -55,6 +57,8 @@ public final class SwitchLog {
     private static final String KEY_TIME_PREFIX = "switch_log_time_";
     // 本轮计时的起算点：只有上屏和改间隔重排会推进它
     private static final String KEY_ANCHOR_PREFIX = "switch_log_anchor_";
+    // 弹窗的展示顺序（最新在前 / 按写入顺序），与文件内容无关，只影响显示
+    private static final String KEY_ORDER_DESC = "switch_log_order_desc";
     // v3.67 及以前两个范围共用的一套，拆开后没人读，只在清空时一并处理
     private static final String LEGACY_VERSION = "switch_log_version";
     private static final String LEGACY_TIME = "switch_log_time";
@@ -305,6 +309,125 @@ public final class SwitchLog {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    /** 日志弹窗的展示顺序：true = 最新在前（默认），false = 按写入顺序。 */
+    public static boolean newestFirst(Context ctx) {
+        return ctx == null || prefs(ctx).getBoolean(KEY_ORDER_DESC, true);
+    }
+
+    /** 保存展示顺序（弹窗里那颗开关拨一下就落盘，下次点开照旧）。 */
+    public static void setNewestFirst(Context ctx, boolean newestFirst) {
+        if (ctx == null) {
+            return;
+        }
+        prefs(ctx).edit().putBoolean(KEY_ORDER_DESC, newestFirst).apply();
+    }
+
+    /**
+     * 按展示顺序重排日志正文——只服务显示，文件永远按时间顺序追加。
+     *
+     * 按「版本段 → 日期组 → 记录行」三层各自反转，段头与日期行仍领着它们自己的记录，
+     * 所以倒过来读不会出现「记录在上、它的日期在下」。空行按原格式重新补：段前一行、
+     * 每个日期行前一行。{@code newestFirst=false} 时原样返回（文件本来就是这个顺序）。
+     */
+    public static String reorder(String content, boolean newestFirst) {
+        if (content == null || content.isEmpty()) {
+            return content == null ? "" : content;
+        }
+        if (!newestFirst) {
+            return content;
+        }
+        List<Segment> segments = parseSegments(content);
+        StringBuilder sb = new StringBuilder();
+        for (int i = segments.size() - 1; i >= 0; i--) {
+            Segment segment = segments.get(i);
+            if (segment.header != null) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(segment.header).append('\n');
+            }
+            for (int g = segment.groups.size() - 1; g >= 0; g--) {
+                DayGroup group = segment.groups.get(g);
+                if (group.date != null) {
+                    if (sb.length() > 0) {
+                        sb.append('\n');
+                    }
+                    sb.append(group.date).append('\n');
+                }
+                for (int l = group.lines.size() - 1; l >= 0; l--) {
+                    sb.append(group.lines.get(l)).append('\n');
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 把正文拆成「版本段 → 日期组 → 记录行」；没有段头/日期行的记录归进对应字段为 null 的那一层。 */
+    private static List<Segment> parseSegments(String content) {
+        List<Segment> segments = new ArrayList<>();
+        Segment segment = null;
+        DayGroup group = null;
+        for (String raw : content.split("\n")) {
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            if (line.startsWith("=== ")) {
+                segment = new Segment();
+                segment.header = line;
+                segments.add(segment);
+                group = null;
+            } else if (isDateLine(line)) {
+                segment = ensureSegment(segments, segment);
+                group = new DayGroup();
+                group.date = line;
+                segment.groups.add(group);
+            } else {
+                segment = ensureSegment(segments, segment);
+                if (group == null) {
+                    group = new DayGroup();
+                    segment.groups.add(group);
+                }
+                group.lines.add(line);
+            }
+        }
+        return segments;
+    }
+
+    private static Segment ensureSegment(List<Segment> segments, Segment current) {
+        if (current != null) {
+            return current;
+        }
+        Segment created = new Segment();
+        segments.add(created);
+        return created;
+    }
+
+    /** 日期行就是正文里独占一行的 {@code yyyy-MM-dd}（与 {@link #dateOf} 同一形状）。 */
+    private static boolean isDateLine(String line) {
+        if (line.length() != 10 || line.charAt(4) != '-' || line.charAt(7) != '-') {
+            return false;
+        }
+        for (int i = 0; i < 10; i++) {
+            if (i != 4 && i != 7 && !Character.isDigit(line.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 一个版本段：段头 + 它下面的若干日期组。 */
+    private static final class Segment {
+        String header;
+        final List<DayGroup> groups = new ArrayList<>();
+    }
+
+    /** 一个日期组：日期行 + 它下面的记录行。 */
+    private static final class DayGroup {
+        String date;
+        final List<String> lines = new ArrayList<>();
     }
 
     /**
