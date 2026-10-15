@@ -211,6 +211,9 @@
     <string name="export_dir_set">已记住导出目录，以后新壁纸会自动导出</string>
     <string name="export_dir_clear_msg">取消后不再自动导出新壁纸（已导出的文件不会被删除），确定吗？</string>
     <string name="export_now_desc">按原始字节复制，不重压，零画质损失</string>
+    <!-- 临时验证件（v3.120）：验完清晰度这件事，下一版连同这行开关与 WallpaperStore 的 writeFull 一起删 -->
+    <string name="debug_full_jpeg_title">成品图存 JPEG（清晰度验证）</string>
+    <string name="debug_full_jpeg_desc">开着时新导入与重编都存成 JPEG q90，已入库的一张都不动；关掉后写回的仍是无损 PNG。验完这一版就把本行删掉。</string>
     <string name="export_need_dir">请先选一个导出目录</string>
     <string name="export_running">正在导出…</string>
     <string name="export_done">已导出 %1$d 张壁纸</string>

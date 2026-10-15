@@ -74,6 +74,12 @@ public class WallpaperStore {
     private static final String FULL_EXT = ".png";
     // 历史数据用的是 .jpg，读取与删除都要兼容，避免老壁纸失效或留下孤儿文件
     private static final String LEGACY_FULL_EXT = ".jpg";
+    // ===== 临时验证件（v3.120 加，验完下一版连同开关行一起删）：成品图改存 JPEG，用来看 GL 桌面掉不掉清晰度 =====
+    // 开关只管「之后写入」的那几张：新导入与重编都跟着走（重编必须一起走，否则把这张重编一次就静默写回
+    // PNG，实验当场失效）；已入库的一张都不动。读侧不用改 —— getFullFile 本来就先 .png 后 .jpg 回退，
+    // 而引擎、锁屏 setStream、备份、导出都只经它拿文件，解码方靠嗅探认格式。
+    private static final String DEBUG_FULL_JPEG_KEY = "debug_full_jpeg";
+    private static final int DEBUG_FULL_JPEG_QUALITY = 90;
     // 壁纸分辨率下限：小屏机型也至少按这个处理
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
@@ -433,6 +439,40 @@ public class WallpaperStore {
         }
     }
 
+    /** 临时验证件（下一版删）：成品图是不是存 JPEG。默认关 = 无损 PNG，与历史行为一致。 */
+    public static boolean debugFullJpeg(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(DEBUG_FULL_JPEG_KEY, false);
+    }
+
+    /** 临时验证件（下一版删）：开或关。只影响此后写入的成品图，不碰已经入库的任何一张。 */
+    public static void setDebugFullJpeg(Context context, boolean enabled) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(DEBUG_FULL_JPEG_KEY, enabled).apply();
+    }
+
+    /**
+     * 临时验证件（下一版删）：写成品图。默认无损 PNG，开关打开时是 JPEG q90。
+     *
+     * <p>写完必须删掉另一种扩展名那份：读侧 {@code getFullFile} 是先认 .png 再回退 .jpg，
+     * 留着旧的 PNG 就等于把这张的 JPEG 永远盖住，开关白开。原来两处各自写「.png + 删 .jpg」的
+     * 代码就是这个意思，这里合在一处，删干净时也只剩这一个方法要拆。
+     */
+    private static void writeFull(Context context, String id, Bitmap bitmap) throws IOException {
+        File fullDir = new File(context.getFilesDir(), DIR_FULL);
+        if (!fullDir.exists()) {
+            fullDir.mkdirs();
+        }
+        boolean jpeg = debugFullJpeg(context);
+        FileOutputStream fullOut = new FileOutputStream(
+                new File(fullDir, id + (jpeg ? LEGACY_FULL_EXT : FULL_EXT)));
+        bitmap.compress(jpeg ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,
+                jpeg ? DEBUG_FULL_JPEG_QUALITY : 100, fullOut);
+        fullOut.close();
+        Files.deleteIfExists(
+                new File(fullDir, id + (jpeg ? FULL_EXT : LEGACY_FULL_EXT)).toPath());
+    }
+
     /** 确认导入：保存成品图与缩略图、按所属壁纸库追加元数据，并把收件箱那份原图搬进 originals/。 */
     public static Item confirmImport(Context context, String inboxId, Bitmap edited, String libId) throws Exception {
         Bitmap bitmap = edited;
@@ -444,15 +484,7 @@ public class WallpaperStore {
             throw new IllegalStateException("图片解码失败");
         }
         String id = inboxId;
-        File fullDir = new File(context.getFilesDir(), DIR_FULL);
-        if (!fullDir.exists()) {
-            fullDir.mkdirs();
-        }
-        // 保存全图（无损 PNG）
-        File fullFile = new File(fullDir, id + FULL_EXT);
-        FileOutputStream fullOut = new FileOutputStream(fullFile);
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
-        fullOut.close();
+        writeFull(context, id, bitmap);
         // 保存缩略图（中心正方形，边长按屏幕上的方格宽度取）
         writeThumb(context, id, bitmap);
         // 追加元数据（归属指定壁纸库，标题取导入时记录的原文件名）
@@ -506,13 +538,7 @@ public class WallpaperStore {
             return null;
         }
         String newId = UUID.randomUUID().toString();
-        File fullDir = new File(context.getFilesDir(), DIR_FULL);
-        if (!fullDir.exists()) {
-            fullDir.mkdirs();
-        }
-        FileOutputStream fullOut = new FileOutputStream(new File(fullDir, newId + FULL_EXT));
-        result.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
-        fullOut.close();
+        writeFull(context, newId, result);
         writeThumb(context, newId, result);
         File srcOriginal = getOriginalFile(context, srcId);
         if (srcOriginal.isFile() && srcOriginal.length() > 0L) {
@@ -554,15 +580,7 @@ public class WallpaperStore {
         if (bitmap == null) {
             throw new IOException("没有可保存的图像");
         }
-        File fullDir = new File(context.getFilesDir(), DIR_FULL);
-        if (!fullDir.exists()) {
-            fullDir.mkdirs();
-        }
-        FileOutputStream fullOut = new FileOutputStream(new File(fullDir, id + FULL_EXT));
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOut);
-        fullOut.close();
-        // 历史数据的全图可能是 .jpg：覆盖成 PNG 后删掉旧文件，避免两种扩展名并存白占空间
-        Files.deleteIfExists(new File(fullDir, id + LEGACY_FULL_EXT).toPath());
+        writeFull(context, id, bitmap);
         writeThumb(context, id, bitmap);
     }
 
