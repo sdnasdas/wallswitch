@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 壁纸格（v3.14）：两列正方形网格的一格。1:1 缩略图 + 下方标题；
+<!-- 壁纸格（v3.14）：两列正方形网格的一格。1:1 缩略图 + 下方标题，右上角一粒成品图格式角标
+     （整理态让位给复选框）；
      点格直接进裁剪页重编；长按浮出半透明压暗层与三个圆形图标（铅笔=改标题小窗 /
      设为首页 / 红垃圾桶，无文字），点空白或返回手势收起。
      顶栏「整理」的多选态是另一套手感：右上角复选框显形、勾中的那张整幅压暗，
@@ -86,6 +87,26 @@
                     android:tint="@android:color/white" />
             </LinearLayout>
         </FrameLayout>
+
+        <!-- 成品图格式角标（PNG / JPEG）：标的是「上屏那张」成品图的格式，不是这张缩略图 ——
+             thumbs/<id>.jpg 永远都是 JPEG，写文案时别混。
+             排在长按浮出层之后，跟下面那颗复选框同一个理由：要盖在那层压暗之上才看得清。
+             整理态由代码隐藏，右上角让给复选框（两粒挤在同一角会互相糊）。 -->
+        <TextView
+            android:id="@+id/tv_full_format"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:background="@drawable/badge_format_bg"
+            android:paddingStart="5dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="1dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
         <!-- 整理多选态的勾选框（顶栏「整理」进来才显形，压在右上角的圆形卡片底上才在深浅图上都看得清）。
              自己不吃点击也不抢焦点：点格子任意处都算勾选，与库行删除态同一条规矩。

@@ -2962,6 +2962,9 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, R.string.restore_running, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             final BackupStore.RestoreResult r = BackupStore.restore(getApplicationContext(), uri);
+            // 还原是整批覆盖成品图文件，而且包里的 id 可能跟本机同名 —— 格式标记只能全抹，
+            // 否则网格角标会继续报还原前那一档
+            WallpaperStore.clearFullFormatMarks();
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
@@ -4048,6 +4051,16 @@ public class MainActivity extends AppCompatActivity {
             holder.imgThumb.setImageBitmap(thumbFor(item.id));
             // 格子下方显示壁纸标题（未命名则用占位文案）
             holder.tvTitle.setText(itemTitle(item));
+            // 右上角格式角标：判的是成品图（上屏那张），缩略图永远是 JPEG，不能用它判。
+            // 整理态要把它收掉让位给复选框；成品图文件丢了（点开是黑图那种）也什么都不画。
+            Boolean fullJpeg = WallpaperStore.fullIsJpeg(MainActivity.this, item.id);
+            if (organizeMode || fullJpeg == null) {
+                holder.tvFormat.setVisibility(View.GONE);
+            } else {
+                holder.tvFormat.setVisibility(View.VISIBLE);
+                holder.tvFormat.setText(fullJpeg
+                        ? R.string.fmt_badge_jpeg : R.string.fmt_badge_png);
+            }
             boolean selected = selectedIds.contains(item.id);
             // 整理态：右上角露复选框，勾中的那张整幅压暗一档（缩略图本身深浅不定，只有盖一层才看得出成色）
             holder.cbSelect.setVisibility(organizeMode ? View.VISIBLE : View.GONE);
@@ -4144,6 +4157,8 @@ public class MainActivity extends AppCompatActivity {
 
         final ImageView imgThumb;
         final TextView tvTitle;
+        /** 右上角的成品图格式角标（整理态隐藏，见 {@link WallpaperStore#fullIsJpeg}）。 */
+        final TextView tvFormat;
         final View actions;
         /** 整理多选态的勾选框（自己不吃点击，点格子任意处都算勾选）。 */
         final CheckBox cbSelect;
@@ -4158,6 +4173,7 @@ public class MainActivity extends AppCompatActivity {
             press = new PressGuard(slopPx);
             imgThumb = itemView.findViewById(R.id.img_thumb);
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
+            tvFormat = itemView.findViewById(R.id.tv_full_format);
             actions = itemView.findViewById(R.id.item_actions);
             cbSelect = itemView.findViewById(R.id.cb_wp_select);
             btnEdit = itemView.findViewById(R.id.btn_edit);

@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -80,6 +81,10 @@ public class WallpaperStore {
     // 解码方靠嗅探认格式。键存在通用 settings 里，选一次就记住，下次进裁剪页仍是上次那一档。
     private static final String FULL_JPEG_KEY = "full_jpeg";
     private static final int FULL_JPEG_QUALITY = 90;
+    // 成品图格式标记（网格右上角那粒角标用）：进程内记着「这张盘上是哪一份」，免得每帧绑格子都摸盘。
+    // 键是 id（UUID 不复用，条目删了留下的键只是内存垃圾）。失效点跟着写盘走：writeFull 写完直接填对，
+    // deleteFullFiles 抹掉；还原是整批覆盖文件，由调用方 clearFullFormatMarks()。
+    private static final ConcurrentHashMap<String, Boolean> FULL_JPEG_MARKS = new ConcurrentHashMap<>();
     // 壁纸分辨率下限：小屏机型也至少按这个处理
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
@@ -471,6 +476,41 @@ public class WallpaperStore {
         fullOut.close();
         Files.deleteIfExists(
                 new File(fullDir, id + (jpeg ? FULL_EXT : LEGACY_FULL_EXT)).toPath());
+        // 刚写完，格式是确定的事实，直接填进标记表（省掉绑格子时那一次摸盘）
+        FULL_JPEG_MARKS.put(id, jpeg);
+    }
+
+    /**
+     * 这张的成品图是不是 JPEG（网格右上角那粒角标用）。盘上两种都没有时返回 null ——
+     * 那种格子点开是黑图，角标宁可什么都不画，也别猜一个看着对的。
+     *
+     * <p>优先序必须跟 {@code getFullFile} 一样先认 {@code .png}：万一两种并存（半途失手过），
+     * 角标要说的是「上屏实际读到的那一份」，而不是盘上碰巧存在过的某一份。
+     */
+    public static Boolean fullIsJpeg(Context context, String id) {
+        if (id == null || id.isEmpty()) {
+            return null;
+        }
+        Boolean cached = FULL_JPEG_MARKS.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        File dir = new File(context.getFilesDir(), DIR_FULL);
+        boolean jpeg;
+        if (new File(dir, id + FULL_EXT).isFile()) {
+            jpeg = false;
+        } else if (new File(dir, id + LEGACY_FULL_EXT).isFile()) {
+            jpeg = true;
+        } else {
+            return null;
+        }
+        FULL_JPEG_MARKS.put(id, jpeg);
+        return jpeg;
+    }
+
+    /** 抹掉全部格式标记：只有「整批覆盖成品图文件」的那条路需要它（从备份包还原）。 */
+    public static void clearFullFormatMarks() {
+        FULL_JPEG_MARKS.clear();
     }
 
     /** 确认导入：保存成品图与缩略图、按所属壁纸库追加元数据，并把收件箱那份原图搬进 originals/。 */
@@ -1046,6 +1086,7 @@ public class WallpaperStore {
         File dir = new File(context.getFilesDir(), DIR_FULL);
         Files.deleteIfExists(new File(dir, id + FULL_EXT).toPath());
         Files.deleteIfExists(new File(dir, id + LEGACY_FULL_EXT).toPath());
+        FULL_JPEG_MARKS.remove(id);
     }
 
     /** 获取收件箱中的待编辑文件。 */

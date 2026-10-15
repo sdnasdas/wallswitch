@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 网格角标底：小号的半透明深底胶囊（4dp 圆角，配 16dp 高）。
+     刻意不跟主题走色 —— 角标压的是用户自己的图，深浅完全不可控，
+     固定深底 + 白字是唯一在那种底上都读得清的画法。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#99000000" />
+    <corners android:radius="4dp" />
+</shape>
