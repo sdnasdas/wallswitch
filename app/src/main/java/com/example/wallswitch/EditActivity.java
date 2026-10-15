@@ -381,6 +381,18 @@ public class EditActivity extends AppCompatActivity {
         if (confirmRunning) {
             return;
         }
+        // 当值复检（与网格那两道闸门同一个判据，这里是现读）：从进页面到点确认这段窗口里，
+        // 定时任务可能刚好把这张切成当值 —— 落盘早已搬后台，这条并发是真能撞上的。
+        // 新导入时 itemId 为 null，这张还不存在于任何指针里，自然放行。
+        String inUse = Switcher.inUseWhere(this, itemId);
+        if (inUse != null) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.in_use_title)
+                    .setMessage(getString(R.string.in_use_msg, inUse))
+                    .setPositiveButton(R.string.in_use_ok, null)
+                    .show();
+            return;
+        }
         List<String> otherNames = sharedOtherLibNames();
         if (otherNames != null) {
             showDivergeChoice(otherNames);

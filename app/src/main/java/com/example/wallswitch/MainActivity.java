@@ -2504,8 +2504,34 @@ public class MainActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
+    /**
+     * 当值闸门：这张正被某个库的桌面/锁屏当值，或被「一键设置」钉着时，重编与彻底删除都不放行。
+     * 弹一句「正在应用：桌面、锁屏、一键设置」，只给一颗「知道了」。
+     *
+     * <p>刻意不留「我就要改」那颗出口：留了就等于没拦，而这条限制要保的正是
+     * 「屏幕上那张 == 库里那张」这件事。怎么处理（切一张当值、改选图钉那张）不在这里教，
+     * 弹窗只报原因 —— 文案一长就没人读。
+     *
+     * <p>整理态的<b>解除关联</b>与移动/复制不走这里 —— 它们只改归属表，一个字节都不碰。
+     */
+    private boolean blockWhileInUse(WallpaperStore.Item item) {
+        String where = Switcher.inUseWhere(this, item.id);
+        if (where == null) {
+            return false;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.in_use_title)
+                .setMessage(getString(R.string.in_use_msg, where))
+                .setPositiveButton(R.string.in_use_ok, null)
+                .show();
+        return true;
+    }
+
     /** 打开编辑页重新裁剪一张已入库壁纸（点壁纸格直接进入；确认后覆盖成品图，源是原图）。 */
     private void openEditItem(WallpaperStore.Item item) {
+        if (blockWhileInUse(item)) {
+            return;
+        }
         Intent intent = new Intent(this, EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_ITEM_ID, item.id);
         // 从哪个库点进来的也带上：那张挂在几个库里时，编辑页要问「只改这个库」还是「同步修改」，
@@ -3293,6 +3319,10 @@ public class MainActivity extends AppCompatActivity {
      * 图钉跟随与逐归属的当前指针核对都在里面，不在这里立第二份收尾。
      */
     private void handleTrashClick(final WallpaperStore.Item item) {
+        // 彻底删除会连成品图文件一起没，当值那张不许动（下面的「解除本库关联」不碰文件，照旧放行）
+        if (blockWhileInUse(item)) {
+            return;
+        }
         final String src = currentLibId();
         if (src == null) {
             return;

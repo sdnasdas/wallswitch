@@ -301,6 +301,56 @@ public class Switcher {
     }
 
     /**
+     * 这张成品图正被哪几处用着（重编与彻底删除那道闸门的判据），返回「桌面、锁屏、一键设置」
+     * 这样的命中清单；没被用着返回 null。
+     *
+     * <p>一律按<b>账上</b>当值判，不按「此刻屏上是不是它」：接管关着时也算在用。按屏判会放行，
+     * 改完下次开接管就冒出一张被悄悄动过的图，那种现场比多拦一次难查得多。
+     *
+     * <p>「一键设置」钉着的那张也算在用：它此刻不一定在屏上，但通知上那颗开关按下去上屏的就是它。
+     *
+     * <p>清单只报面、不报库名（几个库都指着同一张时也只写一次）—— 这条只是告知拦住的原因，
+     * 不替他做决定，写长了反而读不动。
+     */
+    public static String inUseWhere(Context ctx, String wallpaperId) {
+        if (wallpaperId == null || wallpaperId.isEmpty()) {
+            return null;
+        }
+        boolean home = false;
+        boolean lock = false;
+        for (LibraryStore.Library lib : LibraryStore.load(ctx)) {
+            // 两面各判一次，不能用 else if：同一个库的桌面与锁屏可以指着同一张
+            if (wallpaperId.equals(getCurrent(ctx, lib.id, true))) {
+                home = true;
+            }
+            if (wallpaperId.equals(getCurrent(ctx, lib.id, false))) {
+                lock = true;
+            }
+        }
+        boolean pinned = wallpaperId.equals(PinnedWallpaper.wallpaperId(ctx));
+        if (!home && !lock && !pinned) {
+            return null;
+        }
+        StringBuilder where = new StringBuilder();
+        if (home) {
+            where.append(ctx.getString(R.string.in_use_home));
+        }
+        if (lock) {
+            if (where.length() > 0) {
+                where.append("、");
+            }
+            where.append(ctx.getString(R.string.in_use_lock));
+        }
+        if (pinned) {
+            if (where.length() > 0) {
+                where.append("、");
+            }
+            where.append(ctx.getString(R.string.in_use_pinned));
+        }
+        return where.toString();
+    }
+
+    /**
      * 重编分叉（一张挂几个库时走「只改这个库」）之后，把<b>这个库</b>里指向原来那张的当前指针
      * 换成新造的那条，并按新那条的文件重新上屏。逐范围各判一次：一张可以同时占着桌面和锁屏两面。
      *

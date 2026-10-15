@@ -173,6 +173,13 @@
     <string name="rename_info_missing">库里找不到这张的成品图文件 · %1$s</string>
     <string name="rename_info_has_original">原图已留存</string>
     <string name="rename_info_no_original">原图未关联（点格子进裁剪页可补）</string>
+    <!-- 当值闸门：这张正被桌面/锁屏当值或被图钉钉着时，重编与彻底删除都不放行（解除关联不算，它不动文件） -->
+    <string name="in_use_title">此壁纸正在应用</string>
+    <string name="in_use_home">桌面</string>
+    <string name="in_use_lock">锁屏</string>
+    <string name="in_use_pinned">一键设置</string>
+    <string name="in_use_msg">%1$s\n\n重编/删除前请先处理。</string>
+    <string name="in_use_ok">知道了</string>
     <string name="notify_disabled_hint">通知权限未开启，自动切换提示无法显示（华为/荣耀关闭通知权限后连 Toast 也会失效）</string>
     <string name="notify_permission_denied">未授予通知权限，自动切换提示将无法显示</string>
 
