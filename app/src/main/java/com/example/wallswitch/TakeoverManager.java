@@ -156,7 +156,7 @@ public final class TakeoverManager {
     /**
      * 抽屉「保存当前壁纸」（智能选源，纯 IO，调用方放后台线程）：
      * <ul>
-     *   <li>接管中：导出引擎正在显示的那张（库文件已是无损 PNG，直接复制进相册，必定拿得到）</li>
+     *   <li>接管中：导出引擎正在显示的那张（库文件就是现成的 PNG 或 JPEG 字节，直接复制进相册，必定拿得到）</li>
      *   <li>未接管：把系统桌面/锁屏壁纸备份到相册（仅作人工留档，App 不会再去还原它）</li>
      * </ul>
      *
@@ -224,7 +224,9 @@ public final class TakeoverManager {
         if (full == null || !full.exists()) {
             return "没有正在显示的壁纸可保存";
         }
-        String name = "wallswitch_" + stamp + ".png";
+        // 扩展名跟着库里那份走：这里复制的是原始字节，名字写 .png 而内容其实是 JPEG 的话，
+        // 相册里那些按扩展名/MIME 决定怎么解的查看器就打不开（成品图现在两档都有）
+        String name = "wallswitch_" + stamp + extOfLibraryImage(full);
         try (InputStream in = new FileInputStream(full)) {
             boolean written;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -263,8 +265,8 @@ public final class TakeoverManager {
         if (file == null || !file.exists()) {
             return 0;
         }
-        // 喂原始字节：成品图本来就是按屏幕长边存好的 PNG（存量老数据可能是 JPEG，框架两种都收），
-        // 解成位图再由框架编回 PNG 等于两次整屏像素运算 + 一个十几 MB 堆峰值，白跑一圈
+        // 喂原始字节：成品图本来就是按屏幕长边存好的那一张（用户在裁剪页选 PNG 或 JPEG，框架两种都收），
+        // 解成位图再由框架编回去等于两次整屏像素运算 + 一个十几 MB 堆峰值，白跑一圈
         try (InputStream in = new FileInputStream(file)) {
             // 必须显式传 FLAG_LOCK：不带 which 的三参版会连桌面一起改
             int newId = WallpaperManager.getInstance(ctx)
@@ -455,7 +457,14 @@ public final class TakeoverManager {
         return null;
     }
 
-    /** 把输入流原样写进公共相册（库里的全图已是无损 PNG，接管中保存时直接复制字节）。 */
+    /** 库里那份成品图的扩展名（含点）；读侧万一给不出扩展名就按 .png 算，与 getFullFile 的优先序一致。 */
+    private static String extOfLibraryImage(File file) {
+        String n = file.getName();
+        int dot = n.lastIndexOf('.');
+        return dot > 0 ? n.substring(dot) : ".png";
+    }
+
+    /** 把输入流原样写进公共相册（库里的成品图是现成的 PNG 或 JPEG 字节，接管中保存时直接复制）。 */
     private static boolean saveStreamToAlbum(Context ctx, String name, InputStream in) {
         ContentResolver cr = ctx.getContentResolver();
         Uri existing = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, SAVED_DIR);
@@ -467,7 +476,10 @@ public final class TakeoverManager {
         }
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-        values.put(MediaStore.MediaColumns.MIME_TYPE, "image/png");
+        // MIME 跟着名字走：这条复制的是库里那份原始字节，报成 image/png 会让按 MIME 解码的
+        // 查看器打不开一张 JPEG（下面 saveToMediaStore 那条自己 compress 成 PNG，仍是 image/png）
+        values.put(MediaStore.MediaColumns.MIME_TYPE,
+                name.endsWith(".jpg") ? "image/jpeg" : "image/png");
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVED_DIR);
         Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
         if (uri == null) {

@@ -43,8 +43,9 @@ import java.util.zip.ZipFile;
  * - manifest.json                 版本、时间、张数、字节数，还原前回显用
  * 不带：inbox/（半成品）、cache/、databases/（WorkManager 的内部表，不在我们手里，靠槽位+锚点重排）。
  *
- * zip 条目走 DEFLATED（ZipOutputStream 的默认）：无损 PNG 再压只差 2~5%，但换掉了
+ * zip 条目走 DEFLATED（ZipOutputStream 的默认）：PNG 那份再压只差 2~5%，但换掉了
  * 「STORE 必须预先填 size + crc」这条要求 —— 那意味着每张图要多读一整遍才能算出 CRC。
+ * （JPEG 那份本来就压不动，多花的那点 CPU 只是白转一圈，不亏体积。）
  */
 public final class BackupStore {
 
@@ -325,7 +326,7 @@ public final class BackupStore {
         }
         // 不显式设 STORED：STORE 要求 putNextEntry 之前就把 size 和 crc 填全（没地方预先算整张图的
         // CRC 除非再整份读一遍），交给 ZipOutputStream 走默认的 DEFLATED 更简单；
-        // 无损 PNG 压完只差 2~5%，多出来的那点 CPU 换掉一次全量重读是划算的。
+        // 无损 PNG 压完只差 2~5%，多出来的那点 CPU 换掉一次全量重读是划算的。（JPEG 那份压不动也不会变大。）
         ZipEntry e = new ZipEntry(entryName);
         zout.putNextEntry(e);
         try (InputStream in = new FileInputStream(src)) {

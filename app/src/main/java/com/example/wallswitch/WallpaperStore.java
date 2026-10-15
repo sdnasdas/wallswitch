@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 壁纸库存储层。
  * 目录约定（均在 App 私有 filesDir 下）：
- * - wallpapers/ 全图，文件名 &lt;uuid&gt;.jpg（无损 PNG，不再二次压缩）
+ * - wallpapers/ 成品图，文件名 &lt;uuid&gt;.png 或 &lt;uuid&gt;.jpg（两档由用户在裁剪页挑，一张只有其中一份）
  * - thumbs/     缩略图，同名，最长边 256px
  * - inbox/      待编辑收件箱，文件名 &lt;uuid&gt;，保留原始字节
  * - originals/  原图（重复调整的源），文件名 &lt;uuid&gt;，保留原始字节；历史数据可能没有
@@ -70,16 +70,16 @@ public class WallpaperStore {
     private static final String THUMB_REGEN_KEY = "thumb_regen_v315";
     // 缩略图的 JPEG 压缩质量（缩略图只用于列表显示，没必要无损）
     private static final int JPEG_QUALITY = 90;
-    // 全图扩展名：无损 PNG —— 全图是最终要上屏的图，再压一次 JPEG 会白掉画质
+    // 成品图两档扩展名：无损 PNG 与 JPEG q90，用户在裁剪页那粒胶囊里挑（见下面的 FULL_JPEG_KEY）。
+    // 变量名里的 FULL/LEGACY 是历史留下的：早期成品图一律 .jpg，v3.6 起默认改 PNG，v3.121 起两档随用户选，
+    // 所以 LEGACY 那份现在只是「老条目与新选 JPEG 的那档」，不再是"待兼容的旧数据"。
     private static final String FULL_EXT = ".png";
-    // 历史数据用的是 .jpg，读取与删除都要兼容，避免老壁纸失效或留下孤儿文件
     private static final String LEGACY_FULL_EXT = ".jpg";
-    // ===== 临时验证件（v3.120 加，验完下一版连同开关行一起删）：成品图改存 JPEG，用来看 GL 桌面掉不掉清晰度 =====
-    // 开关只管「之后写入」的那几张：新导入与重编都跟着走（重编必须一起走，否则把这张重编一次就静默写回
-    // PNG，实验当场失效）；已入库的一张都不动。读侧不用改 —— getFullFile 本来就先 .png 后 .jpg 回退，
-    // 而引擎、锁屏 setStream、备份、导出都只经它拿文件，解码方靠嗅探认格式。
-    private static final String DEBUG_FULL_JPEG_KEY = "debug_full_jpeg";
-    private static final int DEBUG_FULL_JPEG_QUALITY = 90;
+    // 成品图格式：用户在裁剪页「确认」前那粒胶囊里选，默认 JPEG（无损 PNG 是可切的那一档）。
+    // 读侧不用改 —— getFullFile 先认 .png 再回退 .jpg，而引擎、锁屏 setStream、备份、导出都只经它拿文件，
+    // 解码方靠嗅探认格式。键存在通用 settings 里，选一次就记住，下次进裁剪页仍是上次那一档。
+    private static final String FULL_JPEG_KEY = "full_jpeg";
+    private static final int FULL_JPEG_QUALITY = 90;
     // 壁纸分辨率下限：小屏机型也至少按这个处理
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
@@ -439,35 +439,35 @@ public class WallpaperStore {
         }
     }
 
-    /** 临时验证件（下一版删）：成品图是不是存 JPEG。默认关 = 无损 PNG，与历史行为一致。 */
-    public static boolean debugFullJpeg(Context context) {
+    /** 成品图存 JPEG 还是无损 PNG（裁剪页那粒胶囊选，默认 JPEG）。 */
+    public static boolean fullPrefersJpeg(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(DEBUG_FULL_JPEG_KEY, false);
+                .getBoolean(FULL_JPEG_KEY, true);
     }
 
-    /** 临时验证件（下一版删）：开或关。只影响此后写入的成品图，不碰已经入库的任何一张。 */
-    public static void setDebugFullJpeg(Context context, boolean enabled) {
+    /** 记住用户选的那一档。只影响此后写入的成品图，已入库的一张都不动。 */
+    public static void setFullPrefersJpeg(Context context, boolean jpeg) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putBoolean(DEBUG_FULL_JPEG_KEY, enabled).apply();
+                .putBoolean(FULL_JPEG_KEY, jpeg).apply();
     }
 
     /**
-     * 临时验证件（下一版删）：写成品图。默认无损 PNG，开关打开时是 JPEG q90。
+     * 写成品图：按 {@link #fullPrefersJpeg} 选 JPEG q90 或无损 PNG。
      *
      * <p>写完必须删掉另一种扩展名那份：读侧 {@code getFullFile} 是先认 .png 再回退 .jpg，
-     * 留着旧的 PNG 就等于把这张的 JPEG 永远盖住，开关白开。原来两处各自写「.png + 删 .jpg」的
-     * 代码就是这个意思，这里合在一处，删干净时也只剩这一个方法要拆。
+     * 留着旧的那份就把刚写的这张盖住了 —— 换了格式重编时尤其致命（屏上看的还是改动前那张），
+     * 而且白占一份空间。新导入、分叉、重编三处落盘都走这里，所以扩展名只在这一处决定。
      */
     private static void writeFull(Context context, String id, Bitmap bitmap) throws IOException {
         File fullDir = new File(context.getFilesDir(), DIR_FULL);
         if (!fullDir.exists()) {
             fullDir.mkdirs();
         }
-        boolean jpeg = debugFullJpeg(context);
+        boolean jpeg = fullPrefersJpeg(context);
         FileOutputStream fullOut = new FileOutputStream(
                 new File(fullDir, id + (jpeg ? LEGACY_FULL_EXT : FULL_EXT)));
         bitmap.compress(jpeg ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,
-                jpeg ? DEBUG_FULL_JPEG_QUALITY : 100, fullOut);
+                jpeg ? FULL_JPEG_QUALITY : 100, fullOut);
         fullOut.close();
         Files.deleteIfExists(
                 new File(fullDir, id + (jpeg ? FULL_EXT : LEGACY_FULL_EXT)).toPath());

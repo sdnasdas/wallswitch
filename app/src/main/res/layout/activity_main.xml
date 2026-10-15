@@ -702,41 +702,6 @@
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <!-- 临时验证件（v3.120，验完下一版删）：只管之后写入的成品图，不碰已入库的任何一张 -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/debug_full_jpeg_title"
-                                    android:textColor="@color/text_primary"
-                                    android:textSize="14sp" />
-
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/debug_full_jpeg_desc"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12sp" />
-                            </LinearLayout>
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_debug_full_jpeg"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
-
                         <!-- 备份整库到导出目录（一个 zip：图 + 缩略图 + 两个 json + prefs），下一行从包还原 -->
                         <LinearLayout
                             android:id="@+id/row_backup"

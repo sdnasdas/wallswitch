@@ -234,8 +234,6 @@ public class MainActivity extends AppCompatActivity {
         setupTickingSwitch();
         setupUpdateSource();
         setupUpdateCheck();
-        // 临时验证件（v3.120，验完下一版删）：成品图存 JPEG，用来在 GL 桌面上比清晰度
-        setupDebugJpegSwitch();
         // 电池优化引导（荣耀等机型避免后台被杀）
         maybePromptBattery();
         refreshVersion();
@@ -1267,22 +1265,6 @@ public class MainActivity extends AppCompatActivity {
         sw.setChecked(UpdateChecker.autoCheck(this));
         sw.setOnCheckedChangeListener(
                 (buttonView, isChecked) -> UpdateChecker.setAutoCheck(MainActivity.this, isChecked));
-    }
-
-    /**
-     * 临时验证件（v3.120，验完下一版删）：成品图存 JPEG 的开关，用来看 GL 桌面上掉不掉清晰度。
-     * 摘掉监听再回填初值（照「自动检查更新」那颗的写法），否则回填时把自己再写一遍盘。
-     * 只管之后写入的那几张：新导入与重编都跟着走，已入库的一张都不动。
-     */
-    private void setupDebugJpegSwitch() {
-        CompoundButton sw = findViewById(R.id.sw_debug_full_jpeg);
-        if (sw == null) {
-            return;
-        }
-        sw.setOnCheckedChangeListener(null);
-        sw.setChecked(WallpaperStore.debugFullJpeg(this));
-        sw.setOnCheckedChangeListener((buttonView, isChecked) ->
-                WallpaperStore.setDebugFullJpeg(MainActivity.this, isChecked));
     }
 
     /** 这一行点下去干什么，完全由下载状态决定：下载中不理、有包就装、其余去检查。 */

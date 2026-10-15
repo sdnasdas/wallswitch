@@ -114,6 +114,24 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
+        <!-- 成品图格式：点一下在 JPEG 与无损 PNG 之间换，选完记住（默认 JPEG）。
+             排在两颗按钮正上方 —— 这件事只在「确认」落盘时起作用，离那颗键近一点。
+             同样用 TextView 而不是 MaterialButton，理由见上面「关联原图」那条注释。 -->
+        <TextView
+            android:id="@+id/btn_full_format"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="84dp"
+            android:background="@drawable/overlay_pill_bg"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/brand"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
         <!-- 操作按钮：浮在取景框之上，各占一半宽，不用整条背景 -->
         <LinearLayout
             android:layout_width="match_parent"

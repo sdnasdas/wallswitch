@@ -112,6 +112,7 @@ public class EditActivity extends AppCompatActivity {
         if (noticeLinkButton != null) {
             noticeLinkButton.setOnClickListener(v -> pickOriginalForLinking());
         }
+        bindFullFormatPill();
         // 全面屏/刘海屏适配：只让浮层（提示 / 加载中 / 按钮）避开状态栏与底部手势条；
         // 裁剪区本身保持满屏，取景框比例才等于壁纸上屏区域（否则预览与实况不一致）
         InsetsHelper.apply(this, R.id.edit_controls);
@@ -132,6 +133,28 @@ public class EditActivity extends AppCompatActivity {
         chooseSource();
         readOriginalBounds();
         startDecode();
+    }
+
+    /**
+     * 成品图格式那粒胶囊：点一下换到另一档并立刻记住，「确认」落盘时按它写。
+     * 只管此后写入的成品图，已入库的一张都不动 —— 想换那张的格式就重编一次。
+     */
+    private void bindFullFormatPill() {
+        TextView pill = findViewById(R.id.btn_full_format);
+        if (pill == null) {
+            return;
+        }
+        pill.setOnClickListener(v -> {
+            boolean jpeg = !WallpaperStore.fullPrefersJpeg(this);
+            WallpaperStore.setFullPrefersJpeg(this, jpeg);
+            paintFullFormatPill(pill, jpeg);
+        });
+        paintFullFormatPill(pill, WallpaperStore.fullPrefersJpeg(this));
+    }
+
+    private void paintFullFormatPill(TextView pill, boolean jpeg) {
+        pill.setText(getString(R.string.edit_full_format,
+                getString(jpeg ? R.string.fmt_full_jpeg : R.string.fmt_full_png)));
     }
 
     /**
@@ -350,7 +373,7 @@ public class EditActivity extends AppCompatActivity {
      * 一次点按会连带把别的库那张也换掉，所以给两个出口 —— 同步修改 / 只改这个库（另存一条新的）。
      * 这一问插在落盘链起跑之前：选完才量取景框、才动文件，取消就是什么都没做。
      *
-     * <p>v3.114 起整条落盘链（区域解码 + PNG 无损编码 + 缩略图）搬后台线程：这是数秒级重活，
+     * <p>v3.114 起整条落盘链（区域解码 + 成品图编码 + 缩略图）搬后台线程：这是数秒级重活，
      * 主线程陪跑就是「点确认卡两三秒」。取景框在主线程量好再交给后台 ——
      * {@link #exportByRegion}/{@link #saveCropRectIfNeeded} 都要读视图状态，后台线程不摸视图。
      */
