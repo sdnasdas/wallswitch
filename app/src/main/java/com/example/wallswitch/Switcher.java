@@ -304,29 +304,24 @@ public class Switcher {
      * 这张成品图正被哪几处用着（重编与彻底删除那道闸门的判据），返回「桌面、锁屏、一键设置」
      * 这样的命中清单；没被用着返回 null。
      *
-     * <p>一律按<b>账上</b>当值判，不按「此刻屏上是不是它」：接管关着时也算在用。按屏判会放行，
-     * 改完下次开接管就冒出一张被悄悄动过的图，那种现场比多拦一次难查得多。
+     * <p><b>上界是三张</b>：一面只有一个当值的库，所以「桌面」一张、「锁屏」一张、「一键设置」一张，
+     * 三者可以是同一张。判据只看<b>占着那面的那个库</b>（{@code slotLibId}）的当前指针 ——
+     * 不能扫所有库：每个库都留着自己的 {@code _current}（换库时刻意不清，为的是切回去能接着放），
+     * 扫全部就等于把「早就下屏的旧账」也算成在用，拦住的张数会变成 2×库数 + 1 且只增不减。
+     *
+     * <p>仍按<b>账上</b>当值判，不按「此刻屏上是不是它」：接管关着时槽位库照样有值、照样拦。
+     * 按屏判会放行，改完下次开接管就冒出一张被悄悄动过的图，那种现场比多拦一次难查得多。
      *
      * <p>「一键设置」钉着的那张也算在用：它此刻不一定在屏上，但通知上那颗开关按下去上屏的就是它。
      *
-     * <p>清单只报面、不报库名（几个库都指着同一张时也只写一次）—— 这条只是告知拦住的原因，
-     * 不替他做决定，写长了反而读不动。
+     * <p>清单只报面、不报库名 —— 这条只是告知拦住的原因，不替他做决定，写长了反而读不动。
      */
     public static String inUseWhere(Context ctx, String wallpaperId) {
         if (wallpaperId == null || wallpaperId.isEmpty()) {
             return null;
         }
-        boolean home = false;
-        boolean lock = false;
-        for (LibraryStore.Library lib : LibraryStore.load(ctx)) {
-            // 两面各判一次，不能用 else if：同一个库的桌面与锁屏可以指着同一张
-            if (wallpaperId.equals(getCurrent(ctx, lib.id, true))) {
-                home = true;
-            }
-            if (wallpaperId.equals(getCurrent(ctx, lib.id, false))) {
-                lock = true;
-            }
-        }
+        boolean home = isSlotCurrent(ctx, true, wallpaperId);
+        boolean lock = isSlotCurrent(ctx, false, wallpaperId);
         boolean pinned = wallpaperId.equals(PinnedWallpaper.wallpaperId(ctx));
         if (!home && !lock && !pinned) {
             return null;
@@ -348,6 +343,24 @@ public class Switcher {
             where.append(ctx.getString(R.string.in_use_pinned));
         }
         return where.toString();
+    }
+
+    /**
+     * 这一面<b>当值的库</b>（槽位库）的当前指针是不是这张。槽是空的、或槽指向的库已经被删，
+     * 都不算 —— 那一面根本没在用任何一张成品图，拦不住也不该拦。
+     */
+    private static boolean isSlotCurrent(Context ctx, boolean forHome, String wallpaperId) {
+        String slotLib = LibraryStore.slotLibId(ctx, forHome);
+        // 这一面没排库：根本没在显示谁的成品图
+        if (slotLib == null || slotLib.isEmpty()) {
+            return false;
+        }
+        // 先比指针（读一个 prefs 键），命中才去核库还在不在（那要整份 libraries.json 过一遍）
+        if (!wallpaperId.equals(getCurrent(ctx, slotLib, forHome))) {
+            return false;
+        }
+        // 库已经不在时它的 _current 还是旧值（删库清的是归属与文件，不是库级进度那套账）
+        return LibraryStore.get(ctx, slotLib) != null;
     }
 
     /**
