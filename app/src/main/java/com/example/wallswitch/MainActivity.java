@@ -22,7 +22,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
@@ -114,8 +113,6 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> notifyPermissionLauncher;
     /** 读取系统壁纸存档用（Android 13+ 是 READ_MEDIA_IMAGES，低版本 READ_EXTERNAL_STORAGE） */
     private ActivityResultLauncher<String> savePermLauncher;
-    /** Android 11+ 跳系统设置开「所有文件访问」，回来后检查结果继续开启接管 */
-    private ActivityResultLauncher<Intent> allFilesLauncher;
     // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
@@ -208,9 +205,6 @@ public class MainActivity extends AppCompatActivity {
         savePermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 this::onSavePermissionResult);
-        allFilesLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> onAllFilesAccessResult());
         overlayLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
         exportDirLauncher = registerForActivityResult(
@@ -1475,7 +1469,7 @@ public class MainActivity extends AppCompatActivity {
         if (granted) {
             doSaveCurrentWallpaper();
         } else {
-            Toast.makeText(this, "未授权读取壁纸，无法备份当前壁纸，已取消开启接管", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "未授权照片读取，无法保存当前壁纸", Toast.LENGTH_LONG).show();
             refreshTakeoverUi();
         }
     }
@@ -2717,46 +2711,22 @@ public class MainActivity extends AppCompatActivity {
         WallSwitchService.openActivator(this);
     }
 
-    /** 跳系统设置页开「所有文件访问」；部分 ROM 不支持直达本 App 时退回总列表页。 */
-    private void requestAllFilesAccess() {
-        Toast.makeText(this, "需要「所有文件访问」权限来读取当前系统壁纸，请允许后返回", Toast.LENGTH_LONG).show();
-        try {
-            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
-        } catch (Exception e) {
-            allFilesLauncher.launch(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-        }
-    }
-
-    /** 从「所有文件访问」设置页返回：已开启就继续保存当前壁纸，没开就取消。 */
-    private void onAllFilesAccessResult() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            doSaveCurrentWallpaper();
-        } else {
-            Toast.makeText(this, "未开启「所有文件访问」，无法读取当前系统壁纸", Toast.LENGTH_LONG).show();
-        }
-    }
-
     /**
      * 抽屉「保存当前壁纸」入口：接管中不需要权限（图就在库里），
-     * 未接管要读系统壁纸，需要「所有文件访问」（Android 11+）/ 读存储权限（更低版本）。
+     * 未接管要读系统壁纸，申请照片读取权限后直接读（旧版「所有文件访问」链路 v3.127 撤掉）。
      */
     private void startSaveCurrentWallpaper() {
         if (TakeoverManager.isHomeTakenOver(this)) {
             doSaveCurrentWallpaper();
             return;
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 13+ 的照片权限折算不了 WallpaperManager 要的 READ_EXTERNAL_STORAGE
-            // （真机实测 MagicOS），只能走「所有文件访问」隐式获得（v3.28 实验证实必需）
-            if (!Environment.isExternalStorageManager()) {
-                requestAllFilesAccess();
-                return;
-            }
-            doSaveCurrentWallpaper();
-            return;
-        }
-        String perm = Manifest.permission.READ_EXTERNAL_STORAGE;
+        // Android 13+ 用照片权限（READ_MEDIA_IMAGES），更低版本对应 READ_EXTERNAL_STORAGE。
+        // 个别 ROM（v3.28 那台 MagicOS）照片权限折算不成 WallpaperManager 认的
+        // READ_EXTERNAL_STORAGE 会读不到 —— 读不到时 readWallpaperBitmap 的双路死因
+        // 会跟着保存失败的 Toast 带回来，到底行不行交给这次真机实测。
+        String perm = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? Manifest.permission.READ_MEDIA_IMAGES
+                : Manifest.permission.READ_EXTERNAL_STORAGE;
         if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
             savePermLauncher.launch(perm);
             return;

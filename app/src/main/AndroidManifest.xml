@@ -8,14 +8,15 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 自动切换提示（通知栏通知）：Android 13+ 需运行时授权，未授权则发不出通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 读取当前系统壁纸（开启接管前存档用）：WallpaperManager.getDrawable/getWallpaperFile
-         在 Android 13+ 死认 READ_EXTERNAL_STORAGE（照片权限不折算，真机实测 MagicOS），
-         只能靠「所有文件访问」隐式获得该权限，跳系统设置页手动开启 -->
+    <!-- 读取当前系统壁纸（抽屉「保存当前壁纸」用）：接管中不需要（图就在库里），
+         未接管时 Android 13+ 请求 READ_MEDIA_IMAGES、更低版本请求 READ_EXTERNAL_STORAGE，
+         读走 TakeoverManager 的双路兜底（getDrawable → getWallpaperFile）。
+         此前这条链路走「所有文件访问」（v3.28 真机实测过 MagicOS 把照片权限折算不成
+         WallpaperManager 认的 READ_EXTERNAL_STORAGE），v3.127 撤掉改回照片权限实测 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <!-- 检查更新要访问 GitHub（Release 版本查询 + 下载直链）：缺此权限时所有请求
          直接以 SocketException: Permission denied 失败（真机现象：手动检查更新报"权限"错） -->
     <uses-permission android:name="android.permission.INTERNET" />
