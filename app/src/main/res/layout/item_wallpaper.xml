@@ -108,6 +108,27 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <!-- 实况段角标（LIVE）：标的是「这张带不带实况段」，判的是原图（实况段是原图尾部的
+             字节区间，与成品图格式无关），与引擎播实况同一套识别。这类图在桌面上会动，
+             提前看得见才不会在库里挑图时误当静态图。
+             左上角与右上角那粒并存；整理态与格式角标一起由代码隐藏。 -->
+        <TextView
+            android:id="@+id/tv_live_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:background="@drawable/badge_format_bg"
+            android:paddingStart="5dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="1dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            android:visibility="gone" />
+
         <!-- 整理多选态的勾选框（顶栏「整理」进来才显形，压在右上角的圆形卡片底上才在深浅图上都看得清）。
              自己不吃点击也不抢焦点：点格子任意处都算勾选，与库行删除态同一条规矩。
              排在长按浮出层之后，是为了让它盖在那层压暗之上。 -->

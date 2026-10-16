@@ -4201,6 +4201,12 @@ public class MainActivity extends AppCompatActivity {
                 holder.tvFormat.setText(fullJpeg
                         ? R.string.fmt_badge_jpeg : R.string.fmt_badge_png);
             }
+            // 左上角实况段角标：判的是原图里能不能定位到实况段（与引擎播实况同一套识别）；
+            // 整理态随右上角格式角标一起收起。带实况段的在桌面上会动，挑图时得提前看得见。
+            holder.tvLive.setVisibility(
+                    !organizeMode && WallpaperStore.isLive(MainActivity.this, item.id)
+                            ? View.VISIBLE : View.GONE);
+            holder.tvLive.setText(R.string.fmt_badge_live);
             boolean selected = selectedIds.contains(item.id);
             // 整理态：右上角露复选框，勾中的那张整幅压暗一档（缩略图本身深浅不定，只有盖一层才看得出成色）
             holder.cbSelect.setVisibility(organizeMode ? View.VISIBLE : View.GONE);
@@ -4299,6 +4305,8 @@ public class MainActivity extends AppCompatActivity {
         final TextView tvTitle;
         /** 右上角的成品图格式角标（整理态隐藏，见 {@link WallpaperStore#fullIsJpeg}）。 */
         final TextView tvFormat;
+        /** 左上角的实况段角标（整理态随格式角标一起隐藏，见 {@link WallpaperStore#isLive}）。 */
+        final TextView tvLive;
         final View actions;
         /** 整理多选态的勾选框（自己不吃点击，点格子任意处都算勾选）。 */
         final CheckBox cbSelect;
@@ -4314,6 +4322,7 @@ public class MainActivity extends AppCompatActivity {
             imgThumb = itemView.findViewById(R.id.img_thumb);
             tvTitle = itemView.findViewById(R.id.tv_wallpaper_title);
             tvFormat = itemView.findViewById(R.id.tv_full_format);
+            tvLive = itemView.findViewById(R.id.tv_live_badge);
             actions = itemView.findViewById(R.id.item_actions);
             cbSelect = itemView.findViewById(R.id.cb_wp_select);
             btnEdit = itemView.findViewById(R.id.btn_edit);

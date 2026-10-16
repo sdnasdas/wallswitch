@@ -219,6 +219,7 @@
          「无损」那层意思留给裁剪页的胶囊去讲 -->
     <string name="fmt_badge_jpeg">JPEG</string>
     <string name="fmt_badge_png">PNG</string>
+    <string name="fmt_badge_live">LIVE</string>
     <!-- 重复调整：原图缺失/更换后的状态提示（浮在裁剪页顶部那条胶囊里） -->
     <string name="edit_notice_no_original">这张壁纸没有保存原图，现在是在成品图上调整</string>
     <string name="edit_notice_original_changed">原图换过了，上次的位置已作废，请重摆构图</string>

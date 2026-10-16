@@ -87,6 +87,11 @@ public class WallpaperStore {
     // 键是 id（UUID 不复用，条目删了留下的键只是内存垃圾）。失效点跟着写盘走：writeFull 写完直接填对，
     // deleteFullFiles 抹掉；还原是整批覆盖文件，由调用方 clearFullFormatMarks()。
     private static final ConcurrentHashMap<String, Boolean> FULL_JPEG_MARKS = new ConcurrentHashMap<>();
+
+    // 实况标记（网格左上角那粒 LIVE 角标用）：判法与引擎播实况同一套 —— 原图里能不能定位到
+    // 实况段。进程内记着免得每帧绑格子都读盘；id 是 uuid，新入库天然没有陈旧 entry，
+    // 整批还原走 clearFullFormatMarks 一并清。
+    private static final ConcurrentHashMap<String, Boolean> LIVE_MARKS = new ConcurrentHashMap<>();
     // 壁纸分辨率下限：小屏机型也至少按这个处理
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
@@ -585,7 +590,33 @@ public class WallpaperStore {
 
     /** 抹掉全部格式标记：只有「整批覆盖成品图文件」的那条路需要它（从备份包还原）。 */
     public static void clearFullFormatMarks() {
+        LIVE_MARKS.clear();
         FULL_JPEG_MARKS.clear();
+    }
+
+    /**
+     * 这张有没有实况段（网格左上角那粒 LIVE 角标用）。判法直接交给引擎播实况的
+     * {@link com.example.wallswitch.gl.MotionSource#locate} —— 三层识别（小红书尾部 LIVE_&lt;N&gt; / XMP 头 / JPEG EOI 后扫
+     * ftyp）与上屏判定共用，永远同一个答案。原图是新导入永远齐的；存量老壁纸没有原图，
+     * 就当没有实况。文件改过不用管：MotionSource 的缓存指纹带 mtime，自动重算。
+     */
+    public static boolean isLive(Context context, String id) {
+        if (id == null || id.isEmpty()) {
+            return false;
+        }
+        Boolean cached = LIVE_MARKS.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        boolean live = false;
+        try {
+            File original = getOriginalFile(context, id);
+            live = original.isFile()
+                    && com.example.wallswitch.gl.MotionSource.locate(original) != null;
+        } catch (Exception ignored) {
+        }
+        LIVE_MARKS.put(id, live);
+        return live;
     }
 
     /** 确认导入：保存成品图与缩略图、按所属壁纸库追加元数据，并把收件箱那份原图搬进 originals/。 */
