@@ -9,6 +9,9 @@ public class AlertDialog {
     /** 真实类经 DialogInterface 继承来的按钮常量。 */
     public static final int BUTTON_POSITIVE = -1;
 
+    /** 真实类经 DialogInterface 继承来的按钮常量。 */
+    public static final int BUTTON_NEUTRAL = -3;
+
     public static class Builder {
 
         public Builder(android.content.Context context) {
@@ -100,6 +103,10 @@ public class AlertDialog {
     /** 真实 AlertDialog 继承自 Dialog，具备该方法（拿到按钮后可改图标样式）。 */
     public android.widget.Button getButton(int whichButton) {
         return null;
+    }
+
+    /** 真实 AlertDialog 继承自 Dialog，具备该方法（覆盖按钮默认"一点就关窗"时用）。 */
+    public void setOnShowListener(DialogInterface.OnShowListener listener) {
     }
 
     public void dismiss() {

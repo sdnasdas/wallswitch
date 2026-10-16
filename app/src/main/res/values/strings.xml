@@ -104,6 +104,17 @@
     <string name="import_done">已导入 %1$d 张图片</string>
     <string name="import_partial">成功导入 %1$d 张，%2$d 张失败</string>
     <string name="import_all_failed">图片导入失败，请重试</string>
+
+    <!-- 长按 ＋（壁纸页）选添加来源：现在只有直链一条，之后加别的来源在这里加行 -->
+    <string name="add_source_title">从哪里添加壁纸</string>
+    <string name="add_source_link">图片链接</string>
+    <string name="url_dialog_title">添加图片链接</string>
+    <string name="url_input_hint">图片直链（https://…）</string>
+    <string name="paste">粘贴</string>
+    <string name="url_invalid">需要 http/https 图片直链</string>
+    <string name="url_paste_empty">剪贴板里没有文本</string>
+    <string name="url_download_done">已下载，正在打开裁剪页</string>
+    <string name="url_download_failed">下载失败：链接打不开、超过 64MB 或网络异常</string>
     <string name="decode_failed">图片解码失败，已跳过该图</string>
     <string name="save_failed">保存失败</string>
 

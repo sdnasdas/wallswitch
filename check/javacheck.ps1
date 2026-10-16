@@ -4,7 +4,21 @@
 # 注意它抓不到资源/manifest/真依赖差异，R 桩也不看 XML。
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File check\javacheck.ps1
 $ErrorActionPreference = 'Continue'
-$javac = 'C:\Users\EDY\.jdks\corretto-17.0.20.1\bin\javac.exe'
+# JDK17：先认写死的路径（另一台开发机），再扫常见安装位置自动兜底
+$javacCandidates = @(
+    'C:\Users\EDY\.jdks\corretto-17.0.20.1\bin\javac.exe',
+    "$env:USERPROFILE\.jdks\corretto-17*\bin\javac.exe",
+    'C:\Program Files\Java\jdk-17*\bin\javac.exe',
+    'C:\Program Files\Eclipse Adoptium\jdk-17*\bin\javac.exe'
+)
+$javac = $null
+foreach ($candidate in $javacCandidates) {
+    $resolved = Resolve-Path $candidate -ErrorAction SilentlyContinue
+    if ($resolved) {
+        $javac = $resolved[0].Path
+        break
+    }
+}
 $androidJar = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platforms\android-35\android.jar'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $root '..\app\src\main\java'

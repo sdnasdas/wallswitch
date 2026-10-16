@@ -17,6 +17,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -304,6 +306,79 @@ public class WallpaperStore {
         }
         // 用原文件名（去扩展名）作为壁纸标题默认值，确认导入时写进元数据
         String title = stripExtension(displayName(context, uri));
+        putPendingTitle(context, id, title);
+        Item item = new Item();
+        item.id = id;
+        item.title = title;
+        return item;
+    }
+
+    /** 直链下载的单文件上限（64MB）：再大基本不是壁纸，也防坏链接把流量拖穿。 */
+    private static final long URL_MAX_BYTES = 64L * 1024 * 1024;
+
+    /**
+     * 从网络直链下载图片原始字节进收件箱 —— 不经过相册，与相册导入共用同一条待编辑管线。
+     * 不解码不转码，进来的字节就是 `originals/&lt;id&gt;` 以后要留存的原图字节。
+     * 标题取 URL 路径末段文件名（去扩展名与参数）；路径里没有名字（raw 链接带参数等）退通用占位。
+     * 失败（打不开 / HTTP 错误 / 空响应 / 超上限）清掉半截文件后再抛出 —— 收件箱脏文件会被
+     * 当成待编辑项反复弹编辑页又解码失败，与 {@link #importToInbox} 同一条纪律。
+     */
+    public static Item importUrlToInbox(Context context, String url) throws Exception {
+        String id = UUID.randomUUID().toString();
+        File inboxDir = new File(context.getFilesDir(), DIR_INBOX);
+        if (!inboxDir.exists()) {
+            inboxDir.mkdirs();
+        }
+        File target = new File(inboxDir, id);
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        // 坏链入最怕挂着不回：连接 10s、读 15s，超时就当失败，别让用户对着转圈的进度干等
+        conn.setConnectTimeout(10_000);
+        conn.setReadTimeout(15_000);
+        conn.setInstanceFollowRedirects(true);
+        try {
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) {
+                throw new IOException("HTTP " + code);
+            }
+            try (InputStream in = conn.getInputStream();
+                 FileOutputStream out = new FileOutputStream(target)) {
+                byte[] buffer = new byte[64 * 1024];
+                long total = 0;
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    total += n;
+                    if (total > URL_MAX_BYTES) {
+                        throw new IOException("超过 64MB 上限");
+                    }
+                    out.write(buffer, 0, n);
+                }
+                out.flush();
+                if (total == 0) {
+                    throw new IOException("响应为空");
+                }
+            }
+        } catch (Exception e) {
+            // 下载中断会残留半截文件，清掉，理由同 importToInbox
+            try {
+                Files.deleteIfExists(target.toPath());
+            } catch (Exception ignored) {
+            }
+            throw e;
+        } finally {
+            conn.disconnect();
+        }
+        // URL 路径末段当默认标题：去 query/fragment 已由 getPath 拿掉，再照相册导入去扩展名；
+        // 图床常见百分号编码（中文文件名），解码还原，解不动就用原样
+        String path = new URL(url).getPath();
+        String name = path == null ? "" : path.substring(path.lastIndexOf('/') + 1);
+        try {
+            name = java.net.URLDecoder.decode(name, "UTF-8");
+        } catch (Exception ignored) {
+        }
+        String title = stripExtension(name);
+        if (title == null || title.isEmpty()) {
+            title = "网络图片";
+        }
         putPendingTitle(context, id, title);
         Item item = new Item();
         item.id = id;

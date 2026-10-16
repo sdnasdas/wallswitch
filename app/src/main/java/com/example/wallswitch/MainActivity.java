@@ -980,6 +980,14 @@ public class MainActivity extends AppCompatActivity {
                 showNewLibDialog();
             }
         });
+        findViewById(R.id.btn_add).setOnLongClickListener(v -> {
+            // 来源选择只归壁纸页 —— 库页 ＋ 只管新建库，长按不掺和
+            if (showingWallpapers) {
+                showAddSourceDialog();
+                return true;
+            }
+            return false;
+        });
         View batteryRow = findViewById(R.id.row_battery);
         if (batteryRow != null) {
             batteryRow.setOnClickListener(v -> requestIgnoreBattery());
@@ -2502,6 +2510,108 @@ public class MainActivity extends AppCompatActivity {
         intent.putExtra(EditActivity.EXTRA_INBOX_ID, inboxId);
         intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
         startActivity(intent);
+    }
+
+    /**
+     * 长按 ＋（壁纸页）弹出的添加来源窗口：现在只有「图片链接」一条，之后有新来源在这里加行。
+     * 用自定义 view 而不是 setItems —— 单选项列表在真机上被量成零高、整块消失（AGENTS.md 记过的坑）。
+     */
+    private void showAddSourceDialog() {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        float density = getResources().getDisplayMetrics().density;
+        TextView linkRow = new TextView(this);
+        linkRow.setText(R.string.add_source_link);
+        linkRow.setTextSize(16);
+        linkRow.setPadding((int) (24 * density), (int) (16 * density),
+                (int) (24 * density), (int) (16 * density));
+        column.addView(linkRow);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.add_source_title)
+                .setView(column)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        linkRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            showLinkInputDialog();
+        });
+        dialog.show();
+    }
+
+    /**
+     * 图片直链输入框：粘贴（不关窗，贴上还能接着改）/ 确认（校验 http(s) 前缀，不过就留着窗）/ 取消。
+     * 三颗按钮排「粘贴 / 取消 / 确认」—— 粘贴离输入框动作最近，确认在最右拇指落点。
+     */
+    private void showLinkInputDialog() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.url_dialog_title)
+                .setView(wrapInput(input, R.string.url_input_hint))
+                .setNeutralButton(R.string.paste, null)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.confirm, null)
+                .create();
+        // 带回调的按钮默认一点就关窗：粘贴必须留着窗才能看到贴进去的内容，校验不过也不该白关一次
+        dialog.setOnShowListener(d -> {
+            Button paste = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            paste.setOnClickListener(v -> pasteClipboardInto(input));
+            ok.setOnClickListener(v -> {
+                String url = input.getText().toString().trim();
+                if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+                    Toast.makeText(this, R.string.url_invalid, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                dialog.dismiss();
+                downloadFromUrl(url);
+            });
+        });
+        dialog.show();
+        input.requestFocus();
+    }
+
+    /** 把剪贴板文本贴进输入框；剪贴板是空的只提示，不动输入框内容。 */
+    private void pasteClipboardInto(EditText input) {
+        try {
+            ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = manager == null ? null : manager.getPrimaryClip();
+            CharSequence text = (clip == null || clip.getItemCount() == 0)
+                    ? null : clip.getItemAt(0).getText();
+            if (text == null || text.toString().trim().isEmpty()) {
+                Toast.makeText(this, R.string.url_paste_empty, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            input.setText(text.toString().trim());
+            input.setSelection(input.getText().length());
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 确认直链后的下载：后台线程把原始字节进收件箱，成功 Toast 后 openEdit ——
+     * 从裁剪页开始与相册导入走同一条管线（收件箱 → 取景 → confirmImport → 入库带原图）。
+     */
+    private void downloadFromUrl(String url) {
+        View btnAdd = findViewById(R.id.btn_add);
+        btnAdd.setEnabled(false);
+        new Thread(() -> {
+            String id = null;
+            try {
+                id = WallpaperStore.importUrlToInbox(this, url).id;
+            } catch (Exception ignored) {
+            }
+            final String inboxId = id;
+            runOnUiThread(() -> {
+                btnAdd.setEnabled(true);
+                if (inboxId == null) {
+                    Toast.makeText(this, R.string.url_download_failed, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Toast.makeText(this, R.string.url_download_done, Toast.LENGTH_SHORT).show();
+                openEdit(inboxId, currentLibId());
+            });
+        }, "url-download").start();
     }
 
     /**
