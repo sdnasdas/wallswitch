@@ -48,6 +48,18 @@ public class LauncherPreviewOverlay extends View {
     /** 全局预览底图的文件名（应用私有目录，卸载即清除）。 */
     private static final String OVERLAY_FILE = "launcher_overlay.png";
 
+    /**
+     * 全局底图的内存缓存：批量导入时编辑页会连开十几轮，每轮都调 {@link #loadSaved}，
+     * 同一份文件只解一次，之后复用共享实例。
+     *
+     * <p>失效力两道：{@link #save}/{@link #clear} 主动失效；备份包还原这类绕开 API 直接改写文件的，
+     * 靠 {@link #loadSaved} 里的「修改时间 + 长度」戳识别。失效只丢引用、不回收位图 ——
+     * 可能还有正开着的编辑页在画它，留给 GC 随视图一起收。
+     */
+    private static volatile Bitmap cachedOverlay;
+    private static long cachedStamp = -1L;
+    private static long cachedLength = -1L;
+
     private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect dst = new Rect();
 
@@ -77,13 +89,36 @@ public class LauncherPreviewOverlay extends View {
         return OVERLAY_FILE;
     }
 
-    /** 读取全局预览底图；没设置过或文件损坏返回 null。 */
+    /**
+     * 读取全局预览底图；没设置过或文件损坏返回 null。
+     *
+     * <p>返回的是<b>共享缓存实例，调用方一律不许 recycle</b>（编辑页那条「页面销毁就回收」的
+     * 惯例在这里不适用）。同一份文件重复调用直接复用，不重解码。
+     */
     public static Bitmap loadSaved(Context context) {
         File file = overlayFile(context);
         if (!file.exists()) {
             return null;
         }
-        return BitmapFactory.decodeFile(file.getAbsolutePath());
+        Bitmap cached = cachedOverlay;
+        if (cached != null && !cached.isRecycled()
+                && cachedStamp == file.lastModified() && cachedLength == file.length()) {
+            return cached;
+        }
+        Bitmap decoded = BitmapFactory.decodeFile(file.getAbsolutePath());
+        if (decoded != null) {
+            cachedOverlay = decoded;
+            cachedStamp = file.lastModified();
+            cachedLength = file.length();
+        }
+        return decoded;
+    }
+
+    /** 丢掉缓存引用（不回收位图，正开着的编辑页可能还在画它）。 */
+    private static void invalidateCache() {
+        cachedOverlay = null;
+        cachedStamp = -1L;
+        cachedLength = -1L;
     }
 
     /** 把抠好的图层存成全局预览底图（覆盖旧的）。先写临时文件再改名，避免写坏后旧图也丢了。 */
@@ -103,7 +138,11 @@ public class LauncherPreviewOverlay extends View {
         if (dstFile.exists() && !dstFile.delete()) {
             return false;
         }
-        return tmp.renameTo(dstFile);
+        boolean ok = tmp.renameTo(dstFile);
+        if (ok) {
+            invalidateCache();
+        }
+        return ok;
     }
 
     /** 清除全局预览底图。 */
@@ -112,6 +151,7 @@ public class LauncherPreviewOverlay extends View {
         if (file.exists()) {
             file.delete();
         }
+        invalidateCache();
     }
 
     /**
@@ -152,7 +192,9 @@ public class LauncherPreviewOverlay extends View {
     public void setScreenshot(Bitmap bitmap) {
         Bitmap old = screenshot;
         screenshot = bitmap;
-        if (old != null && old != bitmap && !old.isRecycled()) {
+        // 共享缓存实例（loadSaved 给的）不随换图回收，它归静态缓存管；save 失败缓存未失效时
+        // 旧图仍是缓存里那张，靠这层身份判断挡住误回收
+        if (old != null && old != bitmap && old != cachedOverlay && !old.isRecycled()) {
             old.recycle();
         }
         invalidate();

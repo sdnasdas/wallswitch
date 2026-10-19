@@ -7,6 +7,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Process;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -203,6 +204,8 @@ public class EditActivity extends AppCompatActivity {
     private void startDecode() {
         setLoading(true);
         new Thread(() -> {
+            // 批量导入时会连开好几轮编辑页，解码跑后台优先级压峰值功耗（发热），略慢一点点
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
             final Bitmap decoded = WallpaperStore.decodeCropSource(EditActivity.this, sourceFile);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
@@ -460,8 +463,11 @@ public class EditActivity extends AppCompatActivity {
         int srcW = cropView.getSourceWidth();
         int srcH = cropView.getSourceHeight();
         final Context appCtx = getApplicationContext();
-        new Thread(() -> confirmInBackground(appCtx, visible, hasVisible, srcW, srcH, fork),
-                "edit-confirm").start();
+        new Thread(() -> {
+            // 落盘链（区域解码 + 编码 + 缩略图）是数秒级重活，后台优先级换更低的发热
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            confirmInBackground(appCtx, visible, hasVisible, srcW, srcH, fork);
+        }, "edit-confirm").start();
     }
 
     /**
@@ -668,7 +674,7 @@ public class EditActivity extends AppCompatActivity {
             }
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || overlay == null) {
-                    saved.recycle();
+                    // 位图归全局缓存管（下一张的编辑页还要复用），页面没了也不能回收
                     return;
                 }
                 overlay.setScreenshot(saved);

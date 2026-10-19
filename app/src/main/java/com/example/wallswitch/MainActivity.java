@@ -25,6 +25,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Process;
 import android.provider.Settings;
 import android.text.InputType;
 import android.util.LruCache;
@@ -2464,6 +2465,8 @@ public class MainActivity extends AppCompatActivity {
         View btnAdd = findViewById(R.id.btn_add);
         btnAdd.setEnabled(false);
         new Thread(() -> {
+            // 批量复制跑后台优先级：调度器偏向小核低频，同样的活发热明显低，代价是略慢
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
             int success = 0;
             int failed = 0;
             for (Uri uri : uris) {
