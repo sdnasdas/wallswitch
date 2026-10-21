@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 /**
  * 切换日志（桌面、锁屏各一份文件，各记各的账）。
@@ -362,6 +363,34 @@ public final class SwitchLog {
             }
         }
         return sb.toString();
+    }
+
+    /** 记录行的时间前缀（{@code log_entry_line} 的形状：两空格缩进 + HH:mm + 两空格）。 */
+    private static final Pattern ENTRY_TIME = Pattern.compile("^\\d{1,2}:\\d{2}\\s{2}");
+
+    /**
+     * 从日志正文的一行里取出「这次切到的那张」的标题，给「点记录行看缩略图」用。
+     *
+     * <p>只认记录行（{@code 09:35  桌面「雪山」（…）}）。段头、日期行、配置行一律返回 null：
+     * 配置行以 {@code ——} 开头，虽然暂停行里也有「标题」，但那是配置标记，不是这一轮真的上屏了一张。
+     */
+    public static String titleOfRecordLine(Context ctx, String line) {
+        if (ctx == null || line == null) {
+            return null;
+        }
+        String text = line.trim();
+        int open = text.indexOf('「');
+        if (open <= 0) {
+            return null;
+        }
+        String head = text.substring(0, open);
+        if (!ENTRY_TIME.matcher(head).lookingAt()
+                || !(head.endsWith(ctx.getString(R.string.scope_home))
+                || head.endsWith(ctx.getString(R.string.scope_lock)))) {
+            return null;
+        }
+        int close = text.lastIndexOf('」');
+        return close > open + 1 ? text.substring(open + 1, close) : null;
     }
 
     /** 把正文拆成「版本段 → 日期组 → 记录行」；没有段头/日期行的记录归进对应字段为 null 的那一层。 */

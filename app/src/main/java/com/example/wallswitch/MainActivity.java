@@ -28,6 +28,7 @@ import android.os.PowerManager;
 import android.os.Process;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.Layout;
 import android.util.LruCache;
 import android.view.Gravity;
 import android.view.GestureDetector;
@@ -44,6 +45,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -71,7 +73,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.shape.ShapeAppearanceModel;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -3280,12 +3284,177 @@ public class MainActivity extends AppCompatActivity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                     .setOnClickListener(v -> confirmClearSwitchLog(dialog));
         }
+        bindLogRecordClicks(body, dialog);
     }
 
     /** 弹窗正文换内容（切 tab、翻顺序时都用）：空的那一面给一句说明，不留白屏。 */
     private void bindLogBody(TextView body, String content) {
         body.setText(content == null || content.trim().isEmpty()
                 ? getString(R.string.log_view_empty) : content);
+    }
+
+    /**
+     * 点日志正文里的记录行 → 小窗看那张的缩略图（与网格一格同大）。
+     *
+     * <p>正文是一个可长按选中的 TextView：不做 ClickableSpan（它和 {@code setTextIsSelectable}
+     * 互斥，还会把外层 ScrollView 的竖向拖动吃掉），而是在这里旁听触摸事件、按坐标落回逻辑行，
+     * 再自己判一次「这算不算点击」——移动超过容差、按下超过长按时长、或本来正选着字，都不算。
+     */
+    private void bindLogRecordClicks(TextView body, AlertDialog logDialog) {
+        final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
+        final long longPress = ViewConfiguration.getLongPressTimeout();
+        final float[] downAt = new float[2];
+        final long[] downTime = new long[1];
+        final boolean[] dragged = new boolean[1];
+        final boolean[] selecting = new boolean[1];
+        body.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downAt[0] = event.getX();
+                    downAt[1] = event.getY();
+                    downTime[0] = event.getEventTime();
+                    dragged[0] = false;
+                    // 已经有选区时这一下是在取消选中，不顺手开图
+                    selecting[0] = body.hasSelection();
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!dragged[0] && (Math.abs(event.getX() - downAt[0]) > slop
+                            || Math.abs(event.getY() - downAt[1]) > slop)) {
+                        dragged[0] = true;
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    if (!dragged[0] && !selecting[0]
+                            && event.getEventTime() - downTime[0] < longPress) {
+                        String title = recordTitleAt(body, event.getX(), event.getY());
+                        if (title != null) {
+                            showLogThumbnail(title, logDialog);
+                        }
+                    }
+                    dragged[0] = false;
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    dragged[0] = false;
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        });
+    }
+
+    /** 触摸点落在哪个逻辑行（折行后按 \n 归并，不按视觉行），是记录行就给出那张的标题。 */
+    private String recordTitleAt(TextView body, float x, float y) {
+        Layout layout = body.getLayout();
+        if (layout == null) {
+            return null;
+        }
+        // Layout 的坐标不含 TextView 的 padding，先把四个方向的内边距去掉
+        float localY = y - body.getTotalPaddingTop();
+        if (localY < 0 || localY >= layout.getHeight()) {
+            return null;
+        }
+        int visualLine = layout.getLineForVertical((int) localY);
+        float localX = Math.max(0f,
+                Math.min(x - body.getTotalPaddingLeft(), layout.getWidth() - 1f));
+        CharSequence text = body.getText();
+        int hit = layout.getOffsetForHorizontal(visualLine, localX);
+        if (hit < 0) {
+            return null;
+        }
+        int offset = Math.min(hit, text.length());
+        int start = offset;
+        while (start > 0 && text.charAt(start - 1) != '\n') {
+            start--;
+        }
+        int end = offset;
+        while (end < text.length() && text.charAt(end) != '\n') {
+            end++;
+        }
+        return SwitchLog.titleOfRecordLine(this, text.subSequence(start, end).toString());
+    }
+
+    /**
+     * 记录行 → 缩略图小窗。反查按标题做（行里只记了标题，没有 id）：找不到（改过名/已删）就明说；
+     * 同名多张不猜，把一个格子大小的候选并排摆出来。缩略图就是网格用的 thumbs/&lt;id&gt;.jpg，
+     * 反查与解码一起放后台线程，解完再弹。
+     */
+    private void showLogThumbnail(String title, AlertDialog logDialog) {
+        final Context app = getApplicationContext();
+        final String untitled = getString(R.string.untitled);
+        new Thread(() -> {
+            List<WallpaperStore.Item> matches = new ArrayList<>();
+            for (WallpaperStore.Item item : WallpaperStore.load(app)) {
+                String itemTitle = item.title == null ? "" : item.title;
+                // 日志里的「未命名」对应的是空标题，不是用户真的把它命名成了这三个字
+                if (title.equals(untitled) ? itemTitle.isEmpty() : itemTitle.equals(title)) {
+                    matches.add(item);
+                }
+            }
+            List<Bitmap> thumbs = new ArrayList<>();
+            for (WallpaperStore.Item item : matches) {
+                Bitmap thumb = WallpaperStore.getThumb(app, item.id);
+                if (thumb != null) {
+                    thumbs.add(thumb);
+                }
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                // 点完的当口日志窗可能已经被关掉：不往别的界面上飞一张图
+                if (logDialog == null || !logDialog.isShowing()) {
+                    return;
+                }
+                if (thumbs.isEmpty()) {
+                    Toast.makeText(this, R.string.log_thumb_gone, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                showThumbnailWindow(thumbs);
+            });
+        }, "log-thumb").start();
+    }
+
+    /** 只摆缩略图的小窗：每张与网格一格同大，圆角 12dp（与网格的 RoundedGrid 一致）。 */
+    private void showThumbnailWindow(List<Bitmap> thumbs) {
+        float density = getResources().getDisplayMetrics().density;
+        // 与网格一格的显示宽度一致：屏宽 − 两侧 12dp 内边距 − 每格 4dp×2 外边距，再对半
+        int cell = Math.max(1,
+                (getResources().getDisplayMetrics().widthPixels - (int) (40 * density)) / 2);
+        int gap = (int) (8 * density);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        for (Bitmap thumb : thumbs) {
+            ShapeableImageView image = new ShapeableImageView(this);
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setContentDescription(getString(R.string.thumb_desc));
+            image.setShapeAppearanceModel(ShapeAppearanceModel.builder()
+                    .setAllCornerSizes(12 * density).build());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
+            if (row.getChildCount() > 0) {
+                lp.setMarginStart(gap);
+            }
+            row.addView(image, lp);
+            image.setImageBitmap(thumb);
+        }
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.addView(row);
+        if (thumbs.size() > 1) {
+            // 多张同名时窗口按候选数加宽，放到屏幕放不下为止，再横向滑
+            int needed = thumbs.size() * cell + (thumbs.size() - 1) * gap;
+            int max = Math.max(cell, getResources().getDisplayMetrics().widthPixels
+                    - (int) (64 * density));
+            scroll.setLayoutParams(new ViewGroup.LayoutParams(
+                    Math.min(needed, max), ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        // 对话框自己有最小宽度：靠一层居中容器保证图在窗里居中，而不是贴左留一截白
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        content.addView(scroll);
+        new MaterialAlertDialogBuilder(this)
+                .setView(content)
+                .show();
     }
 
     /** 复制日志全文到剪贴板。 */
