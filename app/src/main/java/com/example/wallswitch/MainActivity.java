@@ -39,6 +39,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewConfiguration;
+import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.Button;
@@ -3175,11 +3176,13 @@ public class MainActivity extends AppCompatActivity {
             final Context app = getApplicationContext();
             final String home = SwitchLog.readAllText(app, true);
             final String lock = SwitchLog.readAllText(app, false);
+            // 记录行行尾藏着壁纸/库 id：显示前剥掉，反查时按行原文从这里取
+            final Map<String, List<SwitchLog.EntryRef>> refs = SwitchLog.refIndex(home, lock);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                showSwitchLogDialog(home, lock);
+                showSwitchLogDialog(home, lock, refs);
             });
         }, "log-read").start();
     }
@@ -3190,7 +3193,8 @@ public class MainActivity extends AppCompatActivity {
      * 正文是等宽、可长按选中的可滚动区。
      * 底部三个键：取消／复制／清空——复制复制的是屏上这一面（含当前顺序），清空是两面一起清。
      */
-    private void showSwitchLogDialog(String home, String lock) {
+    private void showSwitchLogDialog(String home, String lock,
+                                     Map<String, List<SwitchLog.EntryRef>> refs) {
         final String[] contents = {home == null ? "" : home, lock == null ? "" : lock};
         final String[] displayed = new String[contents.length];
         final int[] shown = {0};
@@ -3229,7 +3233,8 @@ public class MainActivity extends AppCompatActivity {
         // 按当前顺序把两面各重排一遍并刷正文；翻完从头看，免得停在旧顺序的中间
         Runnable rebind = () -> {
             for (int i = 0; i < contents.length; i++) {
-                displayed[i] = SwitchLog.reorder(contents[i], newestFirst[0]);
+                displayed[i] = SwitchLog.stripRefs(
+                        SwitchLog.reorder(contents[i], newestFirst[0]));
             }
             bindLogBody(body, displayed[shown[0]]);
             scroll.scrollTo(0, 0);
@@ -3284,7 +3289,7 @@ public class MainActivity extends AppCompatActivity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                     .setOnClickListener(v -> confirmClearSwitchLog(dialog));
         }
-        bindLogRecordClicks(body, dialog);
+        bindLogRecordClicks(body, dialog, refs);
     }
 
     /** 弹窗正文换内容（切 tab、翻顺序时都用）：空的那一面给一句说明，不留白屏。 */
@@ -3300,7 +3305,8 @@ public class MainActivity extends AppCompatActivity {
      * 互斥，还会把外层 ScrollView 的竖向拖动吃掉），而是在这里旁听触摸事件、按坐标落回逻辑行，
      * 再自己判一次「这算不算点击」——移动超过容差、按下超过长按时长、或本来正选着字，都不算。
      */
-    private void bindLogRecordClicks(TextView body, AlertDialog logDialog) {
+    private void bindLogRecordClicks(TextView body, AlertDialog logDialog,
+                                     Map<String, List<SwitchLog.EntryRef>> refs) {
         final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
         final long longPress = ViewConfiguration.getLongPressTimeout();
         final float[] downAt = new float[2];
@@ -3326,9 +3332,12 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_UP:
                     if (!dragged[0] && !selecting[0]
                             && event.getEventTime() - downTime[0] < longPress) {
-                        String title = recordTitleAt(body, event.getX(), event.getY());
-                        if (title != null) {
-                            showLogThumbnail(title, logDialog);
+                        SwitchLog.RecordLine record =
+                                recordLineAt(body, event.getX(), event.getY());
+                        if (record != null) {
+                            List<SwitchLog.EntryRef> exact =
+                                    refs == null ? null : refs.get(record.line);
+                            showLogThumbnail(record, exact, logDialog);
                         }
                     }
                     dragged[0] = false;
@@ -3343,8 +3352,8 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 触摸点落在哪个逻辑行（折行后按 \n 归并，不按视觉行），是记录行就给出那张的标题。 */
-    private String recordTitleAt(TextView body, float x, float y) {
+    /** 触摸点落在哪个逻辑行（折行后按 \n 归并，不按视觉行），是记录行就拆出库名与标题。 */
+    private SwitchLog.RecordLine recordLineAt(TextView body, float x, float y) {
         Layout layout = body.getLayout();
         if (layout == null) {
             return null;
@@ -3371,31 +3380,73 @@ public class MainActivity extends AppCompatActivity {
         while (end < text.length() && text.charAt(end) != '\n') {
             end++;
         }
-        return SwitchLog.titleOfRecordLine(this, text.subSequence(start, end).toString());
+        return SwitchLog.parseRecordLine(this, text.subSequence(start, end).toString());
     }
 
     /**
-     * 记录行 → 缩略图小窗。反查按标题做（行里只记了标题，没有 id）：找不到（改过名/已删）就明说；
-     * 同名多张不猜，把一个格子大小的候选并排摆出来。缩略图就是网格用的 thumbs/&lt;id&gt;.jpg，
-     * 反查与解码一起放后台线程，解完再弹。
+     * 记录行 → 缩略图小窗。新行行尾藏着壁纸 id，直接按 id 取图（壁纸改标题、库改名都不影响）；
+     * 老行没有 id，才退回「库名 + 标题」反查。
+     * 找不到（已删）就明说；仍有多张（同名但不是同一张图）不猜，并排摆候选；
+     * 复制出来的副本视觉上是同一张，按解出来的缩略图去重，只留一份。
+     * 缩略图就是网格用的 thumbs/&lt;id&gt;.jpg，反查与解码一起放后台线程，解完再弹。
      */
-    private void showLogThumbnail(String title, AlertDialog logDialog) {
+    private void showLogThumbnail(SwitchLog.RecordLine record,
+                                  List<SwitchLog.EntryRef> exact, AlertDialog logDialog) {
         final Context app = getApplicationContext();
         final String untitled = getString(R.string.untitled);
         new Thread(() -> {
-            List<WallpaperStore.Item> matches = new ArrayList<>();
-            for (WallpaperStore.Item item : WallpaperStore.load(app)) {
-                String itemTitle = item.title == null ? "" : item.title;
-                // 日志里的「未命名」对应的是空标题，不是用户真的把它命名成了这三个字
-                if (title.equals(untitled) ? itemTitle.isEmpty() : itemTitle.equals(title)) {
-                    matches.add(item);
-                }
-            }
             List<Bitmap> thumbs = new ArrayList<>();
-            for (WallpaperStore.Item item : matches) {
-                Bitmap thumb = WallpaperStore.getThumb(app, item.id);
-                if (thumb != null) {
-                    thumbs.add(thumb);
+            if (exact != null && !exact.isEmpty()) {
+                Set<String> seen = new HashSet<>();
+                for (SwitchLog.EntryRef ref : exact) {
+                    if (ref.wallpaperId == null || ref.wallpaperId.isEmpty()
+                            || !seen.add(ref.wallpaperId)) {
+                        continue;
+                    }
+                    WallpaperStore.Item item = WallpaperStore.get(app, ref.wallpaperId);
+                    Bitmap thumb = item == null ? null : WallpaperStore.getThumb(app, item.id);
+                    if (thumb != null && !containsSameThumb(thumbs, thumb)) {
+                        thumbs.add(thumb);
+                    }
+                }
+            } else {
+                List<WallpaperStore.Item> byTitle = new ArrayList<>();
+                for (WallpaperStore.Item item : WallpaperStore.load(app)) {
+                    String itemTitle = item.title == null ? "" : item.title;
+                    // 日志里的「未命名」对应的是空标题，不是用户真的把它命名成了这三个字
+                    if (record.title.equals(untitled)
+                            ? itemTitle.isEmpty() : itemTitle.equals(record.title)) {
+                        byTitle.add(item);
+                    }
+                }
+                // 带库名的老行先收窄到那个库；库改过名、或那张后来挪走了，就退回按标题找，
+                // 不能因为条件对不上就说「不在了」
+                List<WallpaperStore.Item> matches = byTitle;
+                if (record.libName != null && !record.libName.isEmpty()) {
+                    List<String> libIds = new ArrayList<>();
+                    for (LibraryStore.Library lib : LibraryStore.load(app)) {
+                        if (record.libName.equals(lib.name)) {
+                            libIds.add(lib.id);
+                        }
+                    }
+                    List<WallpaperStore.Item> inLib = new ArrayList<>();
+                    for (WallpaperStore.Item item : byTitle) {
+                        for (String lid : item.libIds) {
+                            if (libIds.contains(lid)) {
+                                inLib.add(item);
+                                break;
+                            }
+                        }
+                    }
+                    if (!inLib.isEmpty()) {
+                        matches = inLib;
+                    }
+                }
+                for (WallpaperStore.Item item : matches) {
+                    Bitmap thumb = WallpaperStore.getThumb(app, item.id);
+                    if (thumb != null && !containsSameThumb(thumbs, thumb)) {
+                        thumbs.add(thumb);
+                    }
                 }
             }
             runOnUiThread(() -> {
@@ -3437,6 +3488,7 @@ public class MainActivity extends AppCompatActivity {
             row.addView(image, lp);
             image.setImageBitmap(thumb);
         }
+        int width = cell;
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.addView(row);
         if (thumbs.size() > 1) {
@@ -3444,17 +3496,38 @@ public class MainActivity extends AppCompatActivity {
             int needed = thumbs.size() * cell + (thumbs.size() - 1) * gap;
             int max = Math.max(cell, getResources().getDisplayMetrics().widthPixels
                     - (int) (64 * density));
+            width = Math.min(needed, max);
             scroll.setLayoutParams(new ViewGroup.LayoutParams(
-                    Math.min(needed, max), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    width, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        // 对话框自己有最小宽度：靠一层居中容器保证图在窗里居中，而不是贴左留一截白
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
         content.addView(scroll);
-        new MaterialAlertDialogBuilder(this)
+        // 对话框自带最小宽度与 24dp 背景内缩，照默认量出来两边都是白：把背景让掉、内缩归零，
+        // 再把窗宽压到图本身（多张时是那一排的宽）
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setBackground(new ColorDrawable(Color.TRANSPARENT))
+                .setBackgroundInsetStart(0)
+                .setBackgroundInsetTop(0)
+                .setBackgroundInsetEnd(0)
+                .setBackgroundInsetBottom(0)
                 .setView(content)
                 .show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    /** 两张缩略图是不是同一张图：复制出来的副本视觉上一致，合并成一份，不并排出两张一样的。 */
+    private static boolean containsSameThumb(List<Bitmap> thumbs, Bitmap candidate) {
+        for (Bitmap thumb : thumbs) {
+            if (thumb.sameAs(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 复制日志全文到剪贴板。 */

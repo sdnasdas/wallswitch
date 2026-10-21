@@ -198,7 +198,9 @@ public class TimerScheduler {
         editor.apply();
         scheduleInternal(ctx, forHome, true);
         if (logTag != null) {
-            SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome), logTag, next);
+            String currentId = Switcher.getCurrent(ctx, libId, forHome);
+            SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome, currentId),
+                    logTag, next, currentId, libId);
         }
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
@@ -343,7 +345,9 @@ public class TimerScheduler {
             SwitchNotifier.notifyResult(ctx, forHome, lib, ok, result);
             // 日志只记真的把新图上屏的那一次
             if (ok) {
-                SwitchLog.recordAuto(ctx, forHome, switchDetail(ctx, lib.id, forHome), planned);
+                String currentId = Switcher.getCurrent(ctx, lib.id, forHome);
+                SwitchLog.recordAuto(ctx, forHome,
+                        switchDetail(ctx, lib.id, forHome, currentId), planned, currentId, lib.id);
             }
         }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
@@ -362,18 +366,28 @@ public class TimerScheduler {
     }
 
     /**
-     * 日志第一行里那段「切到哪张」的可读描述：取该范围切换后的当前壁纸标题。
-     * 找不到标题时用「未命名」占位。
+     * 日志第一行里那段「切到哪张」的可读描述：库名 + 该范围切换后的当前壁纸标题。
+     * 找不到标题时用「未命名」占位；库查不到（刚删/还没建）时退回只写标题的老格式。
+     *
+     * <p>库名与标题只给人看；点日志反查用的是 {@link SwitchLog} 写在行尾的隐藏 id 段，
+     * 所以壁纸改名、库改名都不影响反查。
      */
-    private static String switchDetail(Context ctx, String libId, boolean forHome) {
-        return ctx.getString(R.string.log_detail_scope,
-                ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock),
-                currentTitle(ctx, libId, forHome));
+    private static String switchDetail(Context ctx, String libId, boolean forHome, String currentId) {
+        String scope = ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock);
+        String title = titleOf(ctx, currentId);
+        LibraryStore.Library lib = libId == null ? null : LibraryStore.get(ctx, libId);
+        return lib == null || lib.name == null || lib.name.isEmpty()
+                ? ctx.getString(R.string.log_detail_scope, scope, title)
+                : ctx.getString(R.string.log_detail_scope_lib, scope, lib.name, title);
     }
 
     /** 某个范围此刻在屏上的壁纸标题（指针没设或标题为空时给占位文案）。 */
     private static String currentTitle(Context ctx, String libId, boolean forHome) {
-        String id = Switcher.getCurrent(ctx, libId, forHome);
+        return titleOf(ctx, Switcher.getCurrent(ctx, libId, forHome));
+    }
+
+    /** 按壁纸 id 取标题（空标题给占位文案）。 */
+    private static String titleOf(Context ctx, String id) {
         String title = id == null ? null : WallpaperStore.getTitle(ctx, id);
         return title == null || title.isEmpty() ? ctx.getString(R.string.untitled) : title;
     }

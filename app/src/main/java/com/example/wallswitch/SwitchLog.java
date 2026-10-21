@@ -11,10 +11,13 @@ import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -45,6 +48,10 @@ import java.util.regex.Pattern;
  *   07:20  —— 停：桌面槽位已清空 ——
  * </pre>
  * 每个版本段的第一条不带括号（那会儿没有可比的上一条）。
+ *
+ * 记录行行尾还藏着一段 {@code [w:<壁纸id> l:<库id>]}：点日志看缩略图时按 id 反查，
+ * 壁纸/库改名都不影响。日志窗显示、复制、导出目录镜像前由 {@link #stripRefs} 剥掉，
+ * 私有文件里留着。
  *
  * 文件写在应用私有目录 {@code files/switch_log_home.txt} / {@code switch_log_lock.txt}；
  * 设了导出目录就同名各同步一份。
@@ -98,8 +105,11 @@ public final class SwitchLog {
      *
      * @param detail          这次切到哪张的可读描述（见 TimerScheduler.switchDetail）
      * @param plannedMillis   这次切换之前排定的触发时刻（覆盖 next_trigger 前先读出来），无记录传 -1
+     * @param wallpaperId     这次上屏那张的 id；写进行尾的隐藏段，供点日志反查
+     * @param libId           这次切换所在库的 id；同上
      */
-    public static void recordAuto(Context ctx, boolean forHome, String detail, long plannedMillis) {
+    public static void recordAuto(Context ctx, boolean forHome, String detail, long plannedMillis,
+                                  String wallpaperId, String libId) {
         if (ctx == null) {
             return;
         }
@@ -114,7 +124,7 @@ public final class SwitchLog {
                 parens = ctx.getString(R.string.log_suffix_gap_only, gap);
             }
         }
-        write(ctx, forHome, now, entryLine(ctx, now, detail, parens), true);
+        write(ctx, forHome, now, entryLine(ctx, now, detail, parens), true, wallpaperId, libId);
     }
 
     /**
@@ -126,7 +136,8 @@ public final class SwitchLog {
      * @param nextTriggerMillis 重排后的下次触发时刻，用于「下次约」
      */
     public static void recordManual(Context ctx, boolean forHome, String detail,
-                                    String tag, long nextTriggerMillis) {
+                                    String tag, long nextTriggerMillis,
+                                    String wallpaperId, String libId) {
         if (ctx == null) {
             return;
         }
@@ -140,7 +151,7 @@ public final class SwitchLog {
                             gapPart, tag, TimerScheduler.clockText(app, nextTriggerMillis))
                     // 暂停中手动切一张：没有「下次」可承诺（任务已撤），只标这一张停在这儿
                     : app.getString(R.string.log_suffix_manual_paused, gapPart, tag);
-            write(app, forHome, now, entryLine(app, now, detail, parens), true);
+            write(app, forHome, now, entryLine(app, now, detail, parens), true, wallpaperId, libId);
         });
     }
 
@@ -214,7 +225,7 @@ public final class SwitchLog {
         EXECUTOR.execute(() -> {
             long prevTime = prefs(app).getLong(KEY_TIME_PREFIX + suffix(forHome), 0L);
             String body = app.getString(R.string.log_config_line, timeOf(now), text.build(app, prevTime, now));
-            write(app, forHome, now, body, reanchor);
+            write(app, forHome, now, body, reanchor, null, null);
         });
     }
 
@@ -241,8 +252,15 @@ public final class SwitchLog {
         prefs(ctx).edit().remove(KEY_ANCHOR_PREFIX + suffix(forHome)).apply();
     }
 
-    /** 落一行正文：需要时补空行 + 版本段头 + 日期行，写完推进记账时间并按需同步导出目录。 */
-    private static void write(Context ctx, boolean forHome, long now, String body, boolean reanchor) {
+    /**
+     * 落一行正文：需要时补空行 + 版本段头 + 日期行，写完推进记账时间并按需同步导出目录。
+     *
+     * @param wallpaperId 记录行带上「这一行切到的是哪张」的 id（行尾隐藏段，显示前会剥掉）；
+     *                    配置行传 null
+     * @param libId       同上，切换所在库的 id
+     */
+    private static void write(Context ctx, boolean forHome, long now, String body, boolean reanchor,
+                              String wallpaperId, String libId) {
         SharedPreferences prefs = prefs(ctx);
         String suffix = suffix(forHome);
         String version = appVersion(ctx);
@@ -264,7 +282,7 @@ public final class SwitchLog {
         } else if (lastTime <= 0L || !sameDay(lastTime, now)) {
             sb.append('\n').append(dateOf(now)).append('\n');
         }
-        sb.append(body).append('\n');
+        sb.append(withRef(body, wallpaperId, libId)).append('\n');
 
         append(file, sb.toString());
         SharedPreferences.Editor editor = prefs.edit()
@@ -274,8 +292,10 @@ public final class SwitchLog {
             editor.putLong(KEY_ANCHOR_PREFIX + suffix, now);
         }
         editor.apply();
-        // 设了导出目录就同名同步一份；没设则 writeTextFile 自己会直接返回
-        WallpaperExporter.writeTextFile(ctx, fileName(forHome), "text/plain", readAllText(ctx, forHome));
+        // 设了导出目录就同名同步一份；没设则 writeTextFile 自己会直接返回。
+        // 镜像给用户看/拷的那份要剥掉行尾 id 段，私有文件里留着供点行反查
+        WallpaperExporter.writeTextFile(ctx, fileName(forHome), "text/plain",
+                stripRefs(readAllText(ctx, forHome)));
     }
 
     private static String entryLine(Context ctx, long now, String detail, String parens) {
@@ -368,13 +388,45 @@ public final class SwitchLog {
     /** 记录行的时间前缀（{@code log_entry_line} 的形状：两空格缩进 + HH:mm + 两空格）。 */
     private static final Pattern ENTRY_TIME = Pattern.compile("^\\d{1,2}:\\d{2}\\s{2}");
 
+    /** 记录行行尾的 id 段：{@code [w:<壁纸id> l:<库id>]}；显示、复制、导出前都会剥掉。 */
+    private static final Pattern REF_SUFFIX =
+            Pattern.compile("\\s*\\[w:([^\\]\\s]*)\\s+l:([^\\]\\s]*)\\]\\s*$");
+
+    /** 记录行行尾藏着的两把 id：这一行上屏的那张、当时所在的库。 */
+    public static final class EntryRef {
+        public final String wallpaperId;
+        public final String libId;
+
+        private EntryRef(String wallpaperId, String libId) {
+            this.wallpaperId = wallpaperId;
+            this.libId = libId;
+        }
+    }
+
+    /** 一条能点开的记录行拆出来的东西。 */
+    public static final class RecordLine {
+        /** 去掉行尾 id 段后的整行原文（反查 id 索引的键）。 */
+        public final String line;
+        /** 切换当时所在库的名字；老格式的行没有这一段，为 null。 */
+        public final String libName;
+        public final String title;
+
+        private RecordLine(String line, String libName, String title) {
+            this.line = line;
+            this.libName = libName;
+            this.title = title;
+        }
+    }
+
     /**
-     * 从日志正文的一行里取出「这次切到的那张」的标题，给「点记录行看缩略图」用。
+     * 拆一条记录行，给「点记录行看缩略图」用。只认记录行（{@code 09:35  桌面「自然」「雪山」（…）}）。
      *
-     * <p>只认记录行（{@code 09:35  桌面「雪山」（…）}）。段头、日期行、配置行一律返回 null：
-     * 配置行以 {@code ——} 开头，虽然暂停行里也有「标题」，但那是配置标记，不是这一轮真的上屏了一张。
+     * <p>段头、日期行、配置行一律返回 null：配置行以 {@code ——} 开头，虽然暂停行里也有「标题」，
+     * 但那是配置标记，不是这一轮真的上屏了一张。
+     *
+     * <p>老行没有库名（{@code 桌面「雪山」}），库名给 null；新行行尾的 id 段要先剥掉（{@link #stripRefs}）。
      */
-    public static String titleOfRecordLine(Context ctx, String line) {
+    public static RecordLine parseRecordLine(Context ctx, String line) {
         if (ctx == null || line == null) {
             return null;
         }
@@ -389,8 +441,81 @@ public final class SwitchLog {
                 || head.endsWith(ctx.getString(R.string.scope_lock)))) {
             return null;
         }
+        int firstClose = text.indexOf('」', open + 1);
+        if (firstClose < 0) {
+            return null;
+        }
+        String libName = null;
+        int titleOpen = open;
+        // 新格式是 `桌面「库名」「标题」`：紧跟着第一对引号又来一个「，那第一对就是库名
+        if (firstClose + 1 < text.length() && text.charAt(firstClose + 1) == '「') {
+            libName = text.substring(open + 1, firstClose);
+            titleOpen = firstClose + 1;
+        }
         int close = text.lastIndexOf('」');
-        return close > open + 1 ? text.substring(open + 1, close) : null;
+        return close > titleOpen + 1
+                ? new RecordLine(text, libName, text.substring(titleOpen + 1, close)) : null;
+    }
+
+    /** 给记录行追加行尾 id 段；两把 id 都没有（配置行）时原样返回。 */
+    private static String withRef(String body, String wallpaperId, String libId) {
+        if ((wallpaperId == null || wallpaperId.isEmpty())
+                && (libId == null || libId.isEmpty())) {
+            return body;
+        }
+        return body + " [w:" + (wallpaperId == null ? "" : wallpaperId)
+                + " l:" + (libId == null ? "" : libId) + "]";
+    }
+
+    /**
+     * 剥掉每行行尾的 id 段——日志窗显示、复制、导出目录镜像都用这份，用户看不到 id。
+     * 只剥行尾：标题正文里碰巧写了同样的字样不归它管。
+     */
+    public static String stripRefs(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        StringBuilder sb = new StringBuilder(content.length());
+        String[] lines = content.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            boolean cr = line.endsWith("\r");
+            if (cr) {
+                line = line.substring(0, line.length() - 1);
+            }
+            sb.append(REF_SUFFIX.matcher(line).replaceFirst(""));
+            if (cr) {
+                sb.append('\r');
+            }
+            if (i < lines.length - 1) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 从日志正文建「显示行 → id 段」索引，给点记录行取图用。
+     * 同一个显示行可能对应几条记录（同一分钟、同一标题反复手动切），按写入顺序都留着。
+     */
+    public static Map<String, List<EntryRef>> refIndex(String... contents) {
+        Map<String, List<EntryRef>> index = new HashMap<>();
+        for (String content : contents) {
+            if (content == null || content.isEmpty()) {
+                continue;
+            }
+            for (String raw : content.split("\n")) {
+                String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+                Matcher matcher = REF_SUFFIX.matcher(line);
+                if (!matcher.find()) {
+                    continue;
+                }
+                String key = line.substring(0, matcher.start()).trim();
+                index.computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(new EntryRef(matcher.group(1), matcher.group(2)));
+            }
+        }
+        return index;
     }
 
     /** 把正文拆成「版本段 → 日期组 → 记录行」；没有段头/日期行的记录归进对应字段为 null 的那一层。 */

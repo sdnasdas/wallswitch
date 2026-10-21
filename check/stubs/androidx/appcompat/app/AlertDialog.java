@@ -111,4 +111,9 @@ public class AlertDialog {
 
     public void dismiss() {
     }
+
+    /** 真实 AlertDialog 继承自 Dialog，具备该方法（弹窗要压到内容大小时改窗宽用）。 */
+    public android.view.Window getWindow() {
+        return null;
+    }
 }

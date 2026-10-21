@@ -332,6 +332,8 @@
     <string name="log_entry_line">"  %1$s  %2$s%3$s"</string>
     <string name="log_config_line">"  %1$s  —— %2$s ——"</string>
     <string name="log_detail_scope">%1$s「%2$s」</string>
+    <!-- 记录行带上库名（v3.130 起）：点行看缩略图时按「库 + 标题」反查，同名副本不会并排出一堆 -->
+    <string name="log_detail_scope_lib">%1$s「%2$s」「%3$s」</string>
     <!-- 间隔 = 距上一条重置过计时的记录；误差 = 实际执行 − 当时排定的触发时刻；下次约 = 重排后的触发时刻 -->
     <string name="log_gap_part">"间隔 %1$d分 · "</string>
     <string name="log_gap_walked">"距上张走了 %1$d 分 · "</string>
