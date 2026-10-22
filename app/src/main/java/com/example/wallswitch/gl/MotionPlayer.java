@@ -57,9 +57,11 @@ public final class MotionPlayer {
     private volatile boolean endedAtEos;
     private volatile String lastError;
     private volatile Runnable finishCallback;
-    /** 解码出来的帧实际尺寸：取景框要按它算 centerCrop，0 表示还没拿到 format。 */
+    /** 转正后的帧尺寸（已按轨道 rotation 换轴）：取景框按它算 centerCrop，0 表示还没拿到 format。 */
     private volatile int frameWidth;
     private volatile int frameHeight;
+    /** 轨道的 rotation-degrees，只在解码线程读写。 */
+    private int rotationDegrees;
     /** 只在 GL 线程读写（release 的唯一入口在渲染器的 GL 分支里）。 */
     private boolean textureDeleted;
     private final AtomicLong framesShown = new AtomicLong();
@@ -242,8 +244,8 @@ public final class MotionPlayer {
             }
             int width = optInt(format, MediaFormat.KEY_WIDTH, 0);
             int height = optInt(format, MediaFormat.KEY_HEIGHT, 0);
-            frameWidth = width;
-            frameHeight = height;
+            rotationDegrees = optInt(format, MediaFormat.KEY_ROTATION, 0);
+            publishFrameSize(width, height);
             if (width > 0 && height > 0) {
                 surfaceTexture.setDefaultBufferSize(width, height);
             }
@@ -306,8 +308,7 @@ public final class MotionPlayer {
                     int w = optInt(fresh, MediaFormat.KEY_WIDTH, width);
                     int h = optInt(fresh, MediaFormat.KEY_HEIGHT, height);
                     if (w > 0 && h > 0) {
-                        frameWidth = w;
-                        frameHeight = h;
+                        publishFrameSize(w, h);
                         surfaceTexture.setDefaultBufferSize(w, h);
                     }
                 }
@@ -364,6 +365,13 @@ public final class MotionPlayer {
             return !stopRequested;   // 纳秒参数越界（理论到不去），当作没睡
         }
         return !stopRequested;
+    }
+
+    /** 入参永远是编码宽高（缓冲区仍按它配），每次从这里现换，避免对上次换过的结果再换一次。 */
+    private void publishFrameSize(int codedW, int codedH) {
+        int[] d = MotionSource.displaySize(codedW, codedH, rotationDegrees);
+        frameWidth = d[0];
+        frameHeight = d[1];
     }
 
     private static int pickVideoTrack(MediaExtractor extractor) {

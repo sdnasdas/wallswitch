@@ -295,6 +295,16 @@ public final class MotionSource {
         return new float[]{centerU, centerV, spanU * cropX, spanT * cropY};
     }
 
+    /**
+     * 编码宽高 → 转正后的显示宽高（SurfaceTexture 矩阵输入空间的宽高）。
+     * 解码到 Surface 时轨道的 rotation-degrees 由缓冲区变换承担、已折进变换矩阵，
+     * centerCrop 必须按转正后的宽高算，否则 -90° 的横向编码视频会被横向拉宽。
+     */
+    public static int[] displaySize(int codedW, int codedH, int rotationDegrees) {
+        int r = ((rotationDegrees % 360) + 360) % 360;
+        return (r == 90 || r == 270) ? new int[]{codedH, codedW} : new int[]{codedW, codedH};
+    }
+
     private static float clamp01(float v) {
         return v < 0f ? 0f : (v > 1f ? 1f : v);
     }

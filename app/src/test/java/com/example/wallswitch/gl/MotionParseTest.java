@@ -5,6 +5,7 @@ import java.util.Arrays;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -174,6 +175,21 @@ public class MotionParseTest {
         // 尺寸未知（还没拿到 format）时不能崩，退化成不裁
         float[] unknown = MotionSource.cropForViewport(n, 0, 0, vp);
         near("vp/尺寸未知 spanU", 0.5f, unknown[2]);
+    }
+
+    @Test
+    public void displaySizeFollowsRotation() {
+        assertArrayEquals(new int[]{1080, 1920}, MotionSource.displaySize(1080, 1920, 0));
+        assertArrayEquals(new int[]{1080, 1440}, MotionSource.displaySize(1440, 1080, 90));
+        assertArrayEquals(new int[]{1080, 1440}, MotionSource.displaySize(1440, 1080, 270));
+        assertArrayEquals(new int[]{1080, 1440}, MotionSource.displaySize(1440, 1080, -90));
+        assertArrayEquals(new int[]{1440, 1080}, MotionSource.displaySize(1440, 1080, 180));
+        // 3840x2160 编码、旋转 90°、整帧铺 0.45 的竖屏：横向只收到 0.45/0.5625=0.8，
+        // 按编码宽高算会收到 0.253，画面被横向拉宽约 3 倍
+        int[] d = MotionSource.displaySize(3840, 2160, 90);
+        float[] cs = MotionSource.cropForViewport(null, d[0], d[1], 0.45f);
+        near("rot/spanU", 0.8f, cs[2]);
+        near("rot/spanV", 1f, cs[3]);
     }
 
     // ---- 断言小工具 ----------------------------------------------------------------------
