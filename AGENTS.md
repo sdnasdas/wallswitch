@@ -7,7 +7,7 @@
 
 - 路径/仓库：`D:\wall`，GitHub `sdnasdas/wallswitch`，分支 `main`
 - 技术栈：Java 17、Gradle 8.7、AGP 8.5.2、minSdk 26、targetSdk 35、`applicationId com.example.wallswitch`
-- 依赖仅 WorkManager 2.9.1 + appcompat + recyclerview（AndroidX）
+- 实际依赖以 `app/build.gradle` 为准；项目不以“零依赖”为目标，成熟方案优先于重复造轮子
 - 目标设备：荣耀 MagicOS 手机，APK 手动安装、靠版本号区分
 - 本机没有 gradle wrapper，完整资源打包与 lint 只能在 CI 跑
 - CI 用固定 keystore 签名（GitHub Secrets `WALLSWITCH_KEYSTORE_*`，本地备份在
@@ -22,7 +22,9 @@
 3. **用户提问时先回答问题**，不要急着改代码；涉及改动时先给方案、等确认再实现。
 4. **改完代码后运行本地类型检查**：在仓库根目录执行 `.\check\check.cmd`，
    期望输出 `== Java type check PASSED ==` 后才算完成。
-5. 遵守现有代码风格与约定；不引入未在项目中使用的新依赖（除非用户同意）。
+5. 遵守现有代码风格与约定；优先采用维护活跃、行业成熟且与现有架构匹配的外部库，
+   不为避免依赖而重复造轮子。新增依赖前比较维护状态、许可证、包体积、兼容性和收益；
+   只有系统 API 同样可靠且实现明显更简单时，才优先使用系统 API。
 6. **push 成功即任务收尾**：不需要轮询/监听 CI 结果，也不要为等 CI 而阻塞——
    用户会自己去 GitHub Actions 下载构建好的 APK。
 7. **弹窗一律 `MaterialAlertDialogBuilder`**（主题是 Material3，裸 `AlertDialog` 出来是旧样式，

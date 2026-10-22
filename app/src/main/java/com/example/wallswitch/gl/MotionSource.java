@@ -36,7 +36,7 @@ public final class MotionSource {
     static final int TRAILER_BYTES = 40;
     /** 读文件头找 XMP 的窗口：XMP 一定在前几个 KB 里，64KB 足够又不会把整张图读进内存。 */
     static final int HEAD_WINDOW = 64 * 1024;
-    /** 小于这个长度的文件不可能是「图 + 视频」，直接跳过，省掉两次无谓读盘。 */
+    /** 小图通常没有实况，跳过启发式扫描；明确尾标识仍需识别。 */
     static final int MIN_FILE_BYTES = 64 * 1024;
     /** EOI 之后允许出现的填充字节上限（超过就认为不是尾部追加那种格式）。 */
     static final int FTYP_SCAN_WINDOW = 64;
@@ -77,7 +77,7 @@ public final class MotionSource {
      * @return {@code {起点, 长度}}，没有实况返回 null
      */
     public static synchronized long[] locate(File original) {
-        if (original == null || !original.isFile() || original.length() < MIN_FILE_BYTES) {
+        if (original == null || !original.isFile() || original.length() <= TRAILER_BYTES) {
             return null;
         }
         long length = original.length();
@@ -97,6 +97,10 @@ public final class MotionSource {
             long[] byTrailer = parseTrailer(readTail(raf, size), size);
             if (byTrailer != null && startsWithFtyp(raf, byTrailer[0])) {
                 return byTrailer;
+            }
+            // 明确尾标识可识别很短的 Live；启发式扫描仍跳过小图。
+            if (size < MIN_FILE_BYTES) {
+                return null;
             }
             long[] byXmp = parseXmp(readHead(raf, size), size);
             if (byXmp != null && startsWithFtyp(raf, byXmp[0])) {

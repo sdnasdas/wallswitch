@@ -335,6 +335,8 @@ public class WallpaperStore {
             inboxDir.mkdirs();
         }
         File target = new File(inboxDir, id);
+        // 收件箱恢复只看完整文件，不能在下载未完时把半截 MP4 交给裁剪页。
+        File staging = new File(context.getCacheDir(), "url-" + id + ".download");
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         // 坏链入最怕挂着不回：连接 10s、读 15s，超时就当失败，别让用户对着转圈的进度干等
         conn.setConnectTimeout(10_000);
@@ -346,7 +348,7 @@ public class WallpaperStore {
                 throw new IOException("HTTP " + code);
             }
             try (InputStream in = conn.getInputStream();
-                 FileOutputStream out = new FileOutputStream(target)) {
+                 FileOutputStream out = new FileOutputStream(staging)) {
                 byte[] buffer = new byte[64 * 1024];
                 long total = 0;
                 int n;
@@ -363,9 +365,8 @@ public class WallpaperStore {
                 }
             }
         } catch (Exception e) {
-            // 下载中断会残留半截文件，清掉，理由同 importToInbox
             try {
-                Files.deleteIfExists(target.toPath());
+                Files.deleteIfExists(staging.toPath());
             } catch (Exception ignored) {
             }
             throw e;
@@ -385,6 +386,13 @@ public class WallpaperStore {
             title = "网络图片";
         }
         putPendingTitle(context, id, title);
+        try {
+            Files.move(staging.toPath(), target.toPath());
+        } catch (Exception e) {
+            Files.deleteIfExists(staging.toPath());
+            cancelImport(context, id);
+            throw e;
+        }
         Item item = new Item();
         item.id = id;
         item.title = title;

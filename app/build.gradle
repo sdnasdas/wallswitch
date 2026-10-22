@@ -24,8 +24,8 @@ android {
         // 110/3.103 是「一键设置」那颗图钉叠在角标正下方那一版（整卡被顶到 138dp，位置也没定好），
         // 已改成标题那一行的自绘开关 —— 110 那个包同样不回收
         // 132/3.125 这个号被另一台机器的「直链下载」版先占了，本版顺延到 135/3.128
-        versionCode 138
-        versionName "3.131"
+        versionCode 139
+        versionName "3.132"
     }
 
     signingConfigs {
@@ -67,6 +67,9 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.activity:activity:1.9.3'
+    implementation 'androidx.media3:media3-exoplayer:1.6.1'
+    implementation 'androidx.media3:media3-ui:1.6.1'
+    implementation 'androidx.media3:media3-transformer:1.6.1'
     // 定时切换后端：≥15 分钟间隔用 WorkManager（系统批量合并、Doze 友好、自动重启恢复）
     implementation 'androidx.work:work-runtime:2.9.1'
     // 本地单测：原 check/ 下的纯 JVM 夹具 2026-10-12 挪进 app/src/test 走 Gradle

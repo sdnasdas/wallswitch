@@ -1,2 +1,4 @@
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0javacheck.ps1"
+call "%~dp0gradlecheck.cmd"
+if errorlevel 1 exit /b 1
+echo == Java type check PASSED ==

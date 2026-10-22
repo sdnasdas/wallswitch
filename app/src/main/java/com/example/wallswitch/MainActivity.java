@@ -138,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean showingWallpapers = false;
     // 壁纸页正在看的库 id（也兼作「上次查看的库」，导入壁纸时的默认目标库）
     private String currentLibId;
+    private String openingInboxId;
     // 正在就地改名的库 id（null = 没有；返回键用它判断「取消改名」而不是退出）
     private String renamingLibId;
     // 顶栏删除按钮（库页专用）：普通态 = 垃圾桶进删除态，删除态 = 勾图标确认批量删除
@@ -2506,18 +2507,68 @@ public class MainActivity extends AppCompatActivity {
         }, "inbox-import").start();
     }
 
-    /** 打开编辑页处理某个收件箱文件（确认后入库到指定库）。 */
+    /** 进程重启后收件箱也走同一分流，避免 MP4 被当成图片解码后删掉。 */
     private void openEdit(String inboxId, String libId) {
-        Intent intent = new Intent(this, EditActivity.class);
+        if (openingInboxId != null) {
+            return;
+        }
+        openingInboxId = inboxId;
+        new Thread(() -> {
+            boolean video;
+            try {
+                video = LivePhotoFiles.isMp4(WallpaperStore.getInboxFile(this, inboxId));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    openingInboxId = null;
+                    WallpaperStore.cancelImport(this, inboxId);
+                    if (!isFinishing() && !isDestroyed()) {
+                        Toast.makeText(this, R.string.url_download_failed, Toast.LENGTH_LONG).show();
+                    }
+                });
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()
+                        || !getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                    openingInboxId = null;
+                    return;
+                }
+                if (!video) {
+                    openingInboxId = null;
+                    launchInboxEditor(inboxId, libId, false);
+                    return;
+                }
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(R.string.video_detected_title)
+                        .setMessage(R.string.video_detected_message)
+                        .setNegativeButton(R.string.video_no, (dialog, which) -> cancelVideoInbox(inboxId))
+                        .setPositiveButton(R.string.video_yes, (dialog, which) -> {
+                            openingInboxId = null;
+                            launchInboxEditor(inboxId, libId, true);
+                        })
+                        .setOnCancelListener(dialog -> cancelVideoInbox(inboxId))
+                        .show();
+            });
+        }, "inbox-type").start();
+    }
+
+    private void cancelVideoInbox(String inboxId) {
+        WallpaperStore.cancelImport(this, inboxId);
+        openingInboxId = null;
+        List<String> pending = WallpaperStore.pendingInbox(this);
+        if (!pending.isEmpty()) {
+            openEdit(pending.get(0), currentLibId());
+        }
+    }
+
+    private void launchInboxEditor(String inboxId, String libId, boolean video) {
+        Intent intent = new Intent(this, video ? VideoTrimActivity.class : EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_INBOX_ID, inboxId);
         intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
         startActivity(intent);
     }
 
-    /**
-     * 长按 ＋（壁纸页）弹出的添加来源窗口：现在只有「图片链接」一条，之后有新来源在这里加行。
-     * 用自定义 view 而不是 setItems —— 单选项列表在真机上被量成零高、整块消失（AGENTS.md 记过的坑）。
-     */
+    /** 自定义行避开单选项列表在真机上被量成零高的问题。 */
     private void showAddSourceDialog() {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -2590,10 +2641,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 确认直链后的下载：后台线程把原始字节进收件箱，成功 Toast 后 openEdit ——
-     * 从裁剪页开始与相册导入走同一条管线（收件箱 → 取景 → confirmImport → 入库带原图）。
-     */
+    /** 下载只写收件箱，入库仍由用户在编辑页确认。 */
     private void downloadFromUrl(String url) {
         View btnAdd = findViewById(R.id.btn_add);
         btnAdd.setEnabled(false);

@@ -107,14 +107,32 @@
 
     <!-- 长按 ＋（壁纸页）选添加来源：现在只有直链一条，之后加别的来源在这里加行 -->
     <string name="add_source_title">从哪里添加壁纸</string>
-    <string name="add_source_link">图片链接</string>
-    <string name="url_dialog_title">添加图片链接</string>
-    <string name="url_input_hint">图片直链（https://…）</string>
+    <string name="add_source_link">图片或视频链接</string>
+    <string name="url_dialog_title">添加图片或视频链接</string>
+    <string name="url_input_hint">图片或 MP4 直链（https://…）</string>
     <string name="paste">粘贴</string>
-    <string name="url_invalid">需要 http/https 图片直链</string>
+    <string name="url_invalid">需要 http/https 图片或视频直链</string>
     <string name="url_paste_empty">剪贴板里没有文本</string>
-    <string name="url_download_done">已下载，正在打开裁剪页</string>
+    <string name="url_download_done">下载完成</string>
     <string name="url_download_failed">下载失败：链接打不开、超过 64MB 或网络异常</string>
+    <string name="video_detected_title">识别到 MP4 视频文件</string>
+    <string name="video_detected_message">是否转为 Live 导入？可裁剪最多 3 秒，并选择封面首图。</string>
+    <string name="video_yes">是</string>
+    <string name="video_no">否</string>
+    <string name="video_trim_title">视频转 Live</string>
+    <string name="video_trim_range">保留片段</string>
+    <string name="video_trim_limit">最长 3 秒</string>
+    <string name="video_trim_no_frames">片段内没有视频帧，请扩大裁剪范围</string>
+    <string name="video_trim_cover">封面位置</string>
+    <string name="video_trim_hint">拖动左右手柄调整片段；黄色标记是封面。生成后继续调整壁纸取景。</string>
+    <string name="video_trim_confirm">生成 Live，继续取景</string>
+    <string name="video_trim_loading">正在读取视频…</string>
+    <string name="video_trim_exporting">正在生成 Live…</string>
+    <string name="video_trim_failed">视频处理失败：%s</string>
+    <string name="video_trim_play">预览片段（静音）</string>
+    <string name="video_trim_pause">暂停预览</string>
+    <string name="video_trim_seconds">%1$.2f 秒</string>
+    <string name="video_trim_range_time">%1$.2f — %2$.2f · %3$.2f 秒</string>
     <string name="decode_failed">图片解码失败，已跳过该图</string>
     <string name="save_failed">保存失败</string>
 
