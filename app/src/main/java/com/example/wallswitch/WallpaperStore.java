@@ -67,6 +67,8 @@ public class WallpaperStore {
     private static final String LIB_FILE = "library.json";
     // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
     private static final String TITLE_PREFS = "pending_titles";
+    // 待编辑项在导入时已经明确的库（从某个库里导入的那批）。没有记录 = 编辑页再让用户选。
+    private static final String TARGET_PREFS = "pending_targets";
     // 通用设置偏好（与其它模块共用 settings 文件）：缩略图一次性升级标记
     private static final String PREFS_NAME = "settings";
     // 缩略图升级标记：老版本存的是「长边 256 的等比缩略图」，两列方格上会被放大 2 倍多发虚
@@ -468,6 +470,30 @@ public class WallpaperStore {
                 .apply();
     }
 
+    /** 这条待编辑项已经明确的库；null 表示还没选（编辑页会弹选库）。 */
+    public static String pendingTarget(Context context, String inboxId) {
+        if (inboxId == null || inboxId.isEmpty()) {
+            return null;
+        }
+        return context.getSharedPreferences(TARGET_PREFS, Context.MODE_PRIVATE)
+                .getString(inboxId, null);
+    }
+
+    /** 记录/清除某待编辑项目标库。清除传 null。 */
+    public static void putPendingTarget(Context context, String inboxId, String libId) {
+        if (inboxId == null || inboxId.isEmpty()) {
+            return;
+        }
+        android.content.SharedPreferences.Editor edit = context
+                .getSharedPreferences(TARGET_PREFS, Context.MODE_PRIVATE).edit();
+        if (libId == null || libId.isEmpty()) {
+            edit.remove(inboxId);
+        } else {
+            edit.putString(inboxId, libId);
+        }
+        edit.apply();
+    }
+
     /** 修改某张壁纸的标题（预览弹窗里改，空串表示未命名）。 */
     public static void setTitle(Context context, String id, String title) {
         try {
@@ -666,6 +692,8 @@ public class WallpaperStore {
             } catch (Exception ignored) {
             }
         }
+        // 已经入库：目标库记录到此为止；重试/取消都不该再带着它
+        putPendingTarget(context, inboxId, null);
         return item;
     }
 
@@ -748,6 +776,7 @@ public class WallpaperStore {
         context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
                 .remove(inboxId)
                 .apply();
+        putPendingTarget(context, inboxId, null);
     }
 
     /** 列出收件箱中待编辑的文件 id（按名称排序，保证顺序稳定）。 */

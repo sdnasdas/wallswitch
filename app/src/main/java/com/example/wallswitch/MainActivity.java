@@ -3695,14 +3695,17 @@ public class MainActivity extends AppCompatActivity {
         }
         View btnAdd = findViewById(R.id.btn_add);
         btnAdd.setEnabled(false);
+        // 已经进了某个库再导入：库就是眼前这个，记到待编辑项上，编辑页不再问
+        final String targetLib = libraryOpen ? currentLibId() : null;
         new Thread(() -> {
             // 批量复制跑后台优先级：调度器偏向小核低频，同样的活发热明显低，代价是略慢
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
             int success = 0;
             int failed = 0;
+            ArrayList<String> imported = new ArrayList<>();
             for (Uri uri : uris) {
                 try {
-                    WallpaperStore.importToInbox(this, uri);
+                    imported.add(WallpaperStore.importToInbox(this, uri).id);
                     success++;
                 } catch (Exception e) {
                     failed++;
@@ -3712,6 +3715,7 @@ public class MainActivity extends AppCompatActivity {
             // lambda 捕获要求实际 final：先把计数定稿
             final int okCount = success;
             final int failCount = failed;
+            final ArrayList<String> importedIds = imported;
             runOnUiThread(() -> {
                 btnAdd.setEnabled(true);
                 if (failCount > 0) {
@@ -3725,7 +3729,14 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, getString(R.string.import_done, okCount),
                             Toast.LENGTH_SHORT).show();
                 }
-                if (!pending.isEmpty()) {
+                if (targetLib != null) {
+                    for (String id : importedIds) {
+                        WallpaperStore.putPendingTarget(this, id, targetLib);
+                    }
+                }
+                if (!importedIds.isEmpty()) {
+                    openEdit(importedIds.get(0));
+                } else if (!pending.isEmpty()) {
                     openEdit(pending.get(0));
                 }
             });
@@ -3767,6 +3778,11 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
         if (ids.size() == 1) {
+            // 分享进来时人正停在一个库详情里：那个库就是明确目标，不必再问
+            String targetLib = libraryOpen ? currentLibId() : null;
+            if (targetLib != null) {
+                WallpaperStore.putPendingTarget(this, ids.get(0), targetLib);
+            }
             openEdit(ids.get(0));
             return true;
         }
@@ -3777,6 +3793,12 @@ public class MainActivity extends AppCompatActivity {
     /** 批量里夹了 MP4 就不能默认收（要选封面与 3 秒区间），退回现有逐张流程。 */
     private void checkAndShowBatchChoice(ArrayList<String> ids) {
         bulkChoiceShowing = true;
+        final String targetLib = libraryOpen ? currentLibId() : null;
+        if (targetLib != null) {
+            for (String id : ids) {
+                WallpaperStore.putPendingTarget(this, id, targetLib);
+            }
+        }
         final Context app = getApplicationContext();
         new Thread(() -> {
             boolean video = false;
@@ -3799,17 +3821,23 @@ public class MainActivity extends AppCompatActivity {
                     openEdit(ids.get(0));
                     return;
                 }
-                showBatchChoice(ids);
+                showBatchChoice(ids, targetLib);
             });
         }, "import-batch-check").start();
     }
 
-    private void showBatchChoice(ArrayList<String> ids) {
+    private void showBatchChoice(ArrayList<String> ids, String targetLib) {
         bulkChoiceShowing = true;
         new AppAlertDialogBuilder(this)
                 .setTitle(getString(R.string.import_batch_title, ids.size()))
                 .setMessage(R.string.import_batch_message)
                 .setPositiveButton(R.string.import_batch_all_default, (dialog, which) -> {
+                    if (targetLib != null) {
+                        // 人就在这个库里分享进来的：批量默认直接用这个库
+                        bulkChoiceShowing = false;
+                        confirmPendingDefaults(ids, targetLib);
+                        return;
+                    }
                     // 批量默认没有取景这一步；库仍然让用户自己选，取消就退回这个选择
                     LibChooser.show(this, getString(R.string.import_pick_lib_title),
                             libId -> {
@@ -3818,7 +3846,7 @@ public class MainActivity extends AppCompatActivity {
                             },
                             () -> {
                                 if (!isFinishing() && !isDestroyed()) {
-                                    showBatchChoice(ids);
+                                    showBatchChoice(ids, null);
                                 }
                             });
                 })
@@ -3843,6 +3871,10 @@ public class MainActivity extends AppCompatActivity {
         final int count = batch.size();
         final int[] window = windowSize();
         final int maxDim = WallpaperStore.maxWallpaperDim(app);
+        // 这批已经由用户选过库：逐条记上，后面失败/停止再打开时不再重复问
+        for (String id : batch) {
+            WallpaperStore.putPendingTarget(app, id, libId);
+        }
         bulkStopRequested = false;
         showBulkProgress(count);
         bulkImportRunning = true;
@@ -4099,6 +4131,8 @@ public class MainActivity extends AppCompatActivity {
     void downloadFromUrl(String url) {
         View btnAdd = findViewById(R.id.btn_add);
         btnAdd.setEnabled(false);
+        // 从库里发起：这条就落到眼前这个库
+        final String targetLib = libraryOpen ? currentLibId() : null;
         new Thread(() -> {
             String id = null;
             try {
@@ -4113,6 +4147,9 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 Toast.makeText(this, R.string.url_download_done, Toast.LENGTH_SHORT).show();
+                if (targetLib != null) {
+                    WallpaperStore.putPendingTarget(this, inboxId, targetLib);
+                }
                 openEdit(inboxId);
             });
         }, "url-download").start();

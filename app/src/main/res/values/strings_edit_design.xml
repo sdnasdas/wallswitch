@@ -4,6 +4,7 @@
     <string name="edit_reset_crop_done">已恢复居中铺满的初始取景</string>
     <string name="edit_save_crop">保存取景</string>
     <string name="edit_save_to">保存到…</string>
+    <string name="edit_cancel_import">取消导入</string>
     <string name="edit_format_title">成品图格式</string>
     <string name="edit_format_entry">成品图 · %1$s</string>
 </resources>

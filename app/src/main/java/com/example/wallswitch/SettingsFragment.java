@@ -13,7 +13,6 @@ import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewTreeObserver;
-import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -132,35 +131,24 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             return;
         }
         RecyclerView list = getView() == null ? null : getListView();
-        boolean interrupted = transitionTarget != null;
-        boolean fadeOut = !interrupted && boundScreen == getPreferenceScreen();
         cancelScreenTransition();
-        // 首次创建/恢复只绑定页面，不给尚未显示过的列表做退场动画。
+        // 首次创建/恢复只绑定页面，不给尚未显示过的列表做入场动画。
         if (list == null || !list.isAttachedToWindow() || !list.isLaidOut()
-                || (!interrupted && screen == getPreferenceScreen())) {
+                || screen == getPreferenceScreen()) {
             applyScreen(screen);
             notifyScreenChanged();
             return;
         }
         transitionTarget = screen;
         transitionList = list;
-        // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。
-        notifyScreenChanged();
+        // 先遮住旧列表，再做底部三栏收起与新页绑定；旧页的滚动位置/布局变化就不会露出来。
         transitionOffset = dp(16) * (screen == homeScreen ? -1 : 1)
                 * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
-        int generation = transitionGeneration;
-        // 中断时不再显露可能尚未绑定的旧 adapter，直接等最终目标列表绘制。
-        if (fadeOut && ValueAnimator.areAnimatorsEnabled()) {
-            list.animate().alpha(0f).translationX(-transitionOffset).setDuration(90)
-                    .setInterpolator(new AccelerateInterpolator())
-                    .withEndAction(() -> {
-                        if (generation == transitionGeneration && transitionList == list) {
-                            bindTransitionTarget();
-                        }
-                    }).start();
-        } else {
-            bindTransitionTarget();
-        }
+        list.setAlpha(0f);
+        list.setTranslationX(transitionOffset);
+        // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。
+        notifyScreenChanged();
+        bindTransitionTarget();
     }
 
     private void applyScreen(PreferenceScreen screen) {
@@ -178,7 +166,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         transitionList.setAlpha(0f);
         transitionList.setTranslationX(transitionOffset);
         applyScreen(transitionTarget);
-        // 退场中返回首页时，首页 adapter 可能根本没有换过，也要走 pre-draw。
+        // 转场中返回首页时，首页 adapter 可能根本没有换过，也要走 pre-draw。
         if (boundScreen == transitionTarget) {
             awaitTransitionPreDraw();
         }

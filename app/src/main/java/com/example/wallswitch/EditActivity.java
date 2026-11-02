@@ -124,13 +124,24 @@ public class EditActivity extends AppCompatActivity {
         maxDim = WallpaperStore.maxWallpaperDim(this);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         itemId = getIntent().getStringExtra(EXTRA_ITEM_ID);
-        // 重编模式从详情页带当前库；导入模式不预设，取景完成后由 onConfirm 让用户选
-        libId = itemId == null ? null : getIntent().getStringExtra(EXTRA_LIB_ID);
-        if (itemId == null) {
+        // 重编模式从详情页带当前库；导入模式先从收件箱的目标库记录里取：
+        // 从某个库里导入的那批已经在导入时定好库，不再问；没有记录的才在 onConfirm 里让用户选。
+        libId = itemId == null
+                ? WallpaperStore.pendingTarget(this, inboxId)
+                : getIntent().getStringExtra(EXTRA_LIB_ID);
+        if (itemId == null && libId != null && LibraryStore.get(this, libId) == null) {
+            libId = null;
+        }
+        if (itemId == null && libId == null) {
             btnConfirm.setText(R.string.edit_save_to);
         }
         btnConfirm.setOnClickListener(v -> onConfirm());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> onCancel());
+        View cancelImport = findViewById(R.id.btn_cancel_import);
+        if (cancelImport != null) {
+            cancelImport.setVisibility(itemId == null ? View.VISIBLE : View.GONE);
+            cancelImport.setOnClickListener(v -> onCancel());
+        }
         // 返回手势 / 返回键必须等同左上角 ✕：系统默认只 finish，导入模式下收件箱那张没丢，
         // 回到主界面 onResume 看见收件箱里还有它，又把同一张原样打开 ——
         // 连续导入时表现为「返回放弃不了这一张」。桌面图标预览开着时先收预览（与单张详情页一致）。
@@ -400,6 +411,10 @@ public class EditActivity extends AppCompatActivity {
         if (cancel != null) {
             cancel.setEnabled(!confirmRunning);
         }
+        View cancelImport = findViewById(R.id.btn_cancel_import);
+        if (cancelImport != null) {
+            cancelImport.setEnabled(!confirmRunning);
+        }
     }
 
     /**
@@ -420,12 +435,18 @@ public class EditActivity extends AppCompatActivity {
             return;
         }
         if (itemId == null) {
-            // 导入：取景已经定好，先选库再落盘；取消/点外面就留在本页，取景不丢
+            // 从某个库里导入的那批，目标库已经在导入时定好，直接落盘
+            if (libId != null) {
+                startConfirm(false);
+                return;
+            }
+            // 其余导入：取景已经定好，先选库再落盘；取消/点外面就留在本页，取景不丢
             LibChooser.show(this, getString(R.string.import_pick_lib_title), chosen -> {
                 if (loading || confirmRunning || isFinishing() || isDestroyed()) {
                     return;
                 }
                 libId = chosen;
+                WallpaperStore.putPendingTarget(this, inboxId, chosen);
                 startConfirm(false);
             });
             return;
