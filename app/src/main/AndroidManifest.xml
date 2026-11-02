@@ -54,6 +54,35 @@
             android:exported="false"
             android:theme="@style/Theme.Ws.Editor" />
 
+        <!-- 外部应用「分享 / 更多打开方式」的入口：只负责把文件收进收件箱，
+             单张交给裁剪页、多张交给主界面问取景方式。微信那条走 ACTION_VIEW。 -->
+        <activity
+            android:name=".ImportActivity"
+            android:exported="true"
+            android:label="@string/import_proxy_label"
+            android:theme="@style/Theme.Ws.ImportProxy"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="image/*" />
+                <data android:scheme="content" android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+
         <!-- 1×1 切换格：点一下桌面+锁屏各自切一张；它同时是「30 分钟补切」的时机（见 widget_info.xml），
              android:label 是小组件列表里显示的名字（以前没配，显示的是应用名，加了控制台就两个同名了） -->
         <receiver

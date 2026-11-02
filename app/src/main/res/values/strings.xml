@@ -107,6 +107,24 @@
     <string name="import_partial">成功读取 %1$d 个文件，%2$d 个失败</string>
     <string name="import_all_failed">文件读取失败，请重试</string>
 
+    <!-- 外部应用「分享 / 更多打开方式」进来的透明导入页 -->
+    <string name="import_proxy_label">导入到 wallpaper</string>
+    <string name="import_progress_title">正在导入…</string>
+    <string name="import_progress_line">正在导入… %1$d / %2$d</string>
+    <string name="import_progress_count">%1$d / %2$d</string>
+    <string name="import_no_content">没有可导入的内容</string>
+    <string name="import_too_many">一次最多导入 %1$d 张</string>
+    <!-- 多张收下后的选择：默认取景是画面中心铺满，之后还能在单张详情里重调 -->
+    <string name="import_batch_title">已读取 %1$d 张</string>
+    <string name="import_batch_message">可以逐张调整取景，也可以先按屏幕比例居中导入，之后在单张详情页的「调整取景」里再改。</string>
+    <string name="import_batch_all_default">全部默认导入</string>
+    <string name="import_batch_one_by_one">逐张取景</string>
+    <string name="import_batch_progress_title">正在按默认取景导入</string>
+    <string name="import_batch_stop">停止</string>
+    <string name="import_batch_done">已导入 %1$d 张</string>
+    <string name="import_batch_left">已导入 %1$d 张，%2$d 张留在收件箱</string>
+    <string name="import_batch_none">没有导入成功，%1$d 张留在收件箱</string>
+
     <!-- 长按 ＋（壁纸页）选添加来源：现在只有直链一条，之后加别的来源在这里加行 -->
     <string name="add_source_title">从哪里添加壁纸</string>
     <string name="add_source_link">图片或视频链接</string>

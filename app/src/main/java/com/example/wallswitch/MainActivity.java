@@ -15,6 +15,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
@@ -147,6 +148,14 @@ public class MainActivity extends AppCompatActivity {
     // 库详情正在看的库 id（也兼作「上次查看的库」，导入壁纸时的目标库）
     private String currentLibId;
     private String openingInboxId;
+    /** ImportActivity 交过来的这一批收件箱 id；onResume / onNewIntent 消费一次。 */
+    private ArrayList<String> sharedImportIds;
+    /** 多张导入的选择弹窗或批量落盘正在进行：压住 onResume 的逐张自动打开。 */
+    private boolean bulkChoiceShowing;
+    private static volatile boolean bulkImportRunning;
+    private androidx.appcompat.app.AlertDialog bulkProgress;
+    private TextView bulkProgressText;
+    private volatile boolean bulkStopRequested;
     /** 整理动作的三档（{@link #applyOrganizeChange} 的 kind）：复制只挂归属，移动摘挂各一次，移出可能删文件。 */
     private static final int ORGANIZE_COPY = 1;
     private static final int ORGANIZE_MOVE = 2;
@@ -246,6 +255,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        readSharedImportIntent(getIntent());
         // 注册系统相册多选（PickVisualMedia，无需存储权限）
         pickLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK),
@@ -330,6 +340,18 @@ public class MainActivity extends AppCompatActivity {
         super.onSaveInstanceState(outState);
         outState.putInt(STATE_TAB, currentTab);
         outState.putBoolean(STATE_LIB_OPEN, libraryOpen);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        readSharedImportIntent(intent);
+        // 已经在前台时不会再走 onResume（分屏多窗口下可能如此），这就在这里接着处理
+        if (getLifecycle().getCurrentState().isAtLeast(
+                androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            consumeSharedImport();
+        }
     }
 
     @Override
@@ -597,8 +619,15 @@ public class MainActivity extends AppCompatActivity {
         // 从安装页/安装授权页返回：更新那一行按当前下载状态重刷
         UpdateDownloader.pruneInstalled(this);
         bindUpdateState();
+        if (consumeSharedImport()) {
+            return;
+        }
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
+            // 批量落盘/选择弹窗进行中：别让 onResume 抢先弹逐张编辑页
+            if (bulkChoiceShowing || bulkImportRunning) {
+                return;
+            }
             // 还有待编辑项：继续逐张处理（目标库为空时编辑页自己回退到第一个库）
             openEdit(pending.get(0), currentLibId());
             return;
@@ -3701,6 +3730,254 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }, "inbox-import").start();
+    }
+
+    /** 外部导入页交过来的 id 列表；取完把 extra 抹掉，避免旋转重建再消费一次。 */
+    private void readSharedImportIntent(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        ArrayList<String> ids = intent.getStringArrayListExtra(ImportActivity.EXTRA_IMPORTED_IDS);
+        if (ids == null) {
+            return;
+        }
+        intent.removeExtra(ImportActivity.EXTRA_IMPORTED_IDS);
+        if (!ids.isEmpty()) {
+            sharedImportIds = ids;
+        }
+    }
+
+    /**
+     * 处理一批外部导入。单张直接进裁剪页；多张先问「逐张取景 / 全部默认导入」。
+     * 返回 true 表示这次 onResume 已经被这批导入占用，别再走逐张自动打开的兜底。
+     */
+    private boolean consumeSharedImport() {
+        if (sharedImportIds == null) {
+            return false;
+        }
+        if (bulkChoiceShowing || bulkImportRunning) {
+            // 上一批还在收：先留着，下次进前台再处理，别叠两个弹窗
+            return true;
+        }
+        ArrayList<String> ids = sharedImportIds;
+        sharedImportIds = null;
+        List<String> pending = WallpaperStore.pendingInbox(this);
+        ids.retainAll(pending);
+        if (ids.isEmpty()) {
+            return false;
+        }
+        if (ids.size() == 1) {
+            openEdit(ids.get(0), currentLibId());
+            return true;
+        }
+        checkAndShowBatchChoice(ids);
+        return true;
+    }
+
+    /** 批量里夹了 MP4 就不能默认收（要选封面与 3 秒区间），退回现有逐张流程。 */
+    private void checkAndShowBatchChoice(ArrayList<String> ids) {
+        bulkChoiceShowing = true;
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            boolean video = false;
+            for (String id : ids) {
+                try {
+                    if (LivePhotoFiles.isMp4(WallpaperStore.getInboxFile(app, id))) {
+                        video = true;
+                        break;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            final boolean hasVideo = video;
+            runOnUiThread(() -> {
+                bulkChoiceShowing = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (hasVideo) {
+                    openEdit(ids.get(0), currentLibId());
+                    return;
+                }
+                showBatchChoice(ids);
+            });
+        }, "import-batch-check").start();
+    }
+
+    private void showBatchChoice(ArrayList<String> ids) {
+        bulkChoiceShowing = true;
+        new AppAlertDialogBuilder(this)
+                .setTitle(getString(R.string.import_batch_title, ids.size()))
+                .setMessage(R.string.import_batch_message)
+                .setPositiveButton(R.string.import_batch_all_default, (dialog, which) -> {
+                    bulkChoiceShowing = false;
+                    confirmPendingDefaults(ids);
+                })
+                .setNegativeButton(R.string.import_batch_one_by_one, (dialog, which) -> {
+                    bulkChoiceShowing = false;
+                    openEdit(ids.get(0), currentLibId());
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    /**
+     * 全部按默认取景导入：先按裁剪页 fit-cover 的同一几何从原图中心裁一块（窗口比例），再走
+     * confirmImport；这样详情页 fitCenter 看到的也是上屏那块，不会露出整张原图。裁完把矩形写回
+     * src_w/crop_*，下次「调整取景」恢复到同一构图。
+     */
+    private void confirmPendingDefaults(ArrayList<String> ids) {
+        String target = currentLibId();
+        if (target == null || LibraryStore.get(this, target) == null) {
+            List<LibraryStore.Library> libs = LibraryStore.load(this);
+            target = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
+        }
+        final String libId = target;
+        final Context app = getApplicationContext();
+        final ArrayList<String> batch = new ArrayList<>(ids);
+        final int count = batch.size();
+        final int[] window = windowSize();
+        final int maxDim = WallpaperStore.maxWallpaperDim(app);
+        bulkStopRequested = false;
+        showBulkProgress(count);
+        bulkImportRunning = true;
+        new Thread(() -> {
+            // 50 张就是 50 次解码+编码，串行跑后台优先级，别并发抬峰值
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            int ok = 0;
+            int fail = 0;
+            try {
+                for (String id : batch) {
+                    if (bulkStopRequested) {
+                        break;
+                    }
+                    File inbox = WallpaperStore.getInboxFile(app, id);
+                    BitmapFactory.Options bounds = new BitmapFactory.Options();
+                    bounds.inJustDecodeBounds = true;
+                    BitmapFactory.decodeFile(inbox.getAbsolutePath(), bounds);
+                    Rect region = centerCoverRect(bounds.outWidth, bounds.outHeight,
+                            window[0], window[1]);
+                    Bitmap cropped = region == null ? null
+                            : WallpaperStore.decodeRegion(inbox, region, maxDim);
+                    try {
+                        WallpaperStore.confirmImport(app, id, cropped, libId);
+                        if (cropped != null && region != null) {
+                            WallpaperStore.saveCropRect(app, id, bounds.outWidth, bounds.outHeight,
+                                    region.left, region.top, region.right, region.bottom);
+                        }
+                        ok++;
+                    } catch (Exception | OutOfMemoryError e) {
+                        fail++;
+                    } finally {
+                        if (cropped != null && !cropped.isRecycled()) {
+                            cropped.recycle();
+                        }
+                    }
+                    final int completed = ok + fail;
+                    runOnUiThread(() -> {
+                        if (bulkProgressText != null && !isFinishing() && !isDestroyed()) {
+                            bulkProgressText.setText(getString(
+                                    R.string.import_progress_count, completed, count));
+                        }
+                    });
+                }
+            } finally {
+                bulkImportRunning = false;
+            }
+            final int okCount = ok;
+            final int left = count - ok;
+            runOnUiThread(() -> {
+                dismissBulkProgress();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (left == 0) {
+                    Toast.makeText(this, getString(R.string.import_batch_done, okCount),
+                            Toast.LENGTH_LONG).show();
+                } else if (okCount == 0) {
+                    Toast.makeText(this, getString(R.string.import_batch_none, left),
+                            Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(this, getString(R.string.import_batch_left, okCount, left),
+                            Toast.LENGTH_LONG).show();
+                }
+                refreshCurrentPage();
+            });
+        }, "import-batch-confirm").start();
+    }
+
+    /** 批量落盘进度：带 N/M 计数和「停止」，停止后当前这张跑完就收手，剩余留在收件箱。 */
+    private void showBulkProgress(int total) {
+        dismissBulkProgress();
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = (int) (getResources().getDisplayMetrics().density * 20);
+        box.setPadding(pad, pad, pad, pad);
+        ProgressBar bar = new ProgressBar(this);
+        box.addView(bar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        bulkProgressText = new TextView(this);
+        bulkProgressText.setText(getString(R.string.import_progress_count, 0, total));
+        bulkProgressText.setPadding(pad / 2, 0, 0, 0);
+        bulkProgressText.setTextColor(getColor(R.color.text_primary));
+        box.addView(bulkProgressText, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        bulkProgress = new AppAlertDialogBuilder(this)
+                .setTitle(R.string.import_batch_progress_title)
+                .setView(box)
+                .setNegativeButton(R.string.import_batch_stop,
+                        (dialog, which) -> bulkStopRequested = true)
+                .setCancelable(false)
+                .create();
+        bulkProgress.show();
+    }
+
+    private void dismissBulkProgress() {
+        if (bulkProgress != null) {
+            try {
+                bulkProgress.dismiss();
+            } catch (Exception ignored) {
+            }
+            bulkProgress = null;
+        }
+        bulkProgressText = null;
+    }
+
+    /** 当前窗口的实际像素尺寸；裁剪页取景区始终满屏，批量默认也按它算画幅。 */
+    @SuppressWarnings("deprecation")
+    private int[] windowSize() {
+        View decor = getWindow().getDecorView();
+        if (decor.getWidth() > 0 && decor.getHeight() > 0) {
+            return new int[]{decor.getWidth(), decor.getHeight()};
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect bounds = getWindowManager().getCurrentWindowMetrics().getBounds();
+            return new int[]{bounds.width(), bounds.height()};
+        }
+        DisplayMetrics dm = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+        return new int[]{dm.widthPixels, dm.heightPixels};
+    }
+
+    /**
+     * 与 {@link CropView} 的 fit-cover 默认构图同一几何：原图居中、按窗口比例取一块。
+     * 原图更宽就左右裁，更高就上下裁；返回原图像素坐标。
+     */
+    private static Rect centerCoverRect(int srcW, int srcH, int viewW, int viewH) {
+        if (srcW <= 0 || srcH <= 0 || viewW <= 0 || viewH <= 0) {
+            return null;
+        }
+        if ((long) srcW * viewH > (long) viewW * srcH) {
+            int w = Math.min(srcW, Math.max(1, Math.round(srcH * (float) viewW / viewH)));
+            int left = (srcW - w) / 2;
+            return new Rect(left, 0, left + w, srcH);
+        }
+        int h = Math.min(srcH, Math.max(1, Math.round(srcW * (float) viewH / viewW)));
+        int top = (srcH - h) / 2;
+        return new Rect(0, top, srcW, top + h);
     }
 
     /** 进程重启后收件箱也走同一分流，避免 MP4 被当成图片解码后删掉。 */

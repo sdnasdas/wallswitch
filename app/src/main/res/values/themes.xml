@@ -85,6 +85,17 @@
         <item name="android:windowAnimationStyle">@style/Animation.Ws.Page</item>
     </style>
 
+    <!-- 外部「分享 / 更多打开方式」的透明导入页：不画底、不调暗，只浮一张进度卡 -->
+    <style name="Theme.Ws.ImportProxy" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
+    </style>
+
     <style name="Shape.Ws.Small" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">8dp</item>

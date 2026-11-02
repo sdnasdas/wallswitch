@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 外部导入的短暂进度卡：与全局弹窗同一套「高层容器 + 16dp 圆角 + 轻描边」 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/m3_surface_container_high" />
+    <stroke android:width="1dp" android:color="@color/m3_outline_variant" />
+    <corners android:radius="16dp" />
+</shape>
