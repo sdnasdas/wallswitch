@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单张详情顶栏：实况键（只有带实况段的那张才露出来，点一下播一遍、播放中再点停止）；
+     溢出里是一张一张地整理（与库详情多选那条同一套链路） -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_detail_live"
+        android:icon="@drawable/ic_motion_photo"
+        android:title="@string/detail_live_play"
+        android:visible="false"
+        app:iconTint="@android:color/white"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/action_detail_preview"
+        android:icon="@drawable/ic_apps"
+        android:title="@string/edit_preview_toggle"
+        app:iconTint="@android:color/white"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/action_detail_rename"
+        android:title="@string/rename_title"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_detail_move"
+        android:title="@string/organize_move"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_detail_copy"
+        android:title="@string/organize_copy"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_detail_unlink"
+        android:title="@string/organize_remove"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_detail_delete"
+        android:title="@string/delete"
+        app:showAsAction="never" />
+</menu>

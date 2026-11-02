@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底栏图标：选中用正文墨色，未选中用中性石墨灰；不跟随 Material3 默认的暖灰 token -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/text_primary" android:state_checked="true" />
+    <item android:color="@color/icon_neutral" />
+</selector>

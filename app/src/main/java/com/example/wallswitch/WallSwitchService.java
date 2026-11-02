@@ -115,12 +115,19 @@ public class WallSwitchService extends GLWallpaperService {
     /** 电池温度闸门阈值（0.1℃ 单位）：41℃ 触发、39℃ 解除，留 2℃ 迟滞防来回抖。 */
     private static final int GATE_BATTERY_TEMP_ON = 410;
     private static final int GATE_BATTERY_TEMP_OFF = 390;
-    /** PowerManager.THERMAL_STATUS_MODERATE 的字面量（厂商温控开始压档的信号）。 */
-    private static final int THERMAL_STATUS_MODERATE_LEVEL = 2;
+    /**
+     * PowerManager.THERMAL_STATUS_SEVERE 的字面量。只当兜底：芯片热到严重档时哪怕电池还没到 41℃ 也停。
+     * <p>为什么不再用 MODERATE（2 档）：那一档由最热的热区（通常就是 CPU）决定，芯片一忙就到，
+     * 手摸着还是凉的——真机反馈「36℃ 就暂停、38℃ 反而恢复」就是两个信号不同步。
+     * 现在以电池温度为准（贴着背板，最接近手感），档位只在严重档兜底（见 {@link #isMotionGated}）。
+     */
+    private static final int THERMAL_STATUS_SEVERE_LEVEL = 3;
     /** API 29+ 的热档位缓存：-1 = 尚未取到。由监听器与首次读取共同维护。 */
     private static volatile int thermalStatus = -1;
     private static boolean thermalListenerRegistered;
-    /** API 26~28 电池温度闸门的迟滞状态（BATTERY_GATE_LOCK 内读写）。 */
+    /** 电池温度广播是否已挂上（进程内一次，见 {@link #setupBatteryTempListener}）。 */
+    private static boolean batteryListenerRegistered;
+    /** API 26~28 电池温度闸门的迟滞状态（BATTERY_GATE_LOCK 内读写；与 API 版本无关，全版本共用）。 */
     private static boolean batteryGateOn;
     private static final Object BATTERY_GATE_LOCK = new Object();
 
@@ -200,6 +207,16 @@ public class WallSwitchService extends GLWallpaperService {
         }
     }
 
+    /**
+     * 电池温度回落、闸门刚放开时调用（{@link ThermalNotifier}）：让活引擎立刻按当前档接上，
+     * 不用干等闸门那 30 秒一次的重查。闸门还合着时调也无害（applyMotionMode 会再排一次重查）。
+     */
+    static void notifyThermalGateLifted() {
+        for (WallEngine engine : ENGINES) {
+            engine.applyMotionMode();
+        }
+    }
+
     /** 打开系统动态壁纸选择器并预选本引擎，引导用户激活引擎模式。 */
     public static void openActivator(Activity activity) {
         Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
@@ -230,7 +247,8 @@ public class WallSwitchService extends GLWallpaperService {
 
     /**
      * Service 起来时取一次热档位并挂上监听（API 29+，进程内一次、随进程生命周期）。
-     * 档位由厂商温控引擎（Thermal HAL 2.0）聚合各热区后报上来，MODERATE = 开始压频。
+     * 档位由厂商温控引擎（Thermal HAL 2.0）聚合各热区后报上来；闸门只在严重档（≥3）用它兜底，
+     * 正常限制以电池温度为准（见 {@link #isMotionGated}）。
      * 任何一步失败都静默降级：闸门常开不拦截，只少一层保护，绝不能因此弄坏引擎。
      */
     private static void setupThermalListener(Context ctx) {
@@ -245,21 +263,54 @@ public class WallSwitchService extends GLWallpaperService {
             thermalStatus = pm.getCurrentThermalStatus();
             if (!thermalListenerRegistered) {
                 thermalListenerRegistered = true;
-                pm.addThermalStatusListener(level -> thermalStatus = level);
+                pm.addThermalStatusListener(level -> {
+                    thermalStatus = level;
+                    // 档位变了：常驻通知那枚「温控 N」胶囊要跟上；再顺带看闸门是不是刚合/放
+                    StatusNotifier.update(ctx);
+                    ThermalNotifier.onGateInputChanged(ctx);
+                });
             }
         } catch (Throwable ignored) {
         }
     }
 
     /**
+     * 电池温度监听（全版本，进程内一次、随进程生命周期，与热档位监听同一个寿命模型）。
+     * 两个用途：常驻通知那行温度跟着刷新（{@link ThermalNotifier} 只在整度变化时重发）；
+     * API 26~28 的闸门本来就靠电池温度，在这里顺手判一次合/放。
+     * ACTION_BATTERY_CHANGED 是受保护的系统广播，只能动态注册；用 ContextCompat 带上
+     * NOT_EXPORTED，targetSdk 34 起不带导出标志会抛异常（系统广播照样收得到）。
+     */
+    private static void setupBatteryTempListener(Context ctx) {
+        if (batteryListenerRegistered) {
+            return;
+        }
+        try {
+            batteryListenerRegistered = true;
+            androidx.core.content.ContextCompat.registerReceiver(ctx, new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context c, Intent intent) {
+                    ThermalNotifier.onBatteryTemp(ctx,
+                            intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1));
+                }
+            }, new IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 温度闸门现在是否生效（循环档的自动起播要等一等，长按那级「用户动作」不受限）。
-     * API 29+：PowerManager 热档位 ≥ MODERATE；更低版本：电池温度 ≥41℃ 触发、≤39℃ 解除。
+     * 主判据是<b>电池温度</b>：≥41℃ 触发、≤39℃ 解除（中间地带保持上一状态，2℃ 迟滞防抖）。
+     * 电池贴着背板，读数最接近「手摸到有多热」，通知上显示的数就是这里用来判的那个数。
+     * API 29+ 另有一道兜底：系统温控到严重档（≥3）时直接关闸，哪怕电池还没到 41℃。
+     * 不用中度档（2）——那一档只看最热的芯片，经常先于手感触发，两个数会互相打架。
      */
     static boolean isMotionGated(Context ctx) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             int level = thermalStatus;
             if (level < 0) {
-                // onCreate 没来得及初始化（理论到不去）：现场补读一次，失败按不闸
+                // onCreate 没来得及初始化（理论到不去）：现场补读一次，失败按 0（不拦）
                 try {
                     PowerManager pm = ctx.getSystemService(PowerManager.class);
                     level = pm != null ? pm.getCurrentThermalStatus() : 0;
@@ -268,7 +319,9 @@ public class WallSwitchService extends GLWallpaperService {
                     level = 0;
                 }
             }
-            return level >= THERMAL_STATUS_MODERATE_LEVEL;
+            if (level >= THERMAL_STATUS_SEVERE_LEVEL) {
+                return true;
+            }
         }
         synchronized (BATTERY_GATE_LOCK) {
             int tenths = readBatteryTempTenths(ctx);
@@ -282,8 +335,32 @@ public class WallSwitchService extends GLWallpaperService {
         }
     }
 
+    /**
+     * 当前系统温控档位（0 NONE … 6 SHUTDOWN）；Android 10 以下没有这个接口、读不到都返回 -1。
+     * <b>纯展示用</b>（常驻通知那枚「温控 N」胶囊）。闸门是否生效仍以 {@link #isMotionGated} 为准，
+     * 两者不是一回事：闸门看电池温度，档位看芯片等热区。
+     */
+    static int currentThermalStatus(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return -1;
+        }
+        int level = thermalStatus;
+        if (level < 0) {
+            try {
+                PowerManager pm = ctx.getSystemService(PowerManager.class);
+                level = pm != null ? pm.getCurrentThermalStatus() : -1;
+                if (level >= 0) {
+                    thermalStatus = level;
+                }
+            } catch (Throwable ignored) {
+                return -1;
+            }
+        }
+        return level;
+    }
+
     /** 读电池温度（0.1℃ 单位）；读不到返回 -1。粘性广播同步取，不注册常驻 receiver。 */
-    private static int readBatteryTempTenths(Context ctx) {
+    static int readBatteryTempTenths(Context ctx) {
         try {
             Intent sticky = ctx.registerReceiver(null,
                     new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -299,6 +376,8 @@ public class WallSwitchService extends GLWallpaperService {
         super.onCreate();
         // 热档位监听（API 29+）：闸门要读的那档温度信号，随引擎进程常驻
         setupThermalListener(getApplicationContext());
+        // 电池温度：常驻通知那行温度的刷新源，也是低版本闸门的信号
+        setupBatteryTempListener(getApplicationContext());
         // 记下当前深浅色档：之后只有真的翻档才重发小组件与通知（见 WallEngine#onConfigurationChanged）
         lastNightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置页开关换成 M3 的 MaterialSwitch（SwitchPreferenceCompat 默认是旧的 SwitchCompat 外观）。
+     id 必须叫 switchWidget：SwitchPreferenceCompat 按这个 id 找开关并同步勾选态；
+     点击交给整行，开关本身不吃事件 -->
+<com.google.android.material.materialswitch.MaterialSwitch xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/switchWidget"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@null"
+    android:clickable="false"
+    android:focusable="false" />

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图库里的一张库卡片：正方形封面（该库在屏那张优先，其次库内第一张），库名 + 张数（只写数字）
+     压在封面左下角；封面左上角是被哪一面使用的标签，右上角多选态的勾 / 排序态的拖动把手。 -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/card_lib"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="6dp"
+    android:checkable="true"
+    android:clickable="true"
+    android:focusable="true"
+    app:checkedIcon="@drawable/sel_check_on"
+    app:checkedIconMargin="8dp"
+    app:checkedIconSize="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ImageView
+                android:id="@+id/img_lib_cover"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:background="?attr/colorSurfaceContainerHighest"
+                android:contentDescription="@string/thumb_desc"
+                android:scaleType="centerCrop"
+                app:layout_constraintDimensionRatio="1:1"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="8dp"
+                android:orientation="horizontal"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <TextView
+                    android:id="@+id/badge_lib_home"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/badge_scope_bg"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="2dp"
+                    android:text="@string/scope_home"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/badge_lib_lock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/badge_scope_bg"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="2dp"
+                    android:text="@string/scope_lock"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/iv_lib_drag"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_margin="6dp"
+                android:background="@drawable/badge_scope_bg"
+                android:contentDescription="@string/gallery_reorder"
+                android:padding="6dp"
+                android:src="@drawable/ic_drag_handle"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:tint="@android:color/white" />
+
+            <!-- 库名与张数压在封面左下角：底部一层渐隐保证亮图上白字读得清 -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="80dp"
+                android:background="@drawable/scrim_bottom"
+                app:layout_constraintBottom_toBottomOf="@id/img_lib_cover"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent" />
+
+            <!-- 两行：库名在上、张数（只写数字）在下，都贴左下角 -->
+            <TextView
+                android:id="@+id/tv_lib_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="@color/image_ink"
+                app:layout_constraintBottom_toTopOf="@id/tv_lib_count"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent" />
+
+            <TextView
+                android:id="@+id/tv_lib_count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:layout_marginBottom="8dp"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="@color/image_ink_dim"
+                app:layout_constraintBottom_toBottomOf="@id/img_lib_cover"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

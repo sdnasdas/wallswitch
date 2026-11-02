@@ -262,7 +262,70 @@ public class StatusNotifier {
         views.setOnClickPendingIntent(R.id.notif_next,
                 keyPending(ctx, busy, REQ_NEXT, NotifActionReceiver.ACTION_NEXT));
         bindOneTap(ctx, views, busy);
+        bindTemperature(ctx, views);
+        bindThermalLevel(ctx, views);
         return views;
+    }
+
+    /**
+     * 「温控 N」胶囊：系统热档位的参考显示，紧跟在电池温度右边。
+     * 底色分三档（0~1 中性 / 2~3 琥珀 / 4+ 红），Android 10 以下没有接口整颗 GONE。
+     * 它<b>不参与</b>停不停播的判断——那边只看电池温度（见 WallSwitchService#isMotionGated），
+     * 这里只让用户看得到厂商温控现在报的是第几档。
+     */
+    static void bindThermalLevel(Context ctx, RemoteViews views) {
+        int level = WallSwitchService.currentThermalStatus(ctx);
+        if (level < 0) {
+            views.setViewVisibility(R.id.notif_thermal, View.GONE);
+            return;
+        }
+        views.setViewVisibility(R.id.notif_thermal, View.VISIBLE);
+        views.setTextViewText(R.id.notif_thermal, ctx.getString(R.string.notif_thermal_level, level));
+        int bg;
+        int fg;
+        if (level >= 4) {
+            bg = R.drawable.notif_thermal_high;
+            fg = R.color.thermal_high_fg;
+        } else if (level >= 2) {
+            bg = R.drawable.notif_thermal_mid;
+            fg = R.color.thermal_mid_fg;
+        } else {
+            bg = R.drawable.notif_thermal_low;
+            fg = R.color.thermal_low_fg;
+        }
+        views.setInt(R.id.notif_thermal, "setBackgroundResource", bg);
+        views.setTextColor(R.id.notif_thermal, ctx.getColor(fg));
+        // 与温度之间留 8dp；温度没显示时紧接开关（开关也没有就贴行首）
+        boolean hasTemp = WallSwitchService.readBatteryTempTenths(ctx) >= 0;
+        int start = hasTemp || PinnedWallpaper.isConfigured(ctx) ? dp(ctx, 8) : 0;
+        views.setViewPadding(R.id.notif_thermal, start, 0, 0, 0);
+    }
+
+    private static int dp(Context ctx, int value) {
+        return Math.round(value * ctx.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * 「一键设置」开关旁那行电池温度（整度）。温度闸门压着循环档实况时换警示色并带「实况暂停」。
+     * 读不到温度整颗 GONE。开关没显示时把左内边距清零，让温度顶到行首与下面那行对齐。
+     * 刷新时机：{@link ThermalNotifier} 在整度变化、闸门合/放时调 {@link #update}，其余随常规刷新点。
+     */
+    static void bindTemperature(Context ctx, RemoteViews views) {
+        int tenths = WallSwitchService.readBatteryTempTenths(ctx);
+        if (tenths < 0) {
+            views.setViewVisibility(R.id.notif_temp, View.GONE);
+            return;
+        }
+        int degrees = ThermalNotifier.degrees(tenths);
+        boolean restricted = ThermalNotifier.isRestricting(ctx);
+        views.setViewVisibility(R.id.notif_temp, View.VISIBLE);
+        views.setTextViewText(R.id.notif_temp, ctx.getString(
+                restricted ? R.string.notif_temp_restricted : R.string.notif_temp, degrees));
+        views.setTextColor(R.id.notif_temp,
+                ctx.getColor(restricted ? R.color.danger : R.color.text_secondary));
+        int start = PinnedWallpaper.isConfigured(ctx)
+                ? Math.round(8 * ctx.getResources().getDisplayMetrics().density) : 0;
+        views.setViewPadding(R.id.notif_temp, start, 0, 0, 0);
     }
 
     /**

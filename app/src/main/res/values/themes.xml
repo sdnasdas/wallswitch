@@ -4,9 +4,69 @@
          边到边（全面屏/刘海屏）适配：状态栏与页面底色一致实现无缝；导航栏透明 + 系统栏图标明暗
          跟随深浅色（@bool/light_system_bars）。
          注意：Android 15（targetSdk 35）起系统忽略状态栏/导航栏颜色并强制边到边，
-         此时透出 windowBackground，行为仍一致；导航栏对比度遮罩在 InsetsHelper 里按 API 29+ 代码关闭。 -->
+         此时透出 windowBackground，行为仍一致；导航栏对比度遮罩在 InsetsHelper 里按 API 29+ 代码关闭。
+
+         v3.134：补全 M3 颜色角色（以前只设 colorPrimary，其余回落到默认紫），并统一形状。
+         刻意不开动态取色（Android 12+ 跟壁纸取色）：这是个换壁纸的 App，界面跟着每次切换变色反而乱。 -->
     <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/brand</item>
+        <item name="colorPrimary">@color/m3_primary</item>
+        <!-- PreferenceCategory 的小节标题跟正文同色（浅色黑 / 深色白） -->
+        <item name="colorAccent">@color/m3_on_surface</item>
+        <item name="colorOnPrimary">@color/m3_on_primary</item>
+        <item name="colorPrimaryContainer">@color/m3_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/m3_on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/m3_inverse_primary</item>
+        <item name="colorSecondary">@color/m3_secondary</item>
+        <item name="colorOnSecondary">@color/m3_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/m3_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/m3_on_secondary_container</item>
+        <item name="colorTertiary">@color/m3_tertiary</item>
+        <item name="colorOnTertiary">@color/m3_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/m3_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/m3_on_tertiary_container</item>
+        <item name="colorError">@color/m3_error</item>
+        <item name="colorOnError">@color/m3_on_error</item>
+        <item name="colorErrorContainer">@color/m3_error_container</item>
+        <item name="colorOnErrorContainer">@color/m3_on_error_container</item>
+        <item name="android:colorBackground">@color/m3_surface</item>
+        <item name="colorOnBackground">@color/m3_on_surface</item>
+        <item name="colorSurface">@color/m3_surface</item>
+        <item name="colorOnSurface">@color/m3_on_surface</item>
+        <item name="colorSurfaceVariant">@color/m3_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/m3_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/m3_inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/m3_inverse_on_surface</item>
+        <item name="colorOutline">@color/m3_outline</item>
+        <item name="colorOutlineVariant">@color/m3_outline_variant</item>
+        <item name="colorSurfaceContainerLowest">@color/m3_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/m3_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/m3_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/m3_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/m3_surface_container_highest</item>
+        <item name="colorSurfaceDim">@color/m3_surface_dim</item>
+        <item name="colorSurfaceBright">@color/m3_surface_bright</item>
+
+        <!-- 形状：小 8 / 中 16 / 大 24，卡片与底部面板都按这一套走 -->
+        <item name="shapeAppearanceCornerSmall">@style/Shape.Ws.Small</item>
+        <item name="shapeAppearanceCornerMedium">@style/Shape.Ws.Medium</item>
+        <item name="shapeAppearanceCornerLarge">@style/Shape.Ws.Large</item>
+
+        <item name="materialCardViewStyle">@style/Widget.Ws.Card</item>
+        <item name="toolbarStyle">@style/Widget.Ws.Toolbar</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.Ws.BottomSheet</item>
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
+
+        <!-- Toolbar 右上角三点、所有 PopupMenu/ListPopupWindow 共用一套圆角 M3 菜单；
+             colorControlNormal 同时修正深色模式下溢出三点仍是黑色的问题。 -->
+        <item name="popupMenuStyle">@style/Widget.Ws.PopupMenu</item>
+        <item name="actionOverflowMenuStyle">@style/Widget.Ws.PopupMenu.Overflow</item>
+        <item name="listPopupWindowStyle">@style/Widget.Ws.PopupMenu.List</item>
+        <item name="panelMenuListTheme">@style/ThemeOverlay.Ws.PopupMenu</item>
+        <item name="colorControlNormal">?attr/colorOnSurfaceVariant</item>
+        <item name="android:colorControlNormal">?attr/colorOnSurfaceVariant</item>
+        <item name="android:scrollbars">none</item>
+        <item name="android:dropDownListViewStyle">@style/Widget.Ws.DropDownList</item>
+
         <item name="android:statusBarColor">@color/page_bg</item>
         <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -14,10 +74,104 @@
         <item name="android:windowBackground">@color/page_bg</item>
     </style>
 
+    <!-- 启动页（core-splashscreen）：Android 12 以下也统一成「底色 + 应用图标」，进完主题再换回 AppTheme -->
+    <style name="Theme.Ws.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/page_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+    </style>
+
+    <style name="Theme.Ws.Editor" parent="AppTheme">
+        <item name="android:windowAnimationStyle">@style/Animation.Ws.Page</item>
+    </style>
+
+    <style name="Shape.Ws.Small" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">8dp</item>
+    </style>
+
+    <style name="Shape.Ws.Medium" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <style name="Shape.Ws.Large" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">24dp</item>
+    </style>
+
+    <!-- 「添加」那颗浮动键：收起时要是整圆、摊开时是胶囊，所以按半高取圆角，
+         不跟 Shape.Ws.Large 那 24dp（56dp 高收起来会是圆角方块，不是圆）。 -->
+    <style name="Shape.Ws.Fab" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- 所有 MaterialToolbar 都从这里拿 popupTheme：此刻 / 图库 / 库详情 / 单张详情四个三点菜单同步更新，
+         不逐页打补丁，之后新增 Toolbar 也不会掉回旧矩形菜单。 -->
+    <style name="Widget.Ws.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="popupTheme">@style/ThemeOverlay.Ws.PopupMenu</item>
+        <item name="titleTextColor">?attr/colorOnSurface</item>
+        <item name="subtitleTextColor">?attr/colorOnSurfaceVariant</item>
+        <item name="navigationIconTint">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="ThemeOverlay.Ws.PopupMenu" parent="ThemeOverlay.Material3">
+        <item name="popupMenuStyle">@style/Widget.Ws.PopupMenu</item>
+        <item name="actionOverflowMenuStyle">@style/Widget.Ws.PopupMenu.Overflow</item>
+        <item name="listPopupWindowStyle">@style/Widget.Ws.PopupMenu.List</item>
+        <item name="colorControlNormal">?attr/colorOnSurfaceVariant</item>
+        <item name="android:dropDownListViewStyle">@style/Widget.Ws.DropDownList</item>
+    </style>
+
+    <style name="Widget.Ws.DropDownList" parent="Widget.AppCompat.ListView.DropDown">
+        <item name="android:scrollbars">none</item>
+    </style>
+
+    <style name="Widget.Ws.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@drawable/popup_menu_background</item>
+        <item name="android:popupElevation">8dp</item>
+        <item name="android:dropDownVerticalOffset">4dp</item>
+    </style>
+
+    <style name="Widget.Ws.PopupMenu.Overflow" parent="Widget.Material3.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/popup_menu_background</item>
+        <item name="android:popupElevation">8dp</item>
+    </style>
+
+    <style name="Widget.Ws.PopupMenu.List" parent="Widget.Material3.PopupMenu.ListPopupWindow">
+        <item name="android:popupBackground">@drawable/popup_menu_background</item>
+        <item name="android:popupElevation">8dp</item>
+    </style>
+
+    <!-- 卡片默认：不靠阴影分层，用 surfaceContainer 底色区分层级（M3 filled card） -->
+    <style name="Widget.Ws.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainerLow</item>
+        <item name="shapeAppearance">?attr/shapeAppearanceCornerMedium</item>
+    </style>
+
+    <!-- 描边卡片（新建库那一格、引导卡里的步骤） -->
+    <style name="Widget.Ws.Card.Outlined" parent="Widget.Material3.CardView.Outlined">
+        <item name="shapeAppearance">?attr/shapeAppearanceCornerMedium</item>
+    </style>
+
+    <style name="ThemeOverlay.Ws.BottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.Ws.BottomSheet</item>
+    </style>
+
+    <style name="Widget.Ws.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">?attr/colorSurfaceContainerLow</item>
+    </style>
+
+    <!-- 小节标题（此刻页「最近切换」、引导卡标题那一类）：普通文字用中性墨色，不随强调色发蓝 -->
+    <style name="TextAppearance.Ws.Section" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
     <!-- 选库页（小组件「缩略图那格」拉起，见 LibPickerActivity）：这个 Activity 没有内容视图，
          只弹一个单选框。透明 + 无标题 + windowIsTranslucent 让背景仍是桌面，
          观感就是"小组件下拉出一个列表"而不是"打开了 App"。
-         父主题沿用 AppTheme，这样弹窗取到的是项目里那套 Material3 配色（浅色卡片/品牌蓝）。 -->
+         父主题沿用 AppTheme，这样弹窗取到的是项目里那套 Material3 配色（浅色卡片/石墨灰强调）。 -->
     <style name="LibPickerTheme" parent="AppTheme">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
@@ -30,9 +184,21 @@
         <item name="cornerSize">10dp</item>
     </style>
 
-    <!-- 两列正方形网格里壁纸格的圆角外形 -->
+    <!-- 此刻页沉浸卡片的整图圆角，与卡片外框一致 -->
+    <style name="RoundedNowCard">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
+    </style>
+
+    <!-- 正方形网格里壁纸格的圆角外形 -->
     <style name="RoundedGrid">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">12dp</item>
+    </style>
+
+    <!-- 此刻页两张竖向预览卡的圆角（只圆上方两角，下方接状态栏） -->
+    <style name="RoundedPreview">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
     </style>
 </resources>

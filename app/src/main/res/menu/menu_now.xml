@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 此刻页顶栏：切换日志 + 溢出里的接管说明 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_log"
+        android:icon="@drawable/ic_history"
+        app:iconTint="?attr/colorOnSurfaceVariant"
+        android:title="@string/log_view_title"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_takeover_info"
+        android:title="@string/takeover_info_title"
+        app:showAsAction="never" />
+</menu>

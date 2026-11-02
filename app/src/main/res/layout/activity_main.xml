@@ -1,974 +1,144 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 主界面 v3.14：层级导航 —— 首页 = 壁纸库列表，点行进该库的两列正方形网格壁纸页。
-     单个 RecyclerView 换 Adapter + LayoutManager 实现两页；返回键/返回手势在壁纸页回库列表，
-     库列表页返回才退出 App。顶栏：库页 = ☰ 开抽屉 + 固定标题 WallPaper；壁纸页 = ← 返回 + 库名。
-     右下角 ＋：库页 = 新建库，壁纸页 = 添加壁纸。
-     左侧 300dp 设置抽屉只留全局项：接管情况（一个总开关 + 桌面/锁屏两行状态）、
-     自动切换（到点通知 + 上次/下次时间）、下载（更新源 + 检查更新）、导出与日志、桌面图标预览、引擎与后台；
-     库级四项收进库行齿轮弹窗。 -->
-<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 主界面 v3.134：单 Activity + 底部三栏（此刻 / 图库 / 设置），抽屉与「库列表首页」下线。
+     page_host 里叠着几页，同一时刻只露一页：
+       page_now      此刻：桌面/锁屏两张预览卡 + 上一张/暂停/下一张 + 一键设置 + 最近切换
+       page_gallery  图库：库卡片网格（长按多选删库，⋯ 里调整顺序）
+       page_library  库详情：盖在图库之上的二级页（改名、设为桌面/锁屏、三列网格、长按多选）
+       page_settings 设置：PreferenceFragmentCompat（原抽屉里那六张卡片）
+     page_detail 单张详情是全屏的，连底部导航一起盖住（黑底看图 + 底部动作条）。
+     底部三栏只在一级页面露：库详情、设置二级页、图库多选/排序、库内多选都把它整条收起来，
+     返回上一层才回来（见 MainActivity#updateBottomNav）。
+     系统栏避让：main_root 只吃上/左/右，底部由 BottomNavigationView 自己按导航条加内边距；
+     三栏收起时没人垫底部，改由 main_root 自己垫（MainActivity#applyBottomInset）；
+     page_detail 自己处理（见 MainActivity#setupInsets）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/drawer_layout"
+    android:id="@+id/app_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/page_bg">
+    android:background="?android:attr/colorBackground">
 
-    <!-- ================= 主内容：库列表 / 壁纸网格 ================= -->
     <LinearLayout
         android:id="@+id/main_root"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/page_bg"
         android:orientation="vertical">
 
-        <!-- 顶栏：导航图标与标题随页面切换（代码里设置），右侧无菜单 -->
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:background="@color/page_bg"
-            app:navigationIcon="@drawable/ic_menu"
-            app:title="@string/app_title" />
-
-        <!-- 未启用 / 无启用库 提示横幅（对齐 Muzei：未启用时给出启用入口） -->
-        <LinearLayout
-            android:id="@+id/banner_takeover"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/card_bg"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="14dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="8dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tv_banner_text"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="@color/text_primary"
-                android:textSize="13sp" />
-
-            <Button
-                android:id="@+id/btn_activate"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:minWidth="0dp"
-                android:minHeight="36dp"
-                android:text="@string/banner_activate"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-
-        <!-- 范围槽位滑块 v3.65：桌面/锁屏各一页，左右滑切换、可无限循环（原来两张竖排卡占 208dp，
-             约 2.9 行库，压得列表看不几条，现在只留一页 96dp）。
-             单击卡片=聚合设置，双击=马上切一张，右上角感叹号=操作指南；
-             也支持长按库行头像拖到卡片上设库（只命中当前这一页）。
-             只在库列表页显示，壁纸网格页收起。 -->
-        <LinearLayout
-            android:id="@+id/slot_cards"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:visibility="gone">
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/slot_pager"
-                android:layout_width="match_parent"
-                android:layout_height="96dp"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp"
-                android:overScrollMode="never" />
-
-        </LinearLayout>
-
         <FrameLayout
-            android:id="@+id/list_container"
+            android:id="@+id/page_host"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- 唯一的主滚动区：库列表（LinearLayoutManager）或壁纸网格（GridLayoutManager(2)） -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/recycler"
+            <include
+                android:id="@+id/page_now"
+                layout="@layout/page_now" />
+
+            <include
+                android:id="@+id/page_gallery"
+                layout="@layout/page_gallery"
+                android:visibility="gone" />
+
+            <include
+                android:id="@+id/page_library"
+                layout="@layout/page_library"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/page_settings"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:overScrollMode="never"
-                android:paddingStart="12dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="88dp" />
-
-            <!-- 空状态：当前页没有内容时展示（文案随页面切换，与列表互斥显示） -->
-            <LinearLayout
-                android:id="@+id/empty_state"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:gravity="center"
                 android:orientation="vertical"
-                android:paddingStart="32dp"
-                android:paddingEnd="32dp"
                 android:visibility="gone">
 
-                <ImageView
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:alpha="0.35"
-                    android:contentDescription="@string/tab_wallpapers"
-                    android:src="@drawable/ic_tab_wallpaper"
-                    android:tint="@color/text_secondary" />
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/toolbar_settings"
+                    android:layout_width="match_parent"
+                    android:layout_height="?attr/actionBarSize"
+                    app:title="@string/tab_settings"
+                    app:titleCentered="true"
+                    app:titleTextAppearance="?attr/textAppearanceTitleLarge" />
 
-                <TextView
-                    android:id="@+id/tv_empty_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/empty_wallpapers"
-                    android:textColor="@color/text_primary"
-                    android:textSize="16sp" />
-
-                <TextView
-                    android:id="@+id/tv_empty_hint"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:gravity="center"
-                    android:text="@string/empty_wallpapers_hint"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
+                <androidx.fragment.app.FragmentContainerView
+                    android:id="@+id/settings_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
             </LinearLayout>
-
-            <!-- 右下角 ＋：库页 = 新建库，壁纸页 = 添加壁纸（文案随页面切换） -->
-            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-                android:id="@+id/btn_add"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="16dp"
-                android:text="@string/lib_new"
-                app:icon="@drawable/ic_add" />
         </FrameLayout>
-    </LinearLayout>
 
-
-    <!-- ================= 左侧设置抽屉（非全屏，宽 300dp，只留全局项） ================= -->
-    <LinearLayout
-        android:id="@+id/drawer_content"
-        android:layout_width="300dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:background="@drawable/drawer_bg"
-        android:orientation="vertical">
-
-        <androidx.core.widget.NestedScrollView
+        <!-- 多选态的底部动作条（库详情里勾了几张之后：移动到 / 复制到 / 设为封面 / 移出），出现时顶替底部导航。
+             「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」 -->
+        <LinearLayout
+            android:id="@+id/selection_bar"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:overScrollMode="never"
-            android:paddingBottom="16dp">
+            android:layout_height="wrap_content"
+            android:background="?attr/colorSurfaceContainer"
+            android:orientation="horizontal"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <Button
+                android:id="@+id/sel_move"
+                style="@style/Widget.Material3.Button.TextButton.Icon"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <!-- 版本行：顶栏标题固定为 WallPaper，版本号在这里确认手机上装的是哪一版 -->
-                <TextView
-                    android:id="@+id/tv_version"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="16dp"
-                    android:paddingTop="16dp"
-                    android:paddingEnd="16dp"
-                    android:paddingBottom="4dp"
-                    android:text="@string/app_name"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-
-                <!-- 卡片一：接管情况（一个总开关 + 桌面/锁屏两行系统真值，取值只写 WallPaper/系统） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="8dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/app_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="16sp" />
-
-                            <!-- 关闭接管的说明入口：App 内不提供关闭开关，点它说明去系统设置怎么关 -->
-                            <ImageView
-                                android:id="@+id/iv_takeover_info"
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
-                                android:layout_marginEnd="8dp"
-                                android:background="?attr/selectableItemBackgroundBorderless"
-                                android:contentDescription="@string/takeover_info_title"
-                                android:src="@android:drawable/ic_dialog_info"
-                                app:tint="@color/text_secondary" />
-
-                            <TextView
-                                android:id="@+id/tv_takeover_state"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/scope_home"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tv_takeover_home"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="12dp"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/scope_lock"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tv_takeover_lock"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="12dp"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 卡片二：自动切换（到点通知开关 + 上次/下次两个时间） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="10dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_timer"
-                            android:textColor="@color/brand"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/auto_notify_enabled"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_auto_notify"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
-
-                        <!-- 常驻切换通知：通知栏常驻一条当前壁纸状态（音乐播放器样式，可上一张/下一张） -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/status_notify_enabled"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_status_notify"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />                        </LinearLayout>
-
-                        <!-- 切换动画：引擎模式换壁纸时的过渡效果（淡入/模糊过渡/无），点击弹出选择 -->
-                        <LinearLayout
-                            android:id="@+id/row_transition"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/transition_effect_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_transition_effect"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <!-- 实况播放：桌面那张动态照片怎么个动法（按住/循环），点击弹出选择 -->
-                        <LinearLayout
-                            android:id="@+id/row_motion"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/motion_mode_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_motion_mode"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <!-- 走秒倒计时：通知与小组件的时间显示样式（静态/走秒），一个开关同时管两处 -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/ticking_countdown_title"
-                                    android:textColor="@color/text_primary"
-                                    android:textSize="14sp" />
-
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/ticking_countdown_desc"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12sp" />
-                            </LinearLayout>
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_ticking"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
-
-                        <!-- 常驻切换通知的状态一栏（上次/下次时间）就在卡片顶部两行开关之后，
-                             更新源与检查更新已拆去下方独立的「下载」卡片 -->
-                        <TextView
-                            android:id="@+id/tv_timer_status"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/timer_status_none"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 卡片三：下载（更新源 + 检查更新/下载进度，从自动切换卡片拆出来独立成区） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="10dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_download"
-                            android:textColor="@color/brand"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                        <!-- 更新源：检查更新走 Gitee 还是 GitHub（Gitee 国内直连，GitHub 需代理），点击弹出选择；下载中锁住 -->
-                        <LinearLayout
-                            android:id="@+id/row_update_source"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/update_source_title"
-                                    android:textColor="@color/text_primary"
-                                    android:textSize="14sp" />
-
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/update_source_desc"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12sp" />
-                            </LinearLayout>
-
-                            <TextView
-                                android:id="@+id/tv_update_source"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <!-- 自动检查更新：只管启动时那一次静默检查，关掉后仍可点下面那行手动查 -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/auto_update_check_title"
-                                    android:textColor="@color/text_primary"
-                                    android:textSize="14sp" />
-
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/auto_update_check_desc"
-                                    android:textColor="@color/text_secondary"
-                                    android:textSize="12sp" />
-                            </LinearLayout>
-
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_auto_update_check"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </LinearLayout>
-
-                        <!-- 检查更新：手动入口；启动时那一次静默检查由上面那颗开关管。下载中就变进度条+取消 -->
-                        <LinearLayout
-                            android:id="@+id/row_update"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/update_check_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_update_state"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <!-- App 内下载进度条：只在「下载中」显形，下完即隐（不靠系统通知看进度） -->
-                        <ProgressBar
-                            android:id="@+id/pb_update"
-                            style="?android:attr/progressBarStyleHorizontal"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:max="100"
-                            android:progressTint="@color/brand"
-                            android:visibility="gone" />
-
-                        <!-- 取消下载：同样只在下载中显形，按下作废当前下载并删掉半截临时包 -->
-                        <TextView
-                            android:id="@+id/btn_update_cancel"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_gravity="end"
-                            android:layout_marginTop="2dp"
-                            android:layout_marginBottom="4dp"
-                            android:background="?attr/selectableItemBackground"
-                            android:paddingHorizontal="12dp"
-                            android:paddingVertical="6dp"
-                            android:text="@string/update_cancel"
-                            android:textColor="@color/brand"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 卡片四：导出与日志 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="10dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_export"
-                            android:textColor="@color/brand"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                        <!-- 导出目录：点按选/换一个文件夹（SAF），长按取消 -->
-                        <LinearLayout
-                            android:id="@+id/row_export_dir"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="10dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/export_dir_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_export_dir"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/export_dir_unset"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/row_export_now"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/export_now_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/export_now_desc"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- 备份整库到导出目录（一个 zip：图 + 缩略图 + 两个 json + prefs），下一行从包还原 -->
-                        <LinearLayout
-                            android:id="@+id/row_backup"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/backup_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_backup"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/backup_desc"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/row_restore"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/restore_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/restore_desc"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- 保存当前壁纸：接管中存库里正在显示的那张，未接管存系统静态壁纸 -->
-                        <LinearLayout
-                            android:id="@+id/row_save_wallpaper"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/save_wallpaper_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/save_wallpaper_desc"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- 一键设置：先在抽屉里指定一张，常驻通知标题那一行那颗开关就能把它同时钉到桌面和锁屏，
-                             再拨一次退回钉之前那一整套（副标题与通知上那颗开关的左右两档是同一件事的两侧） -->
-                        <LinearLayout
-                            android:id="@+id/row_pinned"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/pinned_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_pinned"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:ellipsize="end"
-                                android:maxLines="1"
-                                android:text="@string/pinned_unset"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- 切换日志：点开直接读私有目录那个文件弹窗展示 -->
-                        <LinearLayout
-                            android:id="@+id/row_switch_log"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="2dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/log_view_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_switch_log"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/log_view_hint"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-
-                <!-- 卡片五：桌面图标预览（首页截图底图） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="10dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_launcher_preview"
-                            android:textColor="@color/brand"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                        <LinearLayout
-                            android:id="@+id/row_launcher_overlay"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:orientation="vertical"
-                            android:paddingTop="10dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/launcher_overlay_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_launcher_overlay"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/launcher_overlay_unset"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 卡片六：引擎与后台（电池优化白名单） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="8dp"
-                    app:cardBackgroundColor="@color/card_bg"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="14dp"
-                        android:paddingTop="14dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="14dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_engine"
-                            android:textColor="@color/brand"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-
-                        <LinearLayout
-                            android:id="@+id/row_battery"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:gravity="center_vertical"
-                            android:minHeight="44dp"
-                            android:orientation="horizontal"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="@string/battery_row_title"
-                                android:textColor="@color/text_primary"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tv_battery"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/battery_state_off"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
+                android:layout_weight="1"
+                android:text="@string/sel_move"
+                app:icon="@drawable/ic_move"
+                app:iconGravity="top" />
+
+            <Button
+                android:id="@+id/sel_copy"
+                style="@style/Widget.Material3.Button.TextButton.Icon"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sel_copy"
+                app:icon="@drawable/ic_copy"
+                app:iconGravity="top" />
+
+            <Button
+                android:id="@+id/sel_cover"
+                style="@style/Widget.Material3.Button.TextButton.Icon"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sel_cover"
+                app:icon="@drawable/ic_cover"
+                app:iconGravity="top" />
+
+            <Button
+                android:id="@+id/sel_remove"
+                style="@style/Widget.Material3.Button.TextButton.Icon"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sel_remove"
+                android:textColor="?attr/colorError"
+                app:icon="@drawable/ic_remove_circle"
+                app:iconGravity="top"
+                app:iconTint="?attr/colorError" />
+        </LinearLayout>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottom_nav"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:itemIconTint="@color/bottom_nav_icon"
+            app:itemTextColor="@color/text_primary"
+            app:menu="@menu/bottom_nav" />
     </LinearLayout>
-</androidx.drawerlayout.widget.DrawerLayout>
 
+    <!-- 切换记录是全屏二级页，盖住主页面与底部导航；详情页仍放最后，必要时可盖在日志之上 -->
+    <include
+        android:id="@+id/page_switch_log"
+        layout="@layout/page_switch_log"
+        android:visibility="gone" />
 
+    <include
+        android:id="@+id/page_detail"
+        layout="@layout/page_detail"
+        android:visibility="gone" />
+</FrameLayout>

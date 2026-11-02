@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底部三栏：此刻（桌面/锁屏现在在放什么、马上切）/ 图库（库与壁纸）/ 设置（原抽屉） -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_now"
+        android:icon="@drawable/ic_nav_now"
+        android:title="@string/tab_now" />
+    <item
+        android:id="@+id/nav_gallery"
+        android:icon="@drawable/ic_photo_library"
+        android:title="@string/tab_gallery" />
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/tab_settings" />
+</menu>

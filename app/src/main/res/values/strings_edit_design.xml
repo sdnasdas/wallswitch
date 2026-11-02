@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="edit_reset_crop">重置取景</string>
+    <string name="edit_reset_crop_done">已恢复居中铺满的初始取景</string>
+    <string name="edit_save_crop">保存取景</string>
+    <string name="edit_format_title">成品图格式</string>
+    <string name="edit_format_entry">成品图 · %1$s</string>
+</resources>

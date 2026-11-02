@@ -133,9 +133,8 @@ public class WidgetProvider extends AppWidgetProvider {
         int ink = ctx.getColor(night ? R.color.widget_ink_night : R.color.widget_ink);
         views.setTextColor(R.id.widget_timer, ink);
         views.setTextColor(R.id.widget_waiting, ink);
-        // 切换图标是品牌蓝填充：@color/brand 本身有 values-night 变体（夜间提亮成 #90CAF9），
-        // 这里在我们进程里取一次现值再染，深色卡片上才不会是"深蓝压深底"
-        views.setInt(R.id.widget_icon, "setColorFilter", ctx.getColor(R.color.brand));
+        // 切换图标跟文字同色：浅色黑、深色白
+        views.setInt(R.id.widget_icon, "setColorFilter", ink);
         // 倒计时：取 WorkManager 给出的「最早可运行时间」（定时关闭或未排定则隐藏）；
         // 该时间已过但任务仍在排队（Doze/省电延后）时，倒计时会变负数，改显示「待切换」
         Long trigger = TimerScheduler.nextTrigger(ctx);

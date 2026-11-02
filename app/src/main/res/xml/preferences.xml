@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅调整入口层级；所有业务项仍由 SettingsFragment 使用原有 key 现读现写。 -->
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:key="settings_home"
+    app:persistent="false"
+    app:title="@string/tab_settings">
+
+    <Preference
+        app:iconSpaceReserved="false"
+        app:icon="@drawable/ic_check_circle"
+        app:key="takeover_status"
+        app:persistent="false"
+        app:title="@string/pref_takeover_title" />
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_design_experience">
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_motion_photo"
+            app:key="settings_motion"
+            app:persistent="false"
+            app:title="@string/settings_design_motion">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_motion">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_swap_vert"
+                    app:key="transition"
+                    app:persistent="false"
+                    app:title="@string/transition_effect_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_motion_photo"
+                    app:key="motion"
+                    app:persistent="false"
+                    app:title="@string/motion_mode_title" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_notifications"
+            app:key="settings_notifications"
+            app:persistent="false"
+            app:summary="@string/settings_design_notifications_summary"
+            app:title="@string/settings_design_notifications">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_notifications">
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_notifications"
+                    app:key="auto_notify"
+                    app:persistent="false"
+                    app:summary="@string/pref_auto_notify_sum"
+                    app:title="@string/auto_notify_enabled"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_notifications_active"
+                    app:key="status_notify"
+                    app:persistent="false"
+                    app:summary="@string/pref_status_notify_sum"
+                    app:title="@string/status_notify_enabled"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_schedule"
+                    app:key="ticking"
+                    app:persistent="false"
+                    app:summary="@string/ticking_countdown_desc"
+                    app:title="@string/ticking_countdown_title"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_arrow_downward"
+            app:key="quick_sheet_dismiss_threshold_dp"
+            app:persistent="false"
+            app:title="@string/settings_quick_threshold_title" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_apps"
+            app:key="launcher_overlay"
+            app:persistent="false"
+            app:title="@string/settings_design_launcher_preview" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_push_pin"
+            app:key="pinned"
+            app:persistent="false"
+            app:title="@string/settings_design_pinned" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_design_data">
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_backup"
+            app:key="settings_backup"
+            app:persistent="false"
+            app:summary="@string/settings_design_backup_summary"
+            app:title="@string/pref_cat_backup">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_export">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_folder"
+                    app:key="export_dir"
+                    app:persistent="false"
+                    app:title="@string/export_dir_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_save_alt"
+                    app:key="export_now"
+                    app:persistent="false"
+                    app:summary="@string/export_now_desc"
+                    app:title="@string/export_now_title" />
+            </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_backup_restore">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_backup"
+                    app:key="backup"
+                    app:persistent="false"
+                    app:title="@string/backup_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_restore"
+                    app:key="restore"
+                    app:persistent="false"
+                    app:summary="@string/restore_desc"
+                    app:title="@string/restore_title" />
+            </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_current_wallpaper">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_save_alt"
+                    app:key="save_wallpaper"
+                    app:persistent="false"
+                    app:summary="@string/save_wallpaper_desc"
+                    app:title="@string/save_wallpaper_title" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_history"
+            app:key="switch_log"
+            app:persistent="false"
+            app:title="@string/settings_design_switch_log" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/settings_design_app">
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_battery_saver"
+            app:key="settings_system"
+            app:persistent="false"
+            app:summary="@string/settings_design_system_summary"
+            app:title="@string/settings_design_system">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/pref_cat_takeover">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_check_circle"
+                    app:key="takeover"
+                    app:persistent="false"
+                    app:title="@string/pref_takeover_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_battery_saver"
+                    app:key="battery"
+                    app:persistent="false"
+                    app:title="@string/battery_row_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_info"
+                    app:key="app_details"
+                    app:persistent="false"
+                    app:summary="@string/pref_app_details_sum"
+                    app:title="@string/pref_app_details_title" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_info"
+            app:key="settings_about"
+            app:persistent="false"
+            app:title="@string/settings_design_about">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/pref_cat_update">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_cloud"
+                    app:key="update_source"
+                    app:persistent="false"
+                    app:title="@string/update_source_title" />
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_sync"
+                    app:key="auto_update"
+                    app:persistent="false"
+                    app:summary="@string/auto_update_check_desc"
+                    app:title="@string/auto_update_check_title"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_sync"
+                    app:key="update"
+                    app:persistent="false"
+                    app:title="@string/update_check_title" />
+            </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/pref_cat_about">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_info"
+                    app:key="version"
+                    app:persistent="false"
+                    app:selectable="false"
+                    app:title="@string/pref_version_title" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+    </PreferenceCategory>
+</PreferenceScreen>

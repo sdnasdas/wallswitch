@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 常驻通知「一键设置」那颗开关的**没钉**档：轨道**透明底 + 1.5dp 描边**，圆钮停在**左边**。
-     描边这一层是修出来的：原本轨道填 divider（浅色 #E8EAED），压在白色的通知卡上几乎没对比，
+     描边这一层是修出来的：原本轨道填 divider（浅色 #E0E0E0），压在白色的通知卡上几乎没对比，
      真机截图里只剩那颗灰钮浮着、轨道看不见 —— 抽屉那颗 MaterialSwitch 没打开时本来就是空心描边，
      照它改成描边，两档的差别也就固定成「空心 ⇄ 实心」，与小组件翻面卡片同一套语言。
-     描边与钮都用次级文字色（浅 #5F6368 / 夜 #9AA0A6），在深浅两种卡底上都够对比。
+     描边与钮都用次级文字色（浅 #6B6B6B / 夜 #A6A6A6），在深浅两种卡底上都够对比。
      36×22dp、圆角 11、钮 14dp 四周留 4dp；改尺寸要两份文件一起改（on 那份的 left/right 是镜像 18↔4）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:width="36dp" android:height="22dp">

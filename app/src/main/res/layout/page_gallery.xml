@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「图库」页：所有壁纸库排成两列卡片（封面 + 库名 + 张数 + 桌面/锁屏标签），末尾一格「新建库」。
+     长按卡片 = 多选删库；顶栏 ⋯ → 调整顺序 = 拖动卡片排序（原来长按库行拖拽那条手势的显式入口）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_gallery"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:menu="@menu/menu_gallery"
+        app:title="@string/tab_gallery"
+        app:titleTextAppearance="?attr/textAppearanceTitleLarge" />
+
+    <TextView
+        android:id="@+id/tv_gallery_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/picker_row_bg"
+        android:padding="10dp"
+        android:text="@string/gallery_reorder_hint"
+        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:scrollbars="none"
+        android:id="@+id/recycler_gallery"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:paddingStart="10dp"
+        android:paddingTop="2dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="16dp" />
+</LinearLayout>

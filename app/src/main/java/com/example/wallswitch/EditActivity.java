@@ -13,12 +13,12 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -94,6 +94,7 @@ public class EditActivity extends AppCompatActivity {
     private ActivityResultLauncher<PickVisualMediaRequest> linkOriginalLauncher;
     /** 确认落盘是否在跑：跑着的时候再次确认/取消/关联原图都不接新活。 */
     private volatile boolean confirmRunning;
+    private boolean loading = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,31 +132,60 @@ public class EditActivity extends AppCompatActivity {
         }
         btnConfirm.setOnClickListener(v -> onConfirm());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> onCancel());
+        // 返回手势 / 返回键必须等同左上角 ✕：系统默认只 finish，导入模式下收件箱那张没丢，
+        // 回到主界面 onResume 看见收件箱里还有它，又把同一张原样打开 ——
+        // 连续导入时表现为「返回放弃不了这一张」。桌面图标预览开着时先收预览（与单张详情页一致）。
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (overlay != null && overlay.getVisibility() == View.VISIBLE) {
+                    overlay.setVisibility(View.GONE);
+                    syncPreviewButton();
+                    return;
+                }
+                onCancel();
+            }
+        });
+        findViewById(R.id.btn_reset_crop).setOnClickListener(v -> {
+            if (loading || confirmRunning) {
+                return;
+            }
+            cropView.resetCrop();
+            Toast.makeText(this, R.string.edit_reset_crop_done, Toast.LENGTH_SHORT).show();
+        });
         chooseSource();
         readOriginalBounds();
         startDecode();
     }
 
-    /**
-     * 成品图格式那粒胶囊：点一下换到另一档并立刻记住，「确认」落盘时按它写。
-     * 只管此后写入的成品图，已入库的一张都不动 —— 想换那张的格式就重编一次。
-     */
+    /** 格式选择沿用全局偏好，只在保存取景时写入成品图。 */
     private void bindFullFormatPill() {
-        TextView pill = findViewById(R.id.btn_full_format);
-        if (pill == null) {
-            return;
-        }
-        pill.setOnClickListener(v -> {
-            boolean jpeg = !WallpaperStore.fullPrefersJpeg(this);
-            WallpaperStore.setFullPrefersJpeg(this, jpeg);
-            paintFullFormatPill(pill, jpeg);
+        TextView entry = findViewById(R.id.btn_full_format);
+        paintFullFormatPill(entry);
+        entry.setOnClickListener(v -> {
+            if (loading || confirmRunning) {
+                return;
+            }
+            new AppAlertDialogBuilder(this)
+                    .setTitle(R.string.edit_format_title)
+                    .setSingleChoiceItems(new String[]{getString(R.string.fmt_full_jpeg),
+                                    getString(R.string.fmt_full_png)},
+                            WallpaperStore.fullPrefersJpeg(this) ? 0 : 1, (dialog, which) -> {
+                                if (!loading && !confirmRunning) {
+                                    WallpaperStore.setFullPrefersJpeg(this, which == 0);
+                                    paintFullFormatPill(entry);
+                                }
+                                dialog.dismiss();
+                            })
+                    .setNegativeButton(R.string.cancel, null)
+                    .show();
         });
-        paintFullFormatPill(pill, WallpaperStore.fullPrefersJpeg(this));
     }
 
-    private void paintFullFormatPill(TextView pill, boolean jpeg) {
-        pill.setText(getString(R.string.edit_full_format,
-                getString(jpeg ? R.string.fmt_full_jpeg : R.string.fmt_full_png)));
+    private void paintFullFormatPill(TextView entry) {
+        entry.setText(getString(R.string.edit_format_entry,
+                getString(WallpaperStore.fullPrefersJpeg(this)
+                        ? R.string.fmt_full_jpeg : R.string.fmt_full_png)));
     }
 
     /**
@@ -214,7 +244,6 @@ public class EditActivity extends AppCompatActivity {
                     }
                     return;
                 }
-                setLoading(false);
                 if (decoded == null) {
                     Toast.makeText(this, R.string.decode_failed, Toast.LENGTH_SHORT).show();
                     if (itemId == null) {
@@ -225,6 +254,7 @@ public class EditActivity extends AppCompatActivity {
                 }
                 cropView.setBitmap(decoded);
                 applyPendingRestore();
+                setLoading(false);
             });
         }, "crop-decode").start();
     }
@@ -309,7 +339,7 @@ public class EditActivity extends AppCompatActivity {
      * `docs/reedit-from-original-design.md` 的「§6.1 以后删这一条时要动哪几处」。
      */
     private void pickOriginalForLinking() {
-        if (confirmRunning || itemId == null || linkOriginalLauncher == null) {
+        if (loading || confirmRunning || itemId == null || linkOriginalLauncher == null) {
             return;
         }
         PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
@@ -348,22 +378,28 @@ public class EditActivity extends AppCompatActivity {
         }, "link-original").start();
     }
 
-    /** 切换「加载中」状态：加载中隐藏不了图，也没图可导，所以同时把确认置灰。 */
+    /** 加载或落盘期间，浮层按钮不接新操作。 */
     private void setLoading(boolean loading) {
+        this.loading = loading;
         View box = findViewById(R.id.loading_box);
         if (box != null) {
             box.setVisibility(loading ? View.VISIBLE : View.GONE);
         }
+        boolean enabled = !loading && !confirmRunning;
         if (btnConfirm != null) {
-            btnConfirm.setEnabled(!loading);
+            btnConfirm.setEnabled(enabled);
         }
-    }
-
-    /** 取消按钮置灰：确认落盘跑着的几秒里不接取消，避免与后台线程抢收件箱文件。 */
-    private void setCancelEnabled(boolean enabled) {
+        for (int id : new int[]{R.id.btn_full_format, R.id.btn_reset_crop,
+                R.id.btn_launcher_preview, R.id.btn_link_original}) {
+            View control = findViewById(id);
+            if (control != null) {
+                control.setEnabled(enabled);
+            }
+        }
+        // 取消只在落盘那几秒禁用：解码期间仍要能退出（大图解码要等几秒）
         View cancel = findViewById(R.id.btn_cancel);
         if (cancel != null) {
-            cancel.setEnabled(enabled);
+            cancel.setEnabled(!confirmRunning);
         }
     }
 
@@ -381,7 +417,7 @@ public class EditActivity extends AppCompatActivity {
      * {@link #exportByRegion}/{@link #saveCropRectIfNeeded} 都要读视图状态，后台线程不摸视图。
      */
     private void onConfirm() {
-        if (confirmRunning) {
+        if (loading || confirmRunning) {
             return;
         }
         // 当值复检（与网格那两道闸门同一个判据，这里是现读）：从进页面到点确认这段窗口里，
@@ -389,7 +425,7 @@ public class EditActivity extends AppCompatActivity {
         // 新导入时 itemId 为 null，这张还不存在于任何指针里，自然放行。
         String inUse = Switcher.inUseWhere(this, itemId);
         if (inUse != null) {
-            new MaterialAlertDialogBuilder(this)
+            new AppAlertDialogBuilder(this)
                     .setTitle(R.string.in_use_title)
                     .setMessage(getString(R.string.in_use_msg, inUse))
                     .setPositiveButton(R.string.in_use_ok, null)
@@ -441,7 +477,7 @@ public class EditActivity extends AppCompatActivity {
             }
             joined.append("「").append(name).append("」");
         }
-        new MaterialAlertDialogBuilder(this)
+        new AppAlertDialogBuilder(this)
                 .setTitle(R.string.diverge_title)
                 .setMessage(getString(R.string.diverge_msg, joined.toString(), otherNames.size() + 1))
                 .setPositiveButton(R.string.diverge_sync, (dialog, which) -> startConfirm(false))
@@ -452,12 +488,11 @@ public class EditActivity extends AppCompatActivity {
 
     /** 真正起跑落盘链（取景框在这里量，必须主线程）。{@code fork} = 只改这个库，另存一条新的。 */
     private void startConfirm(boolean fork) {
-        if (confirmRunning) {
+        if (loading || confirmRunning) {
             return;
         }
         confirmRunning = true;
         setLoading(true);
-        setCancelEnabled(false);
         RectF visible = new RectF();
         boolean hasVisible = cropView.getVisibleSourceRect(visible);
         int srcW = cropView.getSourceWidth();
@@ -635,26 +670,42 @@ public class EditActivity extends AppCompatActivity {
     }
 
     /**
-     * 「桌面图标预览」：单击取景区切换叠加。
-     * 还没设过全局底图时，第一次单击会去相册选一张（选完存成全局底图，以后不用再选）。
+     * 「桌面图标预览」两个入口同一个开关：单击取景区（老用法，CropView 已按位移与时长把轻点和
+     * 拖动/捏合分开，不会误触）+ 顶栏右侧那颗键（v3.134 加的，看得见、还能显示开没开）。
+     * 还没设过全局底图时，第一次点会去相册选一张（选完存成全局底图，以后不用再选）。
      */
     private void setupLauncherPreview() {
         if (cropView == null || overlay == null) {
             return;
         }
         cropView.setOnTapListener(this::toggleLauncherPreview);
+        View toggle = findViewById(R.id.btn_launcher_preview);
+        if (toggle != null) {
+            toggle.setOnClickListener(v -> toggleLauncherPreview());
+        }
+        syncPreviewButton();
+    }
+
+    /** 开着时键亮、关着时半透明，一眼看出现在叠没叠。 */
+    private void syncPreviewButton() {
+        View toggle = findViewById(R.id.btn_launcher_preview);
+        if (toggle != null && overlay != null) {
+            toggle.setAlpha(overlay.getVisibility() == View.VISIBLE ? 1f : 0.6f);
+        }
     }
 
     private void toggleLauncherPreview() {
-        if (overlay == null) {
+        if (loading || confirmRunning || overlay == null) {
             return;
         }
         if (overlay.getVisibility() == View.VISIBLE) {
             overlay.setVisibility(View.GONE);
+            syncPreviewButton();
             return;
         }
         if (overlay.hasScreenshot()) {
             overlay.setVisibility(View.VISIBLE);
+            syncPreviewButton();
             return;
         }
         PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
@@ -705,6 +756,7 @@ public class EditActivity extends AppCompatActivity {
                 }
                 overlay.setScreenshot(keyed);
                 overlay.setVisibility(View.VISIBLE);
+                syncPreviewButton();
                 if (saved) {
                     Toast.makeText(this, R.string.launcher_overlay_saved, Toast.LENGTH_SHORT).show();
                 }

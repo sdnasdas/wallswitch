@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 调整取景页的圆形浮动键底：半透明黑圆 + 白色按压反馈。
+     比此刻卡片那颗（image_tool_bg）更深一档：这里背后没有渐隐压底，直接贴在原图上 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/edit_float_bg" />
+        </shape>
+    </item>
+</ripple>

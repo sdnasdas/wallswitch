@@ -43,7 +43,6 @@ import androidx.media3.transformer.ExportResult;
 import androidx.media3.transformer.Transformer;
 import androidx.media3.ui.PlayerView;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.slider.RangeSlider;
 import com.google.android.material.slider.Slider;
 
@@ -120,6 +119,7 @@ public final class VideoTrimActivity extends AppCompatActivity {
         }
         Toolbar toolbar = findViewById(R.id.video_trim_toolbar);
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
+        toolbar.getNavigationIcon().mutate().setTint(getColor(R.color.text_secondary));
         toolbar.setNavigationContentDescription(R.string.cancel);
         toolbar.setNavigationOnClickListener(v -> cancelImport());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -580,7 +580,7 @@ public final class VideoTrimActivity extends AppCompatActivity {
         String message = error.getMessage();
         status.setText(getString(R.string.video_trim_failed,
                 message == null ? error.getClass().getSimpleName() : message));
-        new MaterialAlertDialogBuilder(this)
+        new AppAlertDialogBuilder(this)
                 .setTitle(R.string.video_trim_title)
                 .setMessage(status.getText())
                 .setPositiveButton(android.R.string.ok, null)

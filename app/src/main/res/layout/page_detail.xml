@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单张详情：黑底全屏看成品图，左右滑翻同一个库里的上一张/下一张。
+     顶栏：✕ + 标题 + 「3 / 24」，⋯ 里是移动到 / 复制到 / 从本库移出（单张版的整理）。
+     底部只留两个动作：调整取景（进裁剪页重编）/ 设为桌面。
+     连底部导航一起盖住；系统栏避让由 MainActivity 给 detail_top / detail_bottom 加内边距。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/viewer_bg"
+    android:clickable="true"
+    android:focusable="true">
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/pager_detail"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 实况段播放层：平时 GONE，点顶栏那颗键或长按画面才出现。尺寸与位置由代码按当前那张成品图
+         fitCenter 后的显示矩形摆（正好盖住静态图），画面裁切走 TextureView 变换矩阵（与引擎同一套归一化取景）。
+         首帧出来前保持透明，免得先闪一块黑 -->
+    <TextureView
+        android:id="@+id/texture_live"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start"
+        android:visibility="gone" />
+
+    <!-- 桌面图标预览浮层（与裁剪页同一个控件、同一张全局底图）：单击画面开关。
+         开着时顶栏、底栏与系统栏都收起，整屏就是「这张上桌面后的样子」；不拦截触摸，照样能左右翻 -->
+    <com.example.wallswitch.LauncherPreviewOverlay
+        android:id="@+id/detail_launcher_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/detail_top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_detail"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:theme="@style/ThemeOverlay.Material3.Dark"
+            app:menu="@menu/menu_detail"
+            app:navigationIcon="@drawable/ic_close"
+            app:navigationIconTint="@android:color/white"
+            app:subtitleTextColor="#CCFFFFFF"
+            app:titleTextColor="@android:color/white" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/detail_bottom"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/scrim_bottom"
+        android:orientation="vertical"
+        android:paddingTop="32dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_detail_crop"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="10dp"
+                android:layout_weight="1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minHeight="48dp"
+                android:text="@string/detail_crop"
+                android:textColor="@android:color/white"
+                app:icon="@drawable/ic_crop"
+                app:iconTint="@android:color/white"
+                app:strokeColor="#66FFFFFF" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_detail_home"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minHeight="48dp"
+                android:text="@string/design_set_wallpaper"
+                app:icon="@drawable/ic_home" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

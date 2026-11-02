@@ -1,16 +1,79 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 深色模式配色：与浅色版一一对应，保证页面底/卡片/两级文字/分隔线/危险色的层级关系不变。
-         主色提亮为浅蓝，否则 #1E88E5 在深底上作文字色对比度不足。 -->
-    <color name="brand">#90CAF9</color>
-    <color name="page_bg">#121316</color>
-    <color name="card_bg">#1E2024</color>
-    <color name="text_primary">#E6E7E9</color>
-    <color name="text_secondary">#9AA0A6</color>
-    <color name="divider">#33363B</color>
+         中性灰阶、不带蓝也不带棕；普通文字 #E6E6E6、次级 #A6A6A6，强调色提亮为 #D6D6D6。 -->
+    <color name="brand">#D6D6D6</color>
+    <color name="page_bg">#141414</color>
+    <color name="card_bg">#1E1E1E</color>
+    <!-- 暗色模式：普通文字与图标纯白；亮色档为纯黑 -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#FFFFFF</color>
+    <color name="icon_neutral">#FFFFFF</color>
+    <color name="divider">#303030</color>
     <color name="danger">#FF6B60</color>
-    <color name="notif_frost">#8C14161A</color>
-    <color name="notif_scope_lock">#B794F0</color>
-    <!-- 夜间档 brand 是浅蓝 #90CAF9，压在其上的圆钮得用深墨才分得开（见浅色版那条注释） -->
-    <color name="notif_on_brand_ink">#FF1A1C1E</color>
+
+    <!-- 完整 Material3 颜色角色（夜间档；与 values/colors.xml 一一对应） -->
+    <color name="m3_primary">#D6D6D6</color>
+    <color name="m3_on_primary">#1F1F1F</color>
+    <color name="m3_primary_container">#3A3A3A</color>
+    <color name="m3_on_primary_container">#FFFFFF</color>
+    <color name="m3_secondary">#C2C2C2</color>
+    <color name="m3_on_secondary">#1F1F1F</color>
+    <color name="m3_secondary_container">#3A3A3A</color>
+    <color name="m3_on_secondary_container">#FFFFFF</color>
+    <color name="m3_tertiary">#C8C8C8</color>
+    <color name="m3_on_tertiary">#1F1F1F</color>
+    <color name="m3_tertiary_container">#3A3A3A</color>
+    <color name="m3_on_tertiary_container">#FFFFFF</color>
+    <color name="m3_error">#FFB4AB</color>
+    <color name="m3_on_error">#690005</color>
+    <color name="m3_error_container">#93000A</color>
+    <color name="m3_on_error_container">#FFDAD6</color>
+    <color name="m3_surface">#141414</color>
+    <color name="m3_on_surface">#FFFFFF</color>
+    <color name="m3_surface_variant">#303030</color>
+    <color name="m3_on_surface_variant">#FFFFFF</color>
+    <color name="m3_outline">#8A8A8A</color>
+    <color name="m3_outline_variant">#3A3A3A</color>
+    <color name="m3_surface_container_lowest">#0C0C0C</color>
+    <color name="m3_surface_container_low">#1E1E1E</color>
+    <color name="m3_surface_container">#1E1E1E</color>
+    <color name="m3_surface_container_high">#282828</color>
+    <color name="m3_surface_container_highest">#323232</color>
+    <color name="m3_surface_dim">#141414</color>
+    <color name="m3_surface_bright">#363636</color>
+    <color name="m3_inverse_surface">#E6E6E6</color>
+    <color name="m3_inverse_on_surface">#2E2E2E</color>
+    <color name="m3_inverse_primary">#4A4A4A</color>
+    <color name="notif_frost">#8C141414</color>
+    <color name="notif_scope_lock">#C0D0B9</color>
+    <!-- 夜间档强调色是浅石墨 #D6D6D6，压在其上的圆钮得用深墨才分得开（见浅色版那条注释） -->
+    <color name="notif_on_brand_ink">#FF1F1F1F</color>
+    <!-- 常驻通知「温控 N」胶囊（夜间对应档） -->
+    <color name="thermal_low_bg">#2E2E2E</color>
+    <color name="thermal_low_fg">#D6D6D6</color>
+    <color name="thermal_mid_bg">#3A2E14</color>
+    <color name="thermal_mid_fg">#FFD79A</color>
+    <color name="thermal_high_bg">#3A1D1B</color>
+    <color name="thermal_high_fg">#FFB4AB</color>
+
+    <!-- 切换日志类型角标：深色卡片上用暗色底 + 亮色字 -->
+    <color name="log_manual_bg">#16324A</color>
+    <color name="log_manual_fg">#90CAF9</color>
+    <color name="log_auto_bg">#173A24</color>
+    <color name="log_auto_fg">#A5D6A7</color>
+    <color name="log_lib_bg">#34224A</color>
+    <color name="log_lib_fg">#D1C4E9</color>
+    <color name="log_interval_bg">#3E2E14</color>
+    <color name="log_interval_fg">#FFE082</color>
+    <color name="log_mode_bg">#123A3A</color>
+    <color name="log_mode_fg">#80DEEA</color>
+    <color name="log_pause_bg">#43260F</color>
+    <color name="log_pause_fg">#FFCC80</color>
+    <color name="log_resume_bg">#123A33</color>
+    <color name="log_resume_fg">#80CBC4</color>
+    <color name="log_stop_bg">#4A1C1C</color>
+    <color name="log_stop_fg">#FFCDD2</color>
+    <color name="log_setting_bg">#2A2E33</color>
+    <color name="log_setting_fg">#CFD8DC</color>
 </resources>

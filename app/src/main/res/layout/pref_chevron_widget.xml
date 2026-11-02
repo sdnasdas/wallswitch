@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 普通设置行右侧统一箭头；SwitchPreference 仍使用 pref_switch_widget。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="40dp"
+    android:layout_height="match_parent"
+    android:gravity="center">
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="center"
+        android:alpha="0.55"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_chevron_right"
+        android:tint="?attr/colorOnSurfaceVariant" />
+</FrameLayout>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 裁剪页格式两段式的底：选中那段压主色，没选那段半透明深底（压在用户自己的图上，深浅不可控） -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/brand" android:state_checked="true" />
+    <item android:color="#8C000000" />
+</selector>

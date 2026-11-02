@@ -17,7 +17,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -117,7 +116,7 @@ public class LibPickerActivity extends AppCompatActivity {
                     getString(R.string.lib_count, count == null ? 0 : count), lib.id,
                     libThumb(lib.id, firstId.get(lib.id), forHome)));
         }
-        new MaterialAlertDialogBuilder(this)
+        new AppAlertDialogBuilder(this)
                 // 标题直接写是哪一面的库：这一页只改带进来的那一面，另一面不动
                 .setTitle(forHome ? R.string.slot_home_title : R.string.slot_lock_title)
                 .setAdapter(new PickerAdapter(rows, liveId), (dialog, which) -> {
@@ -135,12 +134,15 @@ public class LibPickerActivity extends AppCompatActivity {
     }
 
     /**
-     * 该库的代表图：这一面在屏的那张优先，其次另一面（同一张图两边都在用时最准），
-     * 再次库内第一张（{@code fallbackId}，由调用方一次遍历时备好）；空库返回 null，
-     * 由 {@link PickerAdapter} 画成占位图标。取档顺序与 App 内 {@code MainActivity#slotThumbId} 一致。
+     * 该库的代表图：用户指定过封面就用它（{@link LibraryStore#coverId}），否则这一面在屏的那张优先，
+     * 其次另一面（同一张图两边都在用时最准），再次库内第一张（{@code fallbackId}，由调用方一次遍历时备好）；
+     * 空库返回 null，由 {@link PickerAdapter} 画成占位图标。取档顺序与 App 内 {@code MainActivity#libCoverId} 一致。
      */
     private Bitmap libThumb(String libId, String fallbackId, boolean forHome) {
-        String id = Switcher.getCurrent(this, libId, forHome);
+        String id = LibraryStore.coverId(this, libId);
+        if (id == null) {
+            id = Switcher.getCurrent(this, libId, forHome);
+        }
         if (id == null) {
             id = Switcher.getCurrent(this, libId, !forHome);
         }

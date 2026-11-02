@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库详情（从图库点进来的二级页）：顶栏 ← 库名（铅笔改名 / ⋯ 选择、删除这个库），
+     列表第一格是头部（封面 + 张数 + 「设为桌面 / 设为锁屏」），下面三列网格。
+     点一张进单张详情，长按进多选（底部换成 移动到 / 复制到 / 移出）。右下角「添加」开来源面板。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar_library"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:menu="@menu/menu_library"
+            app:navigationIcon="@drawable/ic_back"
+            app:titleTextAppearance="?attr/textAppearanceTitleLarge" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:scrollbars="none"
+            android:id="@+id/recycler_library"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="96dp" />
+    </LinearLayout>
+
+    <!-- 「添加」：往下滚就收成圆钮（见 MainActivity#syncAddFab），少挡一格壁纸；
+         50% 圆角让收起态是整圆、摊开态是胶囊（EFAB 默认 24dp 圆角，收起来是圆角方块）。
+         上面那 96dp 只是首帧的垫底值，真正留多少由 MainActivity 按这颗键实测高度现算。 -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/btn_add"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:text="@string/add_short"
+        app:icon="@drawable/ic_add"
+        app:shapeAppearanceOverlay="@style/Shape.Ws.Fab" />
+</FrameLayout>

@@ -1,250 +1,214 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 范围卡片齿轮弹出的聚合设置：本范围的壁纸库（下拉直接换）、切换模式（顺序/随机）、
-     切换间隔（整行可点，弹时/分滚轮）。改动即保存。 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 一面（桌面 / 锁屏）的设置底部面板：点此刻页那一面的预览图打开。
+     壁纸库（点开带缩略图的选库列表）、顺序/随机、切换间隔（时/分滚轮）、卡片配色（色相 + 浓淡），
+     底部「不再使用此面」= 清空这一面（原来选库列表第 0 项那条，留着它也行，这里给个显眼的出口）。
+     改动即保存。 -->
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:paddingStart="24dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="24dp"
-    android:paddingBottom="8dp">
+    android:scrollbars="none">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/slot_lib_label"
-        android:textColor="@color/brand"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <!-- 当前占位库：缩略图 + 库名 + 下拉箭头，点按弹出带图的库选择列表 -->
     <LinearLayout
-        android:id="@+id/row_slot_lib"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:background="@drawable/picker_row_bg"
-        android:clickable="true"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:minHeight="52dp"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="4dp"
-        android:paddingBottom="6dp">
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="16dp">
 
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/img_slot_lib_thumb"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="@color/divider"
-            android:contentDescription="@string/thumb_desc"
-            android:padding="9dp"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_tab_wallpaper"
-            android:tint="@color/text_secondary"
-            app:shapeAppearanceOverlay="@style/RoundedThumb" />
+        <com.google.android.material.bottomsheet.BottomSheetDragHandleView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
 
         <TextView
-            android:id="@+id/tv_slot_lib"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/text_primary"
-            android:textSize="15sp" />
-
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginEnd="4dp"
-            android:contentDescription="@string/slot_lib_label"
-            android:src="@drawable/ic_arrow_drop_down"
-            android:tint="@color/text_secondary" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="@string/lib_mode_title"
-        android:textColor="@color/brand"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <RadioGroup
-        android:id="@+id/rg_mode"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <RadioButton
-            android:id="@+id/rb_order"
+            android:id="@+id/tv_sheet_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/mode_order"
-            android:textSize="14sp" />
+            android:textAppearance="?attr/textAppearanceTitleLarge" />
 
-        <RadioButton
-            android:id="@+id/rb_random"
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="@string/mode_random"
-            android:textSize="14sp" />
-    </RadioGroup>
+            android:layout_marginTop="16dp"
+            android:text="@string/slot_lib_label"
+            android:textAppearance="@style/TextAppearance.Ws.Section" />
 
-    <LinearLayout
-        android:id="@+id/row_interval"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/selectableItemBackground"
-        android:clickable="true"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:minHeight="48dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="0dp"
+        <!-- 当前占位库：缩略图 + 库名 + 箭头，点按弹出带图的库选择列表 -->
+        <LinearLayout
+            android:id="@+id/row_slot_lib"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/lib_interval_label"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
+            android:layout_marginTop="6dp"
+            android:background="@drawable/picker_row_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="6dp">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/img_slot_lib_thumb"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@color/divider"
+                android:contentDescription="@string/thumb_desc"
+                android:padding="9dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_tab_wallpaper"
+                android:tint="@color/text_secondary"
+                app:shapeAppearanceOverlay="@style/RoundedThumb" />
+
+            <TextView
+                android:id="@+id/tv_slot_lib"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="@string/slot_lib_label"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/tv_interval"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/brand"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+            android:layout_marginTop="18dp"
+            android:text="@string/lib_mode_title"
+            android:textAppearance="@style/TextAppearance.Ws.Section" />
 
-    <!-- 卡片配色：色相 + 浓淡两条滑杆（条上的渐变由代码画），下面那块小卡片实时跟着变 -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="@string/slot_theme_label"
-        android:textColor="@color/brand"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="34dp"
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggle_mode"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/slot_theme_hue"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:layout_marginTop="6dp"
+            app:selectionRequired="true"
+            app:singleSelection="true">
 
-        <SeekBar
-            android:id="@+id/sb_slot_hue"
-            android:layout_width="0dp"
-            android:layout_height="26dp"
-            android:layout_weight="1" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/btn_mode_order"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/mode_order" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="34dp"
-            android:layout_height="wrap_content"
-            android:text="@string/slot_theme_tone"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
-
-        <SeekBar
-            android:id="@+id/sb_slot_tone"
-            android:layout_width="0dp"
-            android:layout_height="26dp"
-            android:layout_weight="1" />
-    </LinearLayout>
-
-    <!-- 预览：跟真卡片同一套颜色（底 + 描边 + 三行文字 + 缩略图位 + 暂停键），挑色时当场看字够不够清楚 -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/card_slot_preview"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="8dp"
-        app:cardCornerRadius="18dp"
-        app:cardElevation="0dp"
-        app:strokeWidth="1.5dp">
+            <Button
+                android:id="@+id/btn_mode_random"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/mode_random" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
 
         <LinearLayout
+            android:id="@+id/row_interval"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="52dp"
             android:orientation="horizontal">
 
-            <View
-                android:id="@+id/img_slot_preview_thumb"
-                android:layout_width="44dp"
-                android:layout_height="match_parent" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/lib_interval_label"
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+            <TextView
+                android:id="@+id/tv_interval"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorPrimary" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <!-- 暂停这一面：只停自动切换，不清空壁纸库，也不等于关闭接管 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:orientation="horizontal">
 
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:gravity="center_vertical"
-                android:orientation="vertical"
-                android:paddingStart="10dp"
-                android:paddingEnd="4dp">
+                android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/tv_slot_preview_scope"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/slot_home_title"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
+                    android:text="@string/design_pause_switch"
+                    android:textAppearance="?attr/textAppearanceBodyLarge" />
 
                 <TextView
-                    android:id="@+id/tv_slot_preview_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/slot_preview_name"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_slot_preview_desc"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/slot_preview_desc"
-                    android:textSize="11sp" />
+                    android:text="@string/design_pause_summary"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
 
-            <ImageView
-                android:id="@+id/img_slot_preview_pause"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/slot_pause_bg"
-                android:contentDescription="@null"
-                android:padding="7dp"
-                android:src="@drawable/ic_pause" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_slot_pause"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/design_pause_switch" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-</LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_slot_clear"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/slot_clear"
+                android:textColor="?attr/colorError" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:id="@+id/btn_slot_done"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/done" />
+        </LinearLayout>
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

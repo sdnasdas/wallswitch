@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="design_pause_switch">暂停自动切换</string>
+    <string name="design_resume_switch">恢复自动切换</string>
+    <string name="design_pause_summary">保留当前壁纸，不清空壁纸库</string>
+    <string name="design_scope_settings">切换设置</string>
+    <string name="design_no_preview">这个壁纸库还没有可预览的壁纸</string>
+    <string name="design_grid_columns">%1$d 列</string>
+    <string name="design_filter_all">全部</string>
+    <string name="design_filter_live">实况</string>
+    <string name="design_filter_static">静态</string>
+    <string name="design_filter_empty">没有符合筛选条件的壁纸</string>
+    <string name="design_set_wallpaper">设为壁纸</string>
+    <string name="design_apply_home">桌面</string>
+    <string name="design_apply_lock">锁屏</string>
+    <string name="design_apply_both">均应用</string>
+    <string-array name="design_apply_targets">
+        <item>@string/design_apply_home</item>
+        <item>@string/design_apply_lock</item>
+        <item>@string/design_apply_both</item>
+    </string-array>
+    <string name="design_scope_both">桌面与锁屏</string>
+    <string name="design_enable_first">先启用动态壁纸</string>
+    <string name="design_enable_first_message">请先在系统选择器中启用 wallpaper，返回后再选择要设置的壁纸。</string>
+    <string name="design_change_library">同时更换壁纸库？</string>
+    <string name="design_change_library_message">将%1$s改为使用「%2$s」，并立即显示所选成品图。该面的切换模式、间隔与暂停状态保持不变。</string>
+    <string name="design_apply_done">已设置</string>
+    <string name="design_apply_missing">：壁纸或壁纸库已不存在</string>
+    <string name="design_import_target">导入到「%1$s」</string>
+    <string name="design_import_note">MP4 先截取最多 3 秒的实况段，再选择封面和调整取景。确认后才入库，原图会保留。</string>
+    <string name="design_import_heading">从哪里添加？</string>
+    <string name="design_quick_set_title">快捷设置</string>
+    <string name="design_quick_set_hint">任选一张，直接设为桌面或锁屏</string>
+    <string name="design_quick_set_libs">壁纸库</string>
+    <string name="design_quick_set_empty_lib">这个库还没有壁纸</string>
+    <string name="design_quick_set_no_lib">还没有壁纸库：先在图库里新建一个</string>
+    <string name="design_quick_set_none">未选择</string>
+    <string name="design_quick_set_need_pick">先选一张壁纸</string>
+    <string name="design_quick_set_apply">应用</string>
+</resources>

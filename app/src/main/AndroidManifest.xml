@@ -34,9 +34,11 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
 
+        <!-- 启动页走 core-splashscreen（Theme.Ws.Starting），onCreate 里 installSplashScreen 后换回 AppTheme -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/Theme.Ws.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -45,10 +47,12 @@
 
         <activity
             android:name=".EditActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/Theme.Ws.Editor" />
         <activity
             android:name=".VideoTrimActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/Theme.Ws.Editor" />
 
         <!-- 1×1 切换格：点一下桌面+锁屏各自切一张；它同时是「30 分钟补切」的时机（见 widget_info.xml），
              android:label 是小组件列表里显示的名字（以前没配，显示的是应用名，加了控制台就两个同名了） -->

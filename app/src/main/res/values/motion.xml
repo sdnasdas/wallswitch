@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <integer name="ui_motion_exit_duration">90</integer>
+    <integer name="ui_motion_enter_duration">150</integer>
+    <integer name="ui_motion_duration">240</integer>
+    <dimen name="ui_motion_distance">16dp</dimen>
+
+    <style name="Animation.Ws.Page" parent="android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/ui_page_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/ui_page_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/ui_page_return</item>
+        <item name="android:activityCloseExitAnimation">@anim/ui_page_leave</item>
+    </style>
+</resources>

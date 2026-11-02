@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 切换记录独立二级页：不再塞进窄弹窗。顶部范围分段 + 排序开关，正文每条是紧凑描边记录。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/log_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/page_bg"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar_log"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:menu="@menu/menu_switch_log"
+        app:navigationIcon="@drawable/ic_back"
+        app:title="@string/log_view_title"
+        app:titleTextAppearance="?attr/textAppearanceTitleLarge" />
+
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/log_scope_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="16dp"
+        app:checkedButton="@id/log_scope_home"
+        app:selectionRequired="true"
+        app:singleSelection="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/log_scope_home"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/log_tab_home" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/log_scope_lock"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/log_tab_lock" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="20dp"
+        android:paddingEnd="18dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/log_view_order"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="?attr/colorOnSurface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_log_order"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/log_order_desc"
+            android:textColor="?attr/colorOnSurface"
+            app:icon="@drawable/ic_swap_vert"
+            app:iconGravity="textStart"
+            app:iconPadding="6dp"
+            app:iconSize="18dp"
+            app:iconTint="?attr/colorOnSurface" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_log"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingStart="16dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="72dp"
+            android:scrollbars="none" />
+
+        <!-- 上滑出现回顶、下滑出现回底；在对应端点自动收起。高度不变、水平居中 -->
+        <ImageButton
+            android:id="@+id/btn_log_jump"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="40dp"
+            android:background="@drawable/log_jump_bg"
+            android:contentDescription="@string/log_jump_top"
+            android:elevation="4dp"
+            android:padding="10dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_arrow_upward"
+            android:visibility="gone"
+            app:tint="@color/text_primary" />
+    </FrameLayout>
+</LinearLayout>

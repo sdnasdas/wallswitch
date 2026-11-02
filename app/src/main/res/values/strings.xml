@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 改版试用期专用：和线上那版并存安装时，桌面名、动态壁纸选择器、通知设置里要靠这个名字分开。
+         合并回 main 前改回「wallpaper」（和 build.gradle 里的 .redesign 后缀一起删）。 -->
     <string name="app_name">wallpaper</string>
     <!-- 标题栏：应用名 + 版本号（便于确认手机上装的是哪一版） -->
     <string name="title_with_version">%1$s v%2$s</string>
@@ -27,7 +29,7 @@
     <string name="organize_move_title">移动到哪个库</string>
     <string name="organize_copy_title">复制到哪个库</string>
     <string name="organize_none">先勾选要整理的壁纸</string>
-    <string name="organize_no_other_lib">还没有别的库：先回库列表新建一个，再来整理</string>
+    <string name="organize_no_other_lib">还没有别的库：先回图库新建一个，再来整理</string>
     <string name="organize_same_lib">这张已经在这个库里了</string>
     <string name="organize_lib_sub_current">当前在看 · %1$d 张壁纸</string>
     <string name="organize_lib_sub_already">%1$d 张壁纸 · 这次选里的 %2$d 张已在这里</string>
@@ -92,7 +94,7 @@
     <!-- 库内长按浮出的「设为首页」：把这张立刻设为桌面壁纸（仅图标，无文字） -->
     <string name="set_as_home">设为首页</string>
     <string name="set_as_home_done">已设为首页壁纸</string>
-    <string name="set_as_home_unavailable">桌面范围还没设置这个库：先在「桌面壁纸库」卡片里选上它</string>
+    <string name="set_as_home_unavailable">桌面范围还没设置这个库：先在库页上方点「设为桌面」</string>
     <string name="delete_confirm_msg">「%1$s」同时挂在 %2$s 里，连同本库共 %3$d 个库用的是同一份图片文件。\n\n彻底删除：这几个库都不会再有它，成品图、缩略图、原图一起从手机上删掉，找不回来。\n\n解除本库关联：只是本库不再显示它，别的库照常轮播，一张图都不删。</string>
     <string name="delete_purge">彻底删除</string>
     <string name="delete_unlink">解除本库关联</string>
@@ -173,7 +175,7 @@
     <string name="engine_restored">已关掉引擎，桌面壁纸已还原</string>
     <string name="engine_restore_failed">还原壁纸失败，请在系统设置里手动设置</string>
     <string name="status_engine_inactive">桌面待激活：请在系统「动态壁纸」里选择本 App（关掉「开启接管」再打开可重试）</string>
-    <string name="status_takeover_off">本应用未启用：请点顶部的「启用」，把本应用设为动态壁纸</string>
+    <string name="status_takeover_off">本应用未启用：请在「此刻」页点「去开启」，把本应用设为动态壁纸</string>
     <string name="engine_hint">引擎模式未启用：启用后桌面由本 App 直接渲染，不再有"幽灵图"</string>
     <string name="engine_active">引擎模式已启用：桌面由本 App 直接渲染</string>
     <string name="status_failed_unknown">失败（未记录原因）</string>
@@ -186,6 +188,22 @@
     <string name="notify_channel_ok_desc">自动切换完成后静音留痕，不弹横幅、不出声</string>
     <string name="notify_channel_fail">自动切换失败</string>
     <string name="notify_channel_fail_desc">自动切换失败时提醒（会弹横幅）</string>
+    <!-- 库内多选底栏：指定库封面（只在恰好勾了一张时可点） -->
+    <string name="sel_cover">设为封面</string>
+    <string name="sel_uncover">取消封面</string>
+    <string name="cover_set_done">已设为「%1$s」的封面</string>
+    <string name="cover_unset_done">已取消，封面恢复自动挑选</string>
+    <!-- 温度提醒（ThermalNotifier）：只在「循环播放」档、温度闸门合上/放开时各发一条 -->
+    <string name="thermal_channel">温度提醒</string>
+    <string name="thermal_channel_desc">设备发热暂停桌面实况循环、降温后解除限制时各提醒一次</string>
+    <string name="thermal_on_title">设备偏热，桌面实况循环已暂停</string>
+    <string name="thermal_on_text">电池 %1$s℃。桌面实况循环已停在封面，降到 39℃ 以下会自动恢复并再提醒一次。</string>
+    <string name="thermal_off_title">温度已回落，实况循环限制解除</string>
+    <string name="thermal_off_text">电池 %1$s℃。桌面实况已恢复循环播放。</string>
+    <string name="notif_temp">%1$d℃</string>
+    <string name="notif_temp_restricted">%1$d℃ · 实况暂停</string>
+    <!-- 常驻通知「温控 N」胶囊：系统热档位，纯参考 -->
+    <string name="notif_thermal_level">温控 %1$d</string>
     <string name="notify_ok_title">壁纸已自动切换</string>
     <string name="notify_ok_text">库「%1$s」</string>
     <string name="notify_ok_home">｜桌面：%1$s</string>
@@ -225,12 +243,10 @@
     <string name="tab_wallpapers">壁纸</string>
     <string name="tab_settings">设置</string>
     <string name="empty_wallpapers">这个库还没有壁纸</string>
-    <string name="empty_wallpapers_hint">点右下角「添加壁纸」从相册导入</string>
+    <string name="empty_wallpapers_hint">点右下角「添加」从相册导入</string>
     <string name="manual_switch">手动切换</string>
     <string name="section_engine">引擎与后台</string>
     <string name="edit_hint">单击画面预览桌面图标 · 双指缩放 · 单指拖动</string>
-    <!-- 成品图格式那粒胶囊：文案跟着当前那一档变，点一下换另一档，只在「确认」落盘时起作用 -->
-    <string name="edit_full_format">成品图 %1$s · 点按切换</string>
     <string name="fmt_full_jpeg">JPEG</string>
     <string name="fmt_full_png">无损 PNG</string>
     <!-- 网格右上角那粒小角标：位置只有 36dp 宽，所以只标格式名，
@@ -252,14 +268,14 @@
     <string name="export_dir_title">导出目录</string>
     <string name="export_now_title">立即导出全部壁纸</string>
     <string name="export_dir_unset">未设置 · 点按选一个文件夹（如 Documents/wallswitch）</string>
-    <string name="export_dir_set_state">已设置：%1$s · 点按更换，长按取消</string>
-    <string name="export_dir_set">已记住导出目录，以后新壁纸会自动导出</string>
+    <string name="export_dir_set_state">已设置：%1$s</string>
+    <string name="export_dir_set">已记住导出目录</string>
     <string name="export_dir_clear_msg">取消后不再自动导出新壁纸（已导出的文件不会被删除），确定吗？</string>
     <string name="export_now_desc">按原始字节复制，不重压，零画质损失</string>
     <string name="export_need_dir">请先选一个导出目录</string>
     <string name="export_running">正在导出…</string>
     <string name="export_done">已导出 %1$d 张壁纸</string>
-    <string name="launcher_overlay_set">已设置 · 点按可查看/更换/清除</string>
+    <string name="launcher_overlay_set">已设置 · 点按查看、更换或清除</string>
     <string name="launcher_overlay_action_view">查看当前底图</string>
     <string name="launcher_overlay_action_change">更换底图</string>
     <string name="launcher_overlay_action_clear">清除底图</string>
@@ -288,7 +304,7 @@
     <string name="banner_activate">启用</string>
     <string name="banner_not_activated">本应用未启用：桌面壁纸未由本应用接管</string>
     <string name="banner_no_library">「桌面壁纸库」卡片还没设置库，桌面壁纸显示纯色</string>
-    <string name="takeover_need_activate">桌面壁纸库已设置，请点顶部「启用」把本应用设为动态壁纸</string>
+    <string name="takeover_need_activate">桌面壁纸库已设置，请在「此刻」页点「去开启」把本应用设为动态壁纸</string>
 
     <!-- 抽屉：保存当前壁纸（接管中存库里正在显示的那张，未接管存系统壁纸） -->
     <string name="save_wallpaper_title">保存当前壁纸</string>
@@ -305,13 +321,13 @@
     <string name="pinned_pic_title">选这一张</string>
     <!-- 副标题取 library.json 里现成的原图尺寸（不是成品图，两个名字别混用） -->
     <string name="pinned_pic_sub">原图 %1$d×%2$d</string>
-    <string name="pinned_saved">已记下：去通知栏拨那颗开关就能钉上</string>
+    <string name="pinned_saved">已记下：拨「此刻」页（或通知栏）那颗开关就能钉上</string>
     <!-- 执行入口只有那颗开关：通知被关掉时它根本不画出来，选好等于白选，所以这句得说透 -->
-    <string name="pinned_saved_no_notify">已记下，但常驻通知是关着的：打开它才有那颗开关可拨</string>
+    <string name="pinned_saved_no_notify">已记下：拨「此刻」页那颗开关就能钉上（常驻通知关着，通知栏里暂时没有那颗开关）</string>
     <string name="pinned_cleared">已清除一键设置（屏上那张不动；要恢复轮播是按暂停键）</string>
-    <string name="pinned_no_lib">还没有壁纸库：先在首页加一个</string>
+    <string name="pinned_no_lib">还没有壁纸库：先在图库里新建一个</string>
     <string name="pinned_lib_empty">这个库里没有壁纸</string>
-    <string name="pinned_missing">一键设置的那张已经不在了，去抽屉重选一张</string>
+    <string name="pinned_missing">一键设置的那张已经不在了，去「此刻」页重选一张</string>
     <string name="pinned_lock_not_applied">桌面已设为这张，锁屏没设上（两面已停住）</string>
     <string name="pinned_lock_left">这一面之前不是本应用在管，屏上那张退不回去，要手动换回</string>
             <!-- 范围改为单选下拉后，改范围需二次确认 -->
@@ -320,7 +336,7 @@
     <!-- v3.60 范围槽位卡片：桌面/锁屏各自绑定一个库，库不再有启用/范围属性 -->
     <string name="slot_home_title">桌面壁纸库</string>
     <string name="slot_lock_title">锁屏壁纸库</string>
-    <string name="slot_unset">点按选择，或长按库的头像拖到这里</string>
+    <string name="slot_unset">点按选择壁纸库</string>
     <string name="slot_none_name">未设置</string>
     <string name="slot_help_desc">操作指南</string>
     <string name="slot_guide_msg">左右滑动可切换桌面 / 锁屏，单击修改配置、双击手动触发切换</string>
@@ -328,12 +344,7 @@
     <string name="slot_paused_label">已暂停</string>
     <string name="slot_paused_toast">已暂停：这张停着，定时已撤下</string>
     <string name="slot_resumed_toast">已继续：下次切换约 %1$s</string>
-    <string name="slot_theme_label">卡片配色</string>
-    <string name="slot_theme_hue">色相</string>
-    <string name="slot_theme_tone">浓淡</string>
-    <string name="slot_preview_name">壁纸库名字</string>
-    <string name="slot_preview_desc">随机切换 · 每 60 分钟</string>
-    <string name="slot_none_toast">先单击卡片给这个范围选一个壁纸库</string>
+    <string name="slot_none_toast">先点这一面的预览图选一个壁纸库</string>
     <string name="slot_already_set">这个范围已经是该库了</string>
     <string name="slot_lib_label">壁纸库</string>
     <string name="slot_lib_none">不切换（清空本范围）</string>
@@ -369,7 +380,7 @@
     <string name="log_tag_manual">手动</string>
     <!-- 抽屉里的日志入口：直接读文件弹窗看，不用导出到文件夹 -->
     <string name="log_view_title">切换日志</string>
-    <string name="log_view_hint">点开查看 · 长按清空（自动、手动、换库都记）</string>
+    <string name="log_view_hint">自动、手动、换库都记</string>
     <string name="log_clear_title">清空日志</string>
     <string name="log_clear_msg">删除桌面和锁屏两份切换日志？导出目录里的同名副本也会一起清空。\n\n（老版本写的记录是旧格式，不会自动改写，想看得整齐就清掉重新记。）</string>
     <string name="log_clear_done">日志已清空</string>
@@ -382,7 +393,12 @@
     <!-- 点日志记录行弹出的缩略图小窗：按标题反查不到那张（改过名或已删）时的提示 -->
     <string name="log_thumb_gone">这张已经不在库里了</string>
     <!-- 日志弹窗内的展示顺序：只影响显示，文件永远按时间顺序追加 -->
-    <string name="log_view_order">最新在前</string>
+    <string name="log_view_order">排列顺序</string>
+    <string name="log_order_asc">正序</string>
+    <string name="log_order_desc">倒序</string>
+    <string name="log_order_toggle_desc">切换排序，当前%1$s</string>
+    <string name="log_jump_top">回到最上方</string>
+    <string name="log_jump_bottom">回到最下方</string>
     <string name="log_view_clear">清空</string>
     <string name="log_tab_home">桌面</string>
     <string name="log_tab_lock">锁屏</string>
@@ -393,7 +409,7 @@
     <string name="lib_mode_title">切换模式</string>
     <string name="switch_now">立即切换一张</string>
     <string name="empty_libs">还没有壁纸库</string>
-    <string name="empty_libs_hint">点右下角 ＋ 新建一个壁纸库</string>
+    <string name="empty_libs_hint">点右上角 ＋ 新建一个壁纸库</string>
     <string name="edit_desc">编辑</string>
     <string name="battery_row_title">电池优化白名单</string>
     <string name="battery_state_on">已允许</string>
@@ -411,7 +427,7 @@
     <string name="notif_action_next">下一张</string>
     <string name="notif_scope_desc">切换这三颗键作用在桌面还是锁屏</string>
     <!-- 那颗开关占掉的是原来显示壁纸标题的一行；无障碍朗读把两个含义都说一遍，屏幕上没有额外文字可看 -->
-    <string name="notif_switch_desc">一键设置：点这里把抽屉里指定的那张同时钉到桌面和锁屏；钮在右边时点这里退回</string>
+    <string name="notif_switch_desc">一键设置：点这里把「此刻」页指定的那张同时钉到桌面和锁屏；钮在右边时点这里退回</string>
     <string name="notif_cover_desc">当前壁纸封面</string>
     <string name="notify_status_next">下次切换</string>
     <!-- 预计下次切换时间（静态显示，不走秒：走秒每秒唤醒 SystemUI/桌面，真机实测是持续发热源）。
@@ -459,7 +475,7 @@
     <string name="update_source_busy">正在下载，先取消下载才能切换源</string>
     <string name="update_ready">v%1$s 已下载，点按安装</string>
     <string name="update_done_title">下载完成</string>
-    <string name="update_done_msg">v%1$s 已下到本机，现在安装吗？\n（先关掉也行，回这一页点「检查更新」那一行随时能装）</string>
+    <string name="update_done_msg">v%1$s 已下到本机，现在安装吗？\n（先关掉也行，回「设置 → 检查更新」随时能装）</string>
     <string name="update_install_now">立即安装</string>
     <string name="update_install_later">稍后安装</string>
     <string name="update_failed">下载失败，点按重试</string>
@@ -493,7 +509,85 @@
     <string name="restore_done">已还原 %1$d 条元数据、写回 %2$d 个设置项、%3$d 张图（包里缺图而丢弃 %4$d 条）</string>
     <string name="restore_failed">还原失败：%1$s</string>
     <string name="restore_ask_title">要从备份包还原吗？</string>
-    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装）。如果你之前备份过，可以现在选那个 zip 接回来；不点也没关系，以后随时能从抽屉里那一行还原。</string>
+    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装）。如果你之前备份过，可以现在选那个 zip 接回来；不点也没关系，以后随时能在「设置 → 从备份包还原」里还原。</string>
     <string name="restore_ask_go">选备份包</string>
     <string name="restore_ask_no">先不用</string>
+
+    <!-- v3.134 改版：底部三栏 此刻 / 图库 / 设置 -->
+    <string name="tab_now">此刻</string>
+    <string name="tab_gallery">图库</string>
+    <string name="done">完成</string>
+    <string name="add_short">添加</string>
+    <string name="select_all">全选</string>
+    <string name="takeover_chip_on">接管中</string>
+    <string name="takeover_chip_off">未接管 · 桌面仍是系统壁纸</string>
+    <!-- 此刻页 -->
+    <string name="now_scope_home">桌面</string>
+    <string name="now_scope_lock">锁屏</string>
+    <string name="now_unset_lib">未设置壁纸库</string>
+    <string name="now_unset_desc">点上方选一个库</string>
+    <string name="now_next_at">下次 %1$s</string>
+    <string name="now_next_overdue">已过预计时间，等待补切</string>
+    <string name="now_next_none">尚未排定</string>
+    <string name="now_recent_title">最近切换</string>
+    <string name="pinned_pick">选一张</string>
+    <string name="pinned_clear">清除</string>
+    <!-- 首次使用三步引导（取代原来那条「未启用」横幅） -->
+    <string name="guide_title">三步开始</string>
+    <string name="guide_sub">做完这三步，桌面就由本应用按时自动换壁纸</string>
+    <string name="guide_step1">新建一个库并添加壁纸</string>
+    <string name="guide_step2">为桌面选一个壁纸库</string>
+    <string name="guide_step3">把本应用设为动态壁纸</string>
+    <string name="guide_go_add">去添加</string>
+    <string name="guide_go_pick">选择</string>
+    <string name="guide_go_enable">去开启</string>
+    <!-- 图库 -->
+    <string name="gallery_reorder">调整顺序</string>
+    <string name="gallery_reorder_hint">按住卡片拖动调整顺序，完成后点右上角 ✓</string>
+    <string name="gallery_select">选择</string>
+    <string name="gallery_select_count">已选 %1$d 个库</string>
+    <!-- 库详情 -->
+    <string name="lib_rename">重命名</string>
+    <string name="lib_delete_this">删除这个库</string>
+    <string name="lib_set_home">设为桌面</string>
+    <string name="lib_set_lock">设为锁屏</string>
+    <string name="lib_using_home">桌面使用中</string>
+    <string name="lib_using_lock">锁屏使用中</string>
+    <string name="empty_wallpapers_full">这个库还没有壁纸\n点右下角「添加」从相册或链接导入</string>
+    <string name="sel_count">已选 %1$d 张</string>
+    <string name="sel_move">移动到</string>
+    <string name="sel_copy">复制到</string>
+    <string name="sel_remove">移出</string>
+    <string name="in_use_badge">使用中</string>
+    <!-- 单张详情 -->
+    <string name="detail_crop">调整取景</string>
+    <string name="detail_set_home">设为桌面</string>
+    <string name="detail_position">%1$d / %2$d</string>
+    <string name="detail_live_play">播放实况</string>
+    <string name="detail_live_stop">停止播放</string>
+    <string name="detail_live_failed">实况播放失败：原图里的实况段读不出来</string>
+    <!-- 来源面板 -->
+    <string name="add_source_album">从相册选择</string>
+    <string name="add_source_album_sub">图片与 MP4 可混选，视频可转成 Live</string>
+    <string name="add_source_link_sub">粘贴图片或 MP4 直链下载导入</string>
+    <!-- 一面的设置面板 -->
+    <string name="slot_clear">不再使用此面</string>
+    <!-- 设置页（Preference） -->
+    <string name="pref_cat_takeover">接管与后台</string>
+    <string name="pref_cat_switch">切换与通知</string>
+    <string name="pref_cat_motion">动效与预览</string>
+    <string name="pref_cat_backup">备份与导出</string>
+    <string name="pref_cat_update">更新</string>
+    <string name="pref_cat_about">关于</string>
+    <string name="pref_takeover_title">动态壁纸接管</string>
+    <string name="pref_takeover_sum">%1$s · 桌面 %2$s · 锁屏 %3$s</string>
+    <string name="pref_app_details_title">自启动与后台运行</string>
+    <string name="pref_app_details_sum">荣耀 / 华为还需在应用详情里允许自启动、后台运行</string>
+    <string name="pref_auto_notify_sum">自动切换完成后发通知：成功静音留痕，失败弹横幅</string>
+    <string name="pref_status_notify_sum">通知栏常驻当前壁纸，带上一张 / 暂停 / 下一张</string>
+    <string name="pref_version_title">版本</string>
+    <string name="export_dir_change">更换目录</string>
+    <string name="export_dir_cancel">取消导出目录</string>
+    <string name="update_downloading_tap">下载中 %1$d%% · 点按取消</string>
+    <string name="edit_preview_toggle">桌面图标预览</string>
 </resources>

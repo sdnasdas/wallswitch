@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PreferenceCategory 只负责切组，不再画一行分类标题；组与组之间留 16dp，视觉分组交给圆角容器。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="16dp"
+    android:importantForAccessibility="no">
+    <TextView
+        android:id="@android:id/title"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:visibility="invisible" />
+</FrameLayout>

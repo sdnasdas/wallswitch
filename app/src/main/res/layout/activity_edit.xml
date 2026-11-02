@@ -1,103 +1,161 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 添加壁纸的裁剪页（v3.4 起裁剪区满屏，v3.5 起加桌面图标预览浮层）：手势裁剪区铺满整屏。
-     取景框比例 = 屏幕比例 = 壁纸上屏区域，这样引擎/Launcher 那一次「居中裁剪铺满」就变成
-     空操作，裁剪页里看到的效果与实际设为壁纸后的效果一致（v3.3 之前取景框只有屏幕高减去
-     顶部提示与底部按钮条，比例偏窄，上屏后左右还会被再裁掉一截、整体放大 —— 预览与实况不符）。
-     因此提示与按钮改为浮层（layout_gravity + margin），不再占用布局高度；
-     系统栏（状态栏/刘海/手势条）避让只施加在浮层容器 edit_controls 上，裁剪区本身保持满屏。 -->
+<!-- 取景区始终满屏；系统栏避让只作用于浮层，不改变取景比例。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/edit_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/page_bg">
+    android:background="@color/viewer_bg">
 
-    <!-- 手势裁剪区：满屏，不避让系统栏（壁纸本来就铺满整屏，含状态栏与手势条区域） -->
     <com.example.wallswitch.CropView
         android:id="@+id/crop_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 桌面图标预览浮层：默认隐藏，由底部左侧的网格按钮开关。
-         不可点击，不拦截触摸，开启后裁剪区的捏合/拖动照常可用 -->
+    <!-- 轻点画面或预览按钮开关；不拦截取景手势。 -->
     <com.example.wallswitch.LauncherPreviewOverlay
         android:id="@+id/launcher_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 浮层容器：只有它避让状态栏/刘海/手势条，裁剪区不受影响 -->
     <FrameLayout
         android:id="@+id/edit_controls"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- 操作提示：半透明胶囊，尽量少遮挡取景内容 -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/overlay_pill_bg"
-            android:paddingStart="14dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp"
-            android:text="@string/edit_hint"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
-
-        <!-- 重复调整的原图状态条：只有「没原图 / 原图换过 / 刚关联」这三种情况才出现，
-             位置排在操作提示胶囊下方（胶囊约 10dp + 24dp 高，这里留 52dp 顶距免得叠住） -->
         <LinearLayout
-            android:id="@+id/edit_notice_bar"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="52dp"
-            android:background="@drawable/overlay_pill_bg"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="14dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="6dp"
-            android:paddingBottom="4dp"
-            android:visibility="gone">
+            android:layout_gravity="top"
+            android:orientation="vertical">
+
+            <!-- 顶部一排浮动键：不再垫整条深色底（那两条会盖住取景区上下沿，看不全构图），
+                 每颗键自带半透明底，亮图上照样读得清。圆键用 ImageButton + 圆形底保证图标居中。 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp">
+
+                <ImageButton
+                    android:id="@+id/btn_cancel"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/edit_tool_bg"
+                    android:contentDescription="@string/cancel"
+                    android:padding="11dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_close"
+                    app:tint="@android:color/white" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_reset_crop"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:minHeight="44dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="@string/edit_reset_crop"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    app:backgroundTint="@color/edit_float_bg"
+                    app:rippleColor="#33FFFFFF" />
+
+                <ImageButton
+                    android:id="@+id/btn_launcher_preview"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/edit_tool_bg"
+                    android:contentDescription="@string/edit_preview_toggle"
+                    android:padding="11dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_apps"
+                    app:tint="@android:color/white" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/tv_edit_notice"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/overlay_pill_bg"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:text="@string/edit_hint"
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
 
-            <!-- 「关联原图」用 TextView 而不是 MaterialButton：这条浮在成品图之上，
-                 按钮样式（Material3 那套）要引资源，本地类型检查查不出引错的样式名，
-                 等 CI 才炸；这里只要一个能点的小链接 -->
-            <TextView
-                android:id="@+id/btn_link_original"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/edit_notice_bar"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:paddingStart="6dp"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/overlay_pill_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
                 android:paddingTop="4dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="4dp"
-                android:text="@string/edit_link_original"
-                android:textColor="@color/brand"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_edit_notice"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/btn_link_original"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:minHeight="48dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:text="@string/edit_link_original"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
-        <!-- 加载中：源图解码放在后台线程（解的是像素预算内最大的那张，主线程做会卡住页面） -->
         <LinearLayout
             android:id="@+id/loading_box"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
+            android:background="@drawable/overlay_pill_bg"
             android:gravity="center"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:padding="16dp">
 
             <ProgressBar
                 android:layout_width="40dp"
@@ -114,51 +172,51 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- 成品图格式：点一下在 JPEG 与无损 PNG 之间换，选完记住（默认 JPEG）。
-             排在两颗按钮正上方 —— 这件事只在「确认」落盘时起作用，离那颗键近一点。
-             同样用 TextView 而不是 MaterialButton，理由见上面「关联原图」那条注释。 -->
-        <TextView
-            android:id="@+id/btn_full_format"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="84dp"
-            android:background="@drawable/overlay_pill_bg"
-            android:paddingStart="14dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp"
-            android:textColor="@color/brand"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <!-- 操作按钮：浮在取景框之上，各占一半宽，不用整条背景 -->
+        <!-- 底部同样不垫整条：左边成品图格式是一粒胶囊键，右边「保存取景」主按钮 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
+            android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="20dp"
-            android:paddingTop="12dp"
-            android:paddingEnd="20dp"
-            android:paddingBottom="16dp">
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_cancel"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/cancel"
+                android:id="@+id/btn_full_format"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:maxLines="1"
+                android:minWidth="0dp"
+                android:minHeight="44dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:textAllCaps="false"
                 android:textColor="@android:color/white"
-                app:backgroundTint="#8C000000" />
+                android:textSize="13sp"
+                app:backgroundTint="@color/edit_float_bg"
+                app:rippleColor="#33FFFFFF" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_confirm"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="@string/confirm" />
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="112dp"
+                android:minHeight="48dp"
+                android:text="@string/edit_save_crop" />
         </LinearLayout>
     </FrameLayout>
 </FrameLayout>

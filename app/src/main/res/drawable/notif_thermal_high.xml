@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知里「温控 N」胶囊：高档（4 及以上）红底 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/thermal_high_bg" />
+    <corners android:radius="9dp" />
+</shape>

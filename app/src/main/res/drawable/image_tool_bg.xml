@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图片上的圆形工具键底：半透明黑圆 + 白色按压反馈 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/image_tool_bg" />
+        </shape>
+    </item>
+</ripple>

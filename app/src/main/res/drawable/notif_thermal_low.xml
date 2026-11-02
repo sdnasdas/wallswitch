@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知里「温控 N」胶囊：低档（0~1）中性灰底，纯展示用 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/thermal_low_bg" />
+    <corners android:radius="9dp" />
+</shape>

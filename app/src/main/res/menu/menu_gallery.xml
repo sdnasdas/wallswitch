@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图库顶栏：普通态 = 新建库 + 溢出（调整顺序 / 选择删除）；
+     多选态与排序态由代码把 group 切换显隐 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <group android:id="@+id/group_gallery_normal">
+        <item
+            android:id="@+id/action_new_lib"
+            android:icon="@drawable/ic_add"
+            app:iconTint="?attr/colorOnSurfaceVariant"
+            android:title="@string/lib_new"
+            app:showAsAction="ifRoom" />
+        <item
+            android:id="@+id/action_reorder"
+            android:icon="@drawable/ic_swap_vert"
+            app:iconTint="?attr/colorOnSurfaceVariant"
+            android:title="@string/gallery_reorder"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/action_select_libs"
+            android:title="@string/gallery_select"
+            app:showAsAction="never" />
+    </group>
+    <group android:id="@+id/group_gallery_select">
+        <item
+            android:id="@+id/action_delete_libs"
+            android:icon="@drawable/ic_delete"
+            app:iconTint="?attr/colorError"
+            android:title="@string/lib_delete_confirm"
+            app:showAsAction="always" />
+    </group>
+    <group android:id="@+id/group_gallery_reorder">
+        <item
+            android:id="@+id/action_reorder_done"
+            android:icon="@drawable/ic_check"
+            app:iconTint="?attr/colorOnSurfaceVariant"
+            android:title="@string/done"
+            app:showAsAction="always" />
+    </group>
+</menu>

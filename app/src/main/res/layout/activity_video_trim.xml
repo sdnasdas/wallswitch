@@ -12,6 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:title="@string/video_trim_title"
+        app:navigationIconTint="?attr/colorOnSurfaceVariant"
         app:titleTextColor="@color/text_primary" />
 
     <LinearLayout
@@ -51,6 +52,7 @@
         </FrameLayout>
 
         <ScrollView
+            android:scrollbars="none"
             android:id="@+id/video_trim_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

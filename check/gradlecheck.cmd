@@ -27,6 +27,10 @@ rem ============================================================================
 setlocal
 set "JAVA_HOME=C:\Users\EDY\.jdks\corretto-17.0.20.1"
 set "GRADLE=C:\Users\EDY\.gradle\wrapper\dists\gradle-8.7-bin\bhs2wmbdwecv87pi65oeuq5iu\gradle-8.7\bin\gradle.bat"
+rem Other machines: fall back to any corretto-17 / Gradle 8.7 under the current user profile
+if not exist "%JAVA_HOME%\bin\java.exe" for /d %%D in ("%USERPROFILE%\.jdks\corretto-17*") do set "JAVA_HOME=%%~fD"
+if not exist "%GRADLE%" for /d %%D in ("%USERPROFILE%\.gradle\wrapper\dists\gradle-8.7-bin\*") do if exist "%%~fD\gradle-8.7\bin\gradle.bat" set "GRADLE=%%~fD\gradle-8.7\bin\gradle.bat"
+if not defined ANDROID_HOME if exist "%LOCALAPPDATA%\Android\Sdk" set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
 if not exist "%GRADLE%" (
     echo [gradlecheck] Gradle 8.7 not found: %GRADLE%
     echo [gradlecheck] Fix the GRADLE path above; do NOT switch to .\gradlew ^(9.3.x, out of sync with CI^)

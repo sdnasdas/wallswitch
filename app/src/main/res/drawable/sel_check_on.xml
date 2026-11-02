@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 多选「已勾选」标记：蓝色实心圆 + 白勾，外圈一道细白边（压在蓝调照片上也分得开）。
+     图库库卡片（MaterialCardView 的 checkedIcon）与库详情壁纸格、快捷设置选中格共用这一份，
+     自带颜色，所以用它的地方都要把 tint 关掉 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@color/select_blue"
+        android:pathData="M12,1.75a10.25,10.25 0,1 1,0 20.5a10.25,10.25 0,1 1,0 -20.5z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M7.4,12.4l3.1,3.1l6.1,-6.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.2" />
+</vector>

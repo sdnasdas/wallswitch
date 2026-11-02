@@ -77,6 +77,12 @@ public class CropView extends View {
         invalidate();
     }
 
+    /** 恢复居中铺满的初始取景，不重新解码。 */
+    public void resetCrop() {
+        resetLayout();
+        invalidate();
+    }
+
     /**
      * 释放编辑用位图（页面销毁时调用）。
      *

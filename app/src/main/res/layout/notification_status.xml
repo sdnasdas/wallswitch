@@ -86,13 +86,50 @@
                  形状等比自绘 —— androidx 的类进不了 RemoteViews（白名单只认 framework 带 @RemoteView 的），
                  真 android.widget.Switch 虽然能画，但颜色不跟 brand、默认 32dp 顶高度、低版本画不出来
                  是整条通知被删，所以不走那条。理由账目见 docs/pinned-one-tap-design.md 第 2 节。 -->
-            <ImageView
-                android:id="@+id/notif_one_tap_switch"
-                android:layout_width="36dp"
+            <!-- 这一行固定 22dp 高：开关 + 紧跟其后的电池温度（见 StatusNotifier#bindTemperature）。
+                 开关 GONE 时温度顶到行首（左内边距由代码清零），行高不变，整卡仍是 128dp。 -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="22dp"
-                android:contentDescription="@string/notif_switch_desc"
-                android:src="@drawable/notif_switch_off"
-                android:visibility="gone" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/notif_one_tap_switch"
+                    android:layout_width="36dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="@string/notif_switch_desc"
+                    android:src="@drawable/notif_switch_off"
+                    android:visibility="gone" />
+
+                <!-- 电池温度：整度显示（只有整度变了才重发通知，免得频繁唤醒 SystemUI）。
+                     温度闸门压住实况循环时换成警示色并带「实况暂停」 -->
+                <TextView
+                    android:id="@+id/notif_temp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:paddingStart="8dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <!-- 系统热档位（「2 档」这类），纯参考：闸门实际按电池温度判，这枚胶囊只告诉你
+                     厂商温控现在报的是第几档。颜色跟档位走（低灰 / 中琥珀 / 高红），
+                     Android 10 以下没有这个接口，整颗 GONE。 -->
+                <TextView
+                    android:id="@+id/notif_thermal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="18dp"
+                    android:background="@drawable/notif_thermal_low"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:minWidth="32dp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"

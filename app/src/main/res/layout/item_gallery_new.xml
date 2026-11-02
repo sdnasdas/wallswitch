@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图库末尾那一格「新建库」：描边卡片，与库卡片同宽，高度跟着封面那一格走（代码里按宽设成正方形） -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/card_new_lib"
+    style="@style/Widget.Ws.Card.Outlined"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="6dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <LinearLayout
+        android:id="@+id/new_lib_box"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_add"
+            app:tint="?attr/colorPrimary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/lib_new"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textColor="?attr/colorPrimary" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

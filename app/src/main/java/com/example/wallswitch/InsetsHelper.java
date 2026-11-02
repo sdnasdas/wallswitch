@@ -3,6 +3,7 @@ package com.example.wallswitch;
 import android.app.Activity;
 import android.os.Build;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 
 /**
@@ -23,8 +24,46 @@ public final class InsetsHelper {
      * @param rootId   内容根布局 id（安全区 padding 加在它上面）
      */
     public static void apply(Activity activity, int rootId) {
+        edgeToEdge(activity);
+        final View root = activity.findViewById(rootId);
+        if (root == null) {
+            return;
+        }
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int[] bars = bars(insets);
+            v.setPadding(bars[0], bars[1], bars[2], bars[3]);
+            // 不消费，继续分发给子视图（如列表需要可自行再用）
+            return insets;
+        });
+    }
+
+    /** 状态栏 + 导航栏 + 刘海的安全区（左、上、右、下），按 API 取新旧两套接口。 */
+    public static int[] bars(WindowInsets insets) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            // systemBars 含状态栏/导航栏，displayCutout 含刘海挖孔安全区
+            android.graphics.Insets b = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            return new int[]{b.left, b.top, b.right, b.bottom};
+        }
+        return new int[]{insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom()};
+    }
+
+    public static void hideScrollbars(View root) {
+        root.setVerticalScrollBarEnabled(false);
+        root.setHorizontalScrollBarEnabled(false);
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                hideScrollbars(group.getChildAt(i));
+            }
+        }
+    }
+
+    public static void edgeToEdge(Activity activity) {
+        hideScrollbars(activity.getWindow().getDecorView());
         // 统一关闭 decor 自动避让：任何版本下内容都按边到边布局，
-        // 安全区完全由下面的 insets padding 处理，避免新旧版本行为不一致/重复内边距
+        // 安全区完全由 insets padding 处理，避免新旧版本行为不一致/重复内边距
         // 导航栏透明时系统会默认叠加半透明对比度遮罩（API 29+），关闭以保持与页面底色一致。
         // 状态栏无对应 API，不需要处理。
         if (Build.VERSION.SDK_INT >= 29) {
@@ -38,29 +77,5 @@ public final class InsetsHelper {
                             | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
-        final View root = activity.findViewById(rootId);
-        if (root == null) {
-            return;
-        }
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            final int left, top, right, bottom;
-            if (Build.VERSION.SDK_INT >= 30) {
-                // systemBars 含状态栏/导航栏，displayCutout 含刘海挖孔安全区
-                android.graphics.Insets bars = insets.getInsets(
-                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                left = bars.left;
-                top = bars.top;
-                right = bars.right;
-                bottom = bars.bottom;
-            } else {
-                left = insets.getSystemWindowInsetLeft();
-                top = insets.getSystemWindowInsetTop();
-                right = insets.getSystemWindowInsetRight();
-                bottom = insets.getSystemWindowInsetBottom();
-            }
-            v.setPadding(left, top, right, bottom);
-            // 不消费，继续分发给子视图（如列表需要可自行再用）
-            return insets;
-        });
     }
 }

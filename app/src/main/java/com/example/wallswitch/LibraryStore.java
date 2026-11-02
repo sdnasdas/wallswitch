@@ -20,6 +20,8 @@ import java.util.UUID;
  * 库对象上的 home/lock/enabled/mode/intervalSeconds 为遗留字段：仅做 JSON 往返
  * 与一次性迁移取值，界面不再提供入口、逻辑不再读取（保证可回滚降级）。
  * 存储：filesDir/libraries.json，元素字段 {"id","name","home","lock","enabled","interval_seconds","mode"}
+ * 外加可选的 "cover"（v3.134：用户在单张详情里指定的库封面那张壁纸 id；缺省/空 = 自动挑）。
+ * 备份包整份拷 libraries.json 字节，所以封面随备份走，还原不用另做处理。
  * 切换进度按库隔离，键名约定见 Switcher.progressBase。
  */
 public class LibraryStore {
@@ -48,6 +50,8 @@ public class LibraryStore {
     public static class Library {
         public String id;
         public String name;
+        /** 用户指定的封面壁纸 id；null = 自动（在屏那张优先，其次库内第一张）。读时要验它还在库里。 */
+        public String cover;
         // ===== 以下为遗留字段（见类注释），只为 JSON 往返保留 =====
         public boolean home;
         public boolean lock;
@@ -78,6 +82,8 @@ public class LibraryStore {
                     lib.enabled = o.optBoolean("enabled", false);
                     lib.intervalSeconds = o.optInt("interval_seconds", DEFAULT_INTERVAL_SECONDS);
                     lib.mode = o.optString("mode", MODE_ORDER);
+                    String cover = o.optString("cover", "");
+                    lib.cover = cover.isEmpty() ? null : cover;
                     libs.add(lib);
                 } catch (Exception ignored) {
                     // 单条缺 id 属于历史脏数据，跳过该条，不影响其余库
@@ -181,6 +187,9 @@ public class LibraryStore {
                 o.put("enabled", lib.enabled);
                 o.put("interval_seconds", lib.intervalSeconds);
                 o.put("mode", lib.mode);
+                if (lib.cover != null) {
+                    o.put("cover", lib.cover);
+                }
                 arr.put(o);
             }
             MetaFiles.writeJson(ctx, LIBS_FILE, arr.toString());
@@ -465,5 +474,29 @@ public class LibraryStore {
             }
         }
         saveList(ctx, libs);
+    }
+
+    /** 指定库封面（传 null = 恢复自动挑选）。 */
+    public static void setCover(Context ctx, String libId, String wallpaperId) {
+        List<Library> libs = load(ctx);
+        for (Library lib : libs) {
+            if (lib.id.equals(libId)) {
+                lib.cover = wallpaperId;
+            }
+        }
+        saveList(ctx, libs);
+    }
+
+    /**
+     * 这个库现在生效的「指定封面」：设过、且那张还挂在这个库里才算，否则返回 null（调用方走自动挑选）。
+     * 不在删除/移出时去清这个字段 —— 现读时验一下更稳，移出又移回来的那张还能接着当封面。
+     */
+    public static String coverId(Context ctx, String libId) {
+        Library lib = get(ctx, libId);
+        if (lib == null || lib.cover == null) {
+            return null;
+        }
+        WallpaperStore.Item item = WallpaperStore.get(ctx, lib.cover);
+        return item != null && item.inLib(libId) ? lib.cover : null;
     }
 }

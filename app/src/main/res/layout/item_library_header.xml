@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库详情列表的头部（占满三列）：封面横幅 + 张数，以及这个库在两面上的状态按钮。
+     没在用的那一面是「设为桌面 / 设为锁屏」（二次确认后落槽位，替掉原来拖头像到卡片上那条手势）；
+     正在用的那一面是「桌面使用中」，点它开那一面的设置面板。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="6dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="8dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="140dp">
+
+        <ImageView
+            android:id="@+id/img_header_cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/colorSurfaceContainerHighest"
+            android:contentDescription="@string/thumb_desc"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="@drawable/scrim_bottom"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="12dp">
+
+            <TextView
+                android:id="@+id/tv_header_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceTitleLarge"
+                android:textColor="@android:color/white" />
+
+            <TextView
+                android:id="@+id/tv_header_count"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="#E6FFFFFF" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_lib_home"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            app:icon="@drawable/ic_home" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_lib_lock"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            app:icon="@drawable/ic_lock" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/wallpaper_filters"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+            <Button
+                android:id="@+id/filter_all"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/design_filter_all"
+                android:textSize="12sp" />
+            <Button
+                android:id="@+id/filter_live"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/design_filter_live"
+                android:textSize="12sp" />
+            <Button
+                android:id="@+id/filter_static"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/design_filter_static"
+                android:textSize="12sp" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <Button
+            android:id="@+id/btn_grid_columns"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="64dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_lib_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="48dp"
+        android:gravity="center"
+        android:lineSpacingExtra="4dp"
+        android:text="@string/empty_wallpapers_full"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone" />
+</LinearLayout>

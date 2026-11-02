@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 详情页翻页的一页：一张成品图按屏幕大小降采样后 fitCenter 摆着（先放缩略图占位，解完换上） -->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/img_detail"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:contentDescription="@string/thumb_desc"
+    android:scaleType="fitCenter" />

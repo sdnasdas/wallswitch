@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库详情顶栏：普通态 = 改名 + 溢出（选择 / 删除这个库）；多选态 = 全选 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <group android:id="@+id/group_library_normal">
+        <item
+            android:id="@+id/action_rename_lib"
+            android:icon="@drawable/ic_edit"
+            app:iconTint="?attr/colorOnSurfaceVariant"
+            android:title="@string/lib_rename"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/action_select_wallpapers"
+            android:title="@string/gallery_select"
+            app:showAsAction="always" />
+        <item
+            android:id="@+id/action_delete_lib"
+            android:title="@string/lib_delete_this"
+            app:showAsAction="never" />
+    </group>
+    <group android:id="@+id/group_library_select">
+        <item
+            android:id="@+id/action_select_all"
+            android:icon="@drawable/ic_select_all"
+            app:iconTint="?attr/colorOnSurfaceVariant"
+            android:title="@string/select_all"
+            app:showAsAction="always" />
+    </group>
+</menu>

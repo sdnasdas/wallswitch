@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_design_experience">使用体验</string>
+    <string name="settings_design_motion">切换与实况</string>
+    <string name="settings_design_motion_summary">%1$s · %2$s</string>
+    <string name="settings_design_notifications">通知与小组件</string>
+    <string name="settings_design_notifications_summary">自动切换提醒、常驻通知与倒计时</string>
+    <string name="settings_quick_threshold_title">快捷设置下拉阈值</string>
+    <string name="settings_quick_threshold_summary">%1$d dp · 约屏幕高度的 %2$d%%</string>
+    <string name="settings_quick_threshold_description">仅影响首页快捷设置。手指从按下位置下拉超过该距离，抽屉才开始跟手；数值越大，越不容易误收起。</string>
+    <string name="settings_quick_threshold_unit" translatable="false">dp</string>
+    <string name="settings_quick_threshold_reset">恢复默认</string>
+    <string name="settings_design_launcher_preview">桌面图标预览</string>
+    <string name="settings_design_pinned">临时固定一张</string>
+    <string name="settings_design_data">数据管理</string>
+    <string name="settings_design_backup_summary">导出成品图、备份整库、还原与保存当前壁纸</string>
+    <string name="settings_design_export">成品图导出</string>
+    <string name="settings_design_backup_restore">整库备份与还原</string>
+    <string name="settings_design_current_wallpaper">当前系统壁纸</string>
+    <string name="settings_design_switch_log">切换记录</string>
+    <string name="settings_design_app">应用</string>
+    <string name="settings_design_system">系统与后台</string>
+    <string name="settings_design_system_summary">动态壁纸接管、电池优化与应用信息</string>
+    <string name="settings_design_about">关于与更新</string>
+    <string name="settings_design_back_home">返回设置首页</string>
+</resources>
