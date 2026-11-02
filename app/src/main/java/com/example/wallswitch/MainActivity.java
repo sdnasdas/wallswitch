@@ -628,8 +628,8 @@ public class MainActivity extends AppCompatActivity {
             if (bulkChoiceShowing || bulkImportRunning) {
                 return;
             }
-            // 还有待编辑项：继续逐张处理（目标库为空时编辑页自己回退到第一个库）
-            openEdit(pending.get(0), currentLibId());
+            // 还有待编辑项：继续逐张处理（取景完成后在编辑页里选库）
+            openEdit(pending.get(0));
             return;
         }
         // 裁剪页这次动过哪一张，就只重解那一张（缩略图与大图两份缓存都摘掉）
@@ -3726,7 +3726,7 @@ public class MainActivity extends AppCompatActivity {
                             Toast.LENGTH_SHORT).show();
                 }
                 if (!pending.isEmpty()) {
-                    openEdit(pending.get(0), currentLibId());
+                    openEdit(pending.get(0));
                 }
             });
         }, "inbox-import").start();
@@ -3767,7 +3767,7 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
         if (ids.size() == 1) {
-            openEdit(ids.get(0), currentLibId());
+            openEdit(ids.get(0));
             return true;
         }
         checkAndShowBatchChoice(ids);
@@ -3796,7 +3796,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 if (hasVideo) {
-                    openEdit(ids.get(0), currentLibId());
+                    openEdit(ids.get(0));
                     return;
                 }
                 showBatchChoice(ids);
@@ -3810,12 +3810,21 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(getString(R.string.import_batch_title, ids.size()))
                 .setMessage(R.string.import_batch_message)
                 .setPositiveButton(R.string.import_batch_all_default, (dialog, which) -> {
-                    bulkChoiceShowing = false;
-                    confirmPendingDefaults(ids);
+                    // 批量默认没有取景这一步；库仍然让用户自己选，取消就退回这个选择
+                    LibChooser.show(this, getString(R.string.import_pick_lib_title),
+                            libId -> {
+                                bulkChoiceShowing = false;
+                                confirmPendingDefaults(ids, libId);
+                            },
+                            () -> {
+                                if (!isFinishing() && !isDestroyed()) {
+                                    showBatchChoice(ids);
+                                }
+                            });
                 })
                 .setNegativeButton(R.string.import_batch_one_by_one, (dialog, which) -> {
                     bulkChoiceShowing = false;
-                    openEdit(ids.get(0), currentLibId());
+                    openEdit(ids.get(0));
                 })
                 .setCancelable(false)
                 .show();
@@ -3824,15 +3833,11 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 全部按默认取景导入：先按裁剪页 fit-cover 的同一几何从原图中心裁一块（窗口比例），再走
      * confirmImport；这样详情页 fitCenter 看到的也是上屏那块，不会露出整张原图。裁完把矩形写回
-     * src_w/crop_*，下次「调整取景」恢复到同一构图。
+     * src_w/crop_*，下次「调整取景」恢复到同一构图。目标库由选库弹窗传进来，这里不再回退
+     * 最近操作的库。
      */
-    private void confirmPendingDefaults(ArrayList<String> ids) {
-        String target = currentLibId();
-        if (target == null || LibraryStore.get(this, target) == null) {
-            List<LibraryStore.Library> libs = LibraryStore.load(this);
-            target = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
-        }
-        final String libId = target;
+    private void confirmPendingDefaults(ArrayList<String> ids, String chosenLibId) {
+        final String libId = chosenLibId;
         final Context app = getApplicationContext();
         final ArrayList<String> batch = new ArrayList<>(ids);
         final int count = batch.size();
@@ -3981,7 +3986,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 进程重启后收件箱也走同一分流，避免 MP4 被当成图片解码后删掉。 */
-    void openEdit(String inboxId, String libId) {
+    void openEdit(String inboxId) {
         if (openingInboxId != null) {
             return;
         }
@@ -4008,7 +4013,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (!video) {
                     openingInboxId = null;
-                    launchInboxEditor(inboxId, libId, false);
+                    launchInboxEditor(inboxId, false);
                     return;
                 }
                 new AppAlertDialogBuilder(this)
@@ -4017,7 +4022,7 @@ public class MainActivity extends AppCompatActivity {
                         .setNegativeButton(R.string.video_no, (dialog, which) -> cancelVideoInbox(inboxId))
                         .setPositiveButton(R.string.video_yes, (dialog, which) -> {
                             openingInboxId = null;
-                            launchInboxEditor(inboxId, libId, true);
+                            launchInboxEditor(inboxId, true);
                         })
                         .setOnCancelListener(dialog -> cancelVideoInbox(inboxId))
                         .show();
@@ -4030,14 +4035,13 @@ public class MainActivity extends AppCompatActivity {
         openingInboxId = null;
         List<String> pending = WallpaperStore.pendingInbox(this);
         if (!pending.isEmpty()) {
-            openEdit(pending.get(0), currentLibId());
+            openEdit(pending.get(0));
         }
     }
 
-    void launchInboxEditor(String inboxId, String libId, boolean video) {
+    void launchInboxEditor(String inboxId, boolean video) {
         Intent intent = new Intent(this, video ? VideoTrimActivity.class : EditActivity.class);
         intent.putExtra(EditActivity.EXTRA_INBOX_ID, inboxId);
-        intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
         startActivity(intent);
     }
 
@@ -4109,7 +4113,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 Toast.makeText(this, R.string.url_download_done, Toast.LENGTH_SHORT).show();
-                openEdit(inboxId, currentLibId());
+                openEdit(inboxId);
             });
         }, "url-download").start();
     }

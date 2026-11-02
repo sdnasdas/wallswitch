@@ -124,11 +124,10 @@ public class EditActivity extends AppCompatActivity {
         maxDim = WallpaperStore.maxWallpaperDim(this);
         inboxId = getIntent().getStringExtra(EXTRA_INBOX_ID);
         itemId = getIntent().getStringExtra(EXTRA_ITEM_ID);
-        libId = getIntent().getStringExtra(EXTRA_LIB_ID);
-        if (itemId == null && (libId == null || LibraryStore.get(this, libId) == null)) {
-            // 仅导入模式需要目标库：未指定或库已删除时回退到第一个库，没有库则建默认库
-            List<LibraryStore.Library> libs = LibraryStore.load(this);
-            libId = libs.isEmpty() ? LibraryStore.create(this, null).id : libs.get(0).id;
+        // 重编模式从详情页带当前库；导入模式不预设，取景完成后由 onConfirm 让用户选
+        libId = itemId == null ? null : getIntent().getStringExtra(EXTRA_LIB_ID);
+        if (itemId == null) {
+            btnConfirm.setText(R.string.edit_save_to);
         }
         btnConfirm.setOnClickListener(v -> onConfirm());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> onCancel());
@@ -418,6 +417,17 @@ public class EditActivity extends AppCompatActivity {
      */
     private void onConfirm() {
         if (loading || confirmRunning) {
+            return;
+        }
+        if (itemId == null) {
+            // 导入：取景已经定好，先选库再落盘；取消/点外面就留在本页，取景不丢
+            LibChooser.show(this, getString(R.string.import_pick_lib_title), chosen -> {
+                if (loading || confirmRunning || isFinishing() || isDestroyed()) {
+                    return;
+                }
+                libId = chosen;
+                startConfirm(false);
+            });
             return;
         }
         // 当值复检（与网格那两道闸门同一个判据，这里是现读）：从进页面到点确认这段窗口里，

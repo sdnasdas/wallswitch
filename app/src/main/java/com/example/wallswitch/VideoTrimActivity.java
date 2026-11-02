@@ -86,7 +86,6 @@ public final class VideoTrimActivity extends AppCompatActivity {
     private File scratch;
     private File pendingLive;
     private String inboxId;
-    private String libId;
     private Bundle restored;
     private boolean binding;
     private boolean exporting;
@@ -104,7 +103,6 @@ public final class VideoTrimActivity extends AppCompatActivity {
         InsetsHelper.apply(this, R.id.video_trim_root);
         restored = state;
         inboxId = getIntent().getStringExtra(EditActivity.EXTRA_INBOX_ID);
-        libId = getIntent().getStringExtra(EditActivity.EXTRA_LIB_ID);
         if (inboxId == null) {
             finish();
             return;
@@ -547,7 +545,6 @@ public final class VideoTrimActivity extends AppCompatActivity {
             Files.move(live.toPath(), source.toPath(), StandardCopyOption.REPLACE_EXISTING);
             Intent intent = new Intent(this, EditActivity.class);
             intent.putExtra(EditActivity.EXTRA_INBOX_ID, inboxId);
-            intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
             startActivity(intent);
             handedOff = true;
             finish();

@@ -116,7 +116,9 @@
     <string name="import_too_many">一次最多导入 %1$d 张</string>
     <!-- 多张收下后的选择：默认取景是画面中心铺满，之后还能在单张详情里重调 -->
     <string name="import_batch_title">已读取 %1$d 张</string>
-    <string name="import_batch_message">可以逐张调整取景，也可以先按屏幕比例居中导入，之后在单张详情页的「调整取景」里再改。</string>
+    <string name="import_batch_message">可以逐张调整取景，也可以先按屏幕比例居中导入（下一步选库），之后在单张详情页的「调整取景」里再改。</string>
+    <string name="import_pick_lib_title">导入到哪个库</string>
+    <string name="lib_pick_item">%1$s（%2$d 张）</string>
     <string name="import_batch_all_default">全部默认导入</string>
     <string name="import_batch_one_by_one">逐张取景</string>
     <string name="import_batch_progress_title">正在按默认取景导入</string>
