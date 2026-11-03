@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 全套页面转场共用这一组 token：UiMotion（Activity 内 SharedAxis）、设置页一二级（SettingsFragment）、
-         Activity 窗口动画（ui_page_*）。总时长 = 退场 120ms + 进场 300ms，
-         SharedAxis 那路靠 fadeThreshold = exit/duration 拆出同样的两段。 -->
-    <integer name="ui_motion_exit_duration">120</integer>
+         Activity 窗口动画（ui_page_*，平移距离写死 30%，与本处 ui_motion_distance_percent 保持一致）。
+         总时长 = 退场 150ms + 进场 300ms，SharedAxis 那路靠 fadeThreshold = exit/duration 拆出同样的两段。 -->
+    <integer name="ui_motion_exit_duration">150</integer>
     <integer name="ui_motion_enter_duration">300</integer>
-    <integer name="ui_motion_duration">420</integer>
-    <dimen name="ui_motion_distance">24dp</dimen>
+    <integer name="ui_motion_duration">450</integer>
+    <!-- 位移占屏宽的比例：要的是「新页从右缘推进来」的行程感，24dp 那种小滑距只剩淡入淡出 -->
+    <integer name="ui_motion_distance_percent">30</integer>
 
     <style name="Animation.Ws.Page" parent="android:style/Animation.Activity">
         <item name="android:activityOpenEnterAnimation">@anim/ui_page_enter</item>

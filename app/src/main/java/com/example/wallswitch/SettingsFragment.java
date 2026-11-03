@@ -147,8 +147,10 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
         transitionTarget = screen;
         transitionList = list;
-        // transitionOffset 是新页的进场起点：进二级页从右滑入、回首页从左滑入（RTL 取反）。
-        transitionOffset = list.getResources().getDimensionPixelSize(R.dimen.ui_motion_distance)
+        // transitionOffset 是新页的进场起点：进二级页从右缘滑入、回首页从左缘滑入（RTL 取反），
+        // 行程按屏宽取（与 UiMotion / ui_page_* 的 30% 同源）
+        transitionOffset = list.getWidth()
+                * list.getResources().getInteger(R.integer.ui_motion_distance_percent) / 100f
                 * (screen == homeScreen ? -1 : 1)
                 * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
         // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。

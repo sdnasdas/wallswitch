@@ -26,8 +26,11 @@ final class UiMotion {
 
     private static void sharedAxis(Activity activity, int axis, boolean forward, View... targets) {
         MaterialSharedAxis transition = new MaterialSharedAxis(axis, forward);
+        // 位移按屏宽取，不是固定 dp：小滑距只剩淡入淡出，看不出「新页从右缘推进来」
         ((SlideDistanceProvider) transition.getPrimaryAnimatorProvider()).setSlideDistance(
-                activity.getResources().getDimensionPixelSize(R.dimen.ui_motion_distance));
+                Math.round(activity.getResources().getDisplayMetrics().widthPixels
+                        * activity.getResources().getInteger(R.integer.ui_motion_distance_percent)
+                        / 100f));
         ((FadeThroughProvider) transition.getSecondaryAnimatorProvider()).setProgressThreshold(
                 fadeThreshold(activity));
         for (View target : targets) {
