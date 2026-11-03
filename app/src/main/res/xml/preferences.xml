@@ -174,13 +174,6 @@
 
         <Preference
             app:iconSpaceReserved="false"
-            app:icon="@drawable/ic_history"
-            app:key="switch_log"
-            app:persistent="false"
-            app:title="@string/settings_design_switch_log" />
-
-        <Preference
-            app:iconSpaceReserved="false"
             app:icon="@drawable/ic_delete"
             app:key="clear_titles"
             app:persistent="false"

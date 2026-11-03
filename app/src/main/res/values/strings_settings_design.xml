@@ -17,7 +17,7 @@
     <string name="settings_design_export">成品图导出</string>
     <string name="settings_design_backup_restore">整库备份与还原</string>
     <string name="settings_design_current_wallpaper">当前系统壁纸</string>
-    <string name="settings_design_switch_log">切换记录</string>
+
     <string name="settings_design_app">应用</string>
     <string name="settings_design_system">系统与后台</string>
     <string name="settings_design_system_summary">动态壁纸接管、电池优化与应用信息</string>

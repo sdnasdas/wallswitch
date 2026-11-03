@@ -106,7 +106,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             WidgetProvider.updateWidget(requireContext());
         });
         click("pinned", this::onPinnedTapped);
-        click("switch_log", () -> host().showSwitchLog());
         click("clear_titles", this::onClearTitlesTapped);
         click("transition", this::pickTransition);
         click("motion", this::pickMotion);
@@ -154,6 +153,10 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 * (screen == homeScreen ? -1 : 1)
                 * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
         // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。
+        // 存首页滚动位置必须赶在这之前——收底栏会让列表布局变一档，存晚了恢复就对不上。
+        if (getPreferenceScreen() == homeScreen && screen != homeScreen) {
+            saveHomeScroll();
+        }
         notifyScreenChanged();
         if (!ValueAnimator.areAnimatorsEnabled()) {
             // 先遮住旧列表再换屏，旧页的滚动位置/布局变化就不会露出来。
@@ -178,9 +181,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (screen != getPreferenceScreen()) {
             resetScrollAfterBind |= getView() != null;
             boundScreen = null;
-            if (getPreferenceScreen() == homeScreen) {
-                saveHomeScroll();
-            }
         }
         setPreferenceScreen(screen);
         configureGroupedPresentation();
@@ -670,7 +670,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         String version = "v" + UpdateChecker.localVersion(ctx);
         summary("version", version);
         summary("settings_about", version);
-        refreshLogRow();
         refreshClearTitlesRow();
     }
 
@@ -679,32 +678,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (isAdded() && getActivity() instanceof MainActivity) {
             summary("update", host().updateStatus());
         }
-    }
-
-    /** 日志那一行要读文件，放后台线程。 */
-    private void refreshLogRow() {
-        if (findPreference("switch_log") == null) {
-            return;
-        }
-        final Context app = requireContext().getApplicationContext();
-        new Thread(() -> {
-            final String home = SwitchLog.latestTimeLabel(app, true);
-            final String lock = SwitchLog.latestTimeLabel(app, false);
-            final android.app.Activity activity = getActivity();
-            if (activity == null) {
-                return;
-            }
-            activity.runOnUiThread(() -> {
-                if (!isAdded()) {
-                    return;
-                }
-                summary("switch_log", home == null && lock == null
-                        ? getString(R.string.log_view_empty_row)
-                        : getString(R.string.log_view_latest,
-                                home == null ? getString(R.string.log_view_none) : home,
-                                lock == null ? getString(R.string.log_view_none) : lock));
-            });
-        }, "pref-log-row").start();
     }
 
     /** 存量标题清除那一行：库里还有没有老标题要整份读 library.json，放后台线程。 */

@@ -90,6 +90,7 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.ShapeAppearanceModel;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputLayout;
@@ -169,6 +170,8 @@ public class MainActivity extends AppCompatActivity {
     private int currentTab;
     /** 图库那一栏现在停在库详情（true）还是库卡片网格（false）。 */
     private boolean libraryOpen;
+    /** 程序化拨一键设置开关时置真，别把刷新当成用户拨动又去钉/退一遍。 */
+    private boolean pinnedCardRefresh;
     /** 最近一次系统栏避让尺寸（左、上、右、下），底部那档随底栏显隐换人垫。 */
     private final int[] barInsets = new int[4];
 
@@ -618,6 +621,8 @@ public class MainActivity extends AppCompatActivity {
         WidgetProvider.updateWidget(this);
         // 通知不跨重启存活、也可能被 ROM 清掉：回到应用时兜底补发/刷新常驻通知
         StatusNotifier.update(this);
+        // 通知上那颗一键设置开关可能在后台被人拨过：回来对一次此刻页卡片的态
+        refreshPinnedCard();
         // 从安装页/安装授权页返回：更新那一行按当前下载状态重刷
         UpdateDownloader.pruneInstalled(this);
         bindUpdateState();
@@ -800,6 +805,9 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.guide_btn_2).setOnClickListener(v -> showSlotSettingsSheet(true));
         findViewById(R.id.guide_btn_3).setOnClickListener(v -> enableTakeover());
         findViewById(R.id.card_quick_set).setOnClickListener(v -> showQuickSetSheet());
+        findViewById(R.id.card_pinned).setOnClickListener(v -> onPinnedCardTapped());
+        ((MaterialSwitch) findViewById(R.id.switch_pinned)).setOnCheckedChangeListener(
+                (b, on) -> onPinnedSwitchToggled(on));
         findViewById(R.id.card_recent).setOnClickListener(v -> showSwitchLog());
     }
 
@@ -830,6 +838,7 @@ public class MainActivity extends AppCompatActivity {
         refreshTakeoverUi();
         refreshTimerStatus();
         refreshSwitchLogRow();
+        refreshPinnedCard();
     }
 
     /** 两面预览卡重绑（老名字留着：切换、改槽位、改配色之后各处都调它）。 */
@@ -5716,6 +5725,7 @@ public class MainActivity extends AppCompatActivity {
     void clearPinned() {
         PinnedWallpaper.clear(this);
         refreshSettings();
+        refreshPinnedCard();
         StatusNotifier.update(this);
         Toast.makeText(this, R.string.pinned_cleared, Toast.LENGTH_SHORT).show();
     }
@@ -5753,13 +5763,10 @@ public class MainActivity extends AppCompatActivity {
                 .setAdapter(new PinWallpaperAdapter(items, liveId), (dialog, which) -> {
                     PinnedWallpaper.set(this, libId, items.get(which).id);
                     refreshSettings();
+                    refreshPinnedCard();
                     // 那颗开关要当场跟上（没配→画出来、已钉↔没钉都靠这次重发），别等下次切图才画
                     StatusNotifier.update(this);
-                    // 执行入口只在通知栏那颗键上：常驻通知被关掉（我们这条关了或系统总闸关了）时
-                    // 那颗键根本不存在，选好等于白选，得如实说一句而不是只报"已记下"
-                    boolean notifyOk = StatusNotifier.isEnabled(this) && SwitchNotifier.canNotify(this);
-                    Toast.makeText(this, notifyOk ? R.string.pinned_saved : R.string.pinned_saved_no_notify,
-                            notifyOk ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, R.string.pinned_saved, Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton(R.string.close, null)
                 .show();
@@ -5769,6 +5776,86 @@ public class MainActivity extends AppCompatActivity {
     private View newPinRow(View convertView, ViewGroup parent) {
         return convertView != null ? convertView
                 : LayoutInflater.from(this).inflate(R.layout.item_slot_lib, parent, false);
+    }
+
+    /** 此刻页一键设置卡的状态刷新：开关是否钉着、副标题三态（未设置 / 已配未钉 / 已钉住）。 */
+    private void refreshPinnedCard() {
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            final boolean configured = PinnedWallpaper.isConfigured(app);
+            final boolean pinned = configured && PinnedWallpaper.canUndo(app);
+            final String lib = configured ? PinnedWallpaper.label(app) : null;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                pinnedCardRefresh = true;
+                MaterialSwitch sw = findViewById(R.id.switch_pinned);
+                sw.setChecked(pinned);
+                sw.setEnabled(configured);
+                pinnedCardRefresh = false;
+                TextView tv = findViewById(R.id.tv_pinned);
+                if (!configured || lib == null) {
+                    tv.setText(R.string.pinned_unset);
+                } else if (pinned) {
+                    tv.setText(R.string.now_pinned_on);
+                } else {
+                    tv.setText(getString(R.string.now_pinned_ready, lib));
+                }
+            });
+        }, "pinned-card").start();
+    }
+
+    /** 卡身点按 = 配置入口：没配直接选图；配过了给「挑一张 / 清除」，与设置页那行同款。 */
+    private void onPinnedCardTapped() {
+        if (!PinnedWallpaper.isConfigured(this)) {
+            showPinnedPicker();
+            return;
+        }
+        new AppAlertDialogBuilder(this)
+                .setTitle(R.string.pinned_title)
+                .setItems(new CharSequence[]{getString(R.string.pinned_pick), getString(R.string.pinned_clear)},
+                        (d, which) -> {
+                            if (which == 0) {
+                                showPinnedPicker();
+                            } else {
+                                clearPinned();
+                            }
+                        })
+                .show();
+    }
+
+    /** 右侧开关 = 执行键，与通知栏那颗同一件事：拨上去钉（apply），拨回去退（undo）。 */
+    private void onPinnedSwitchToggled(boolean on) {
+        if (pinnedCardRefresh) {
+            return;
+        }
+        if (!PinnedWallpaper.isConfigured(this)) {
+            showPinnedPicker();
+            refreshPinnedCard();
+            return;
+        }
+        if (on == PinnedWallpaper.canUndo(this)) {
+            refreshPinnedCard();
+            return;
+        }
+        // 钉/退都会写锁屏静态存档，是阻塞系统调用；与通知那颗一样放后台跑，落定后再刷两态
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            String error = on ? PinnedWallpaper.apply(app) : PinnedWallpaper.undo(app);
+            if (error == null) {
+                StatusNotifier.update(app);
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (error != null) {
+                    Toast.makeText(this, PinnedWallpaper.errorText(this, error), Toast.LENGTH_LONG).show();
+                }
+                refreshPinnedCard();
+            });
+        }, "pinned-card").start();
     }
 
     /**

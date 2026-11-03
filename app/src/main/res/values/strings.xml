@@ -327,13 +327,15 @@
     <!-- 抽屉：一键设置（通知标题那一行的开关按一下就把它同时钉到桌面和锁屏，再按一次退回钉之前那一整套） -->
     <string name="pinned_title">一键设置壁纸</string>
     <string name="pinned_unset">未设置 · 点按选一张</string>
+    <!-- 此刻页那颗卡的副标题三态：未设置（pinned_unset）/ 已配未钉 / 已钉住 -->
+    <string name="now_pinned_title">一键设置</string>
+    <string name="now_pinned_ready">%1$s · 拨右侧开关钉到桌面和锁屏</string>
+    <string name="now_pinned_on">已钉住 · 拨回去退回钉之前那一套</string>
     <string name="pinned_lib_title">这张在哪个库</string>
     <string name="pinned_pic_title">选这一张</string>
     <!-- 副标题取 library.json 里现成的原图尺寸（不是成品图，两个名字别混用） -->
     <string name="pinned_pic_sub">原图 %1$d×%2$d</string>
     <string name="pinned_saved">已记下：拨「此刻」页（或通知栏）那颗开关就能钉上</string>
-    <!-- 执行入口只有那颗开关：通知被关掉时它根本不画出来，选好等于白选，所以这句得说透 -->
-    <string name="pinned_saved_no_notify">已记下：拨「此刻」页那颗开关就能钉上（常驻通知关着，通知栏里暂时没有那颗开关）</string>
     <string name="pinned_cleared">已清除一键设置（屏上那张不动；要恢复轮播是按暂停键）</string>
     <string name="pinned_no_lib">还没有壁纸库：先在图库里新建一个</string>
     <string name="pinned_lib_empty">这个库里没有壁纸</string>
