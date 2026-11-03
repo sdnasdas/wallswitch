@@ -17,10 +17,6 @@
         app:iconTint="@android:color/white"
         app:showAsAction="always" />
     <item
-        android:id="@+id/action_detail_rename"
-        android:title="@string/rename_title"
-        app:showAsAction="never" />
-    <item
         android:id="@+id/action_detail_move"
         android:title="@string/organize_move"
         app:showAsAction="never" />

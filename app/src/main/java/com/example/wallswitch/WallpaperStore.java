@@ -65,8 +65,6 @@ public class WallpaperStore {
     private static final String DIR_ORIGINAL = "originals";
     // 元数据文件名
     private static final String LIB_FILE = "library.json";
-    // 待编辑项标题（导入时的原始文件名，确认导入后写入元数据）临时存储
-    private static final String TITLE_PREFS = "pending_titles";
     // 待编辑项在导入时已经明确的库（从某个库里导入的那批）。没有记录 = 编辑页再让用户选。
     private static final String TARGET_PREFS = "pending_targets";
     // 通用设置偏好（与其它模块共用 settings 文件）：缩略图一次性升级标记
@@ -118,7 +116,7 @@ public class WallpaperStore {
     }
 
     /**
-     * 壁纸条目元数据：id 为图片文件标识，libIds 为它挂在的壁纸库集合（可多于一库），title 为壁纸标题（可空）。
+     * 壁纸条目元数据：id 为图片文件标识，libIds 为它挂在的壁纸库集合（可多于一库）。
      *
      * <p>{@link #libId} 不是第二份真相：它恒等于 {@code libIds} 的第一个（集合空时为空串），
      * 存在的唯一理由是老版本只认 library.json 里的 {@code lib_id} —— 装回旧包时这张仍落在
@@ -129,7 +127,8 @@ public class WallpaperStore {
         public String libId;
         /** 挂在的库 id 集合，按挂上的先后排；判定归属一律用它（{@link #inLib}），别再用 libId 比等。 */
         public final List<String> libIds = new ArrayList<>();
-        // 壁纸标题：默认取导入时的原文件名（去扩展名），可在预览弹窗里改；历史数据可能为空
+        // 标题功能已下线：不再显示、不再写盘。这个字段只为「一次性清除」按钮读出老数据里的
+        // 存量 title（load 时顺手接住），以及老备份包还原时把旧键解析掉；新代码不许再赋值
         public String title;
         // 上次成品图是从原图的哪块矩形导出的。坐标一律是**原图像素坐标**，与导出用的区域解码同一套，
         // 不另立归一化约定 —— 少一次换算就少一处能错的地方。
@@ -181,16 +180,16 @@ public class WallpaperStore {
      * 命中条件是「文件长度 + 修改时间」跟上次读时一致，所以别的写路径（备份还原、别的线程）
      * 换过文件，指纹就变、下一次自然重读。
      *
-     * <p>为什么要它：一次手动切换的链路里这份表被解析 6~8 遍（{@code loadByLib}、{@code getTitle}、
-     * {@code TimerScheduler.switchDetail → getTitle}、{@code StatusNotifier → slotLib}、
+     * <p>为什么要它：一次手动切换的链路里这份表被解析 6~8 遍（{@code loadByLib}、
+     * {@code TimerScheduler.switchDetail}、{@code StatusNotifier → slotLib}、
      * 小组件 {@code scopeThumbId}、引擎 {@code drawCurrent}），而 {@code libAdapter.setItems}
      * 刷新库列表时是「每个库各解析一遍」。全都在同一进程内（Activity / Service / Worker / Receiver
      * 同一个进程，备份还原也是），所以一个 static 缓存加指纹判失效就够，不需要跨进程一致。
      *
      * <p>为什么交出去的是新 {@code ArrayList} 而不是缓存本身：调用方会往列表里增删条目，
      * 共享同一个 List 就把缓存改掉了。条目对象是共享的，这靠一条<b>不变量</b>兜着：
-     * 改了 {@code Item} 的字段就必须跟着调 {@link #saveLibrary}（现在三个改写点
-     * {@code setTitle}、{@code saveCropRect}、{@code migrateLegacyToLib} 都是改完立刻存），
+     * 改了 {@code Item} 的字段就必须跟着调 {@link #saveLibrary}（现在两个改写点
+     * {@code saveCropRect}、{@code migrateLegacyToLib} 都是改完立刻存），
      * 写完回填缓存 —— 缓存里就是盘上的内容。<b>以后谁加一个"改字段不存"的调用点，就会读到
      * 一份文件里并不存在的状态</b>，这条是这份缓存唯一的前提，别破。
      */
@@ -311,12 +310,8 @@ public class WallpaperStore {
             }
             throw e;
         }
-        // 用原文件名（去扩展名）作为壁纸标题默认值，确认导入时写进元数据
-        String title = stripExtension(displayName(context, uri));
-        putPendingTitle(context, id, title);
         Item item = new Item();
         item.id = id;
-        item.title = title;
         return item;
     }
 
@@ -326,7 +321,6 @@ public class WallpaperStore {
     /**
      * 从网络直链下载图片原始字节进收件箱 —— 不经过相册，与相册导入共用同一条待编辑管线。
      * 不解码不转码，进来的字节就是 `originals/&lt;id&gt;` 以后要留存的原图字节。
-     * 标题取 URL 路径末段文件名（去扩展名与参数）；路径里没有名字（raw 链接带参数等）退通用占位。
      * 失败（打不开 / HTTP 错误 / 空响应 / 超上限）清掉半截文件后再抛出 —— 收件箱脏文件会被
      * 当成待编辑项反复弹编辑页又解码失败，与 {@link #importToInbox} 同一条纪律。
      */
@@ -375,19 +369,7 @@ public class WallpaperStore {
         } finally {
             conn.disconnect();
         }
-        // URL 路径末段当默认标题：去 query/fragment 已由 getPath 拿掉，再照相册导入去扩展名；
-        // 图床常见百分号编码（中文文件名），解码还原，解不动就用原样
-        String path = new URL(url).getPath();
-        String name = path == null ? "" : path.substring(path.lastIndexOf('/') + 1);
-        try {
-            name = java.net.URLDecoder.decode(name, "UTF-8");
-        } catch (Exception ignored) {
-        }
-        String title = stripExtension(name);
-        if (title == null || title.isEmpty()) {
-            title = "网络图片";
-        }
-        putPendingTitle(context, id, title);
+        // URL 路径末段当默认标题的那段解析已随标题功能一起删除；这里只管把下载完的字节落位
         try {
             Files.move(staging.toPath(), target.toPath());
         } catch (Exception e) {
@@ -397,7 +379,6 @@ public class WallpaperStore {
         }
         Item item = new Item();
         item.id = id;
-        item.title = title;
         return item;
     }
 
@@ -430,46 +411,6 @@ public class WallpaperStore {
         }
     }
 
-    /** 读取相册 URI 的原始文件名（OpenableColumns.DISPLAY_NAME），读不到返回空串。 */
-    public static String displayName(Context context, Uri uri) {
-        try (android.database.Cursor cursor = context.getContentResolver().query(uri,
-                new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                if (index >= 0) {
-                    String name = cursor.getString(index);
-                    if (name != null) {
-                        return name;
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return "";
-    }
-
-    /** 去掉文件扩展名（标题里不带 .jpg 之类后缀）。 */
-    private static String stripExtension(String name) {
-        if (name == null) {
-            return "";
-        }
-        int dot = name.lastIndexOf('.');
-        return dot > 0 ? name.substring(0, dot) : name;
-    }
-
-    /** 取出某待编辑项的标题（确认导入时使用），取出后不清除（取消导入时由 cancelImport 清理）。 */
-    private static String pendingTitle(Context context, String inboxId) {
-        return context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE)
-                .getString(inboxId, "");
-    }
-
-    /** 记录某待编辑项的标题。 */
-    private static void putPendingTitle(Context context, String inboxId, String title) {
-        context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
-                .putString(inboxId, title == null ? "" : title)
-                .apply();
-    }
-
     /** 这条待编辑项已经明确的库；null 表示还没选（编辑页会弹选库）。 */
     public static String pendingTarget(Context context, String inboxId) {
         if (inboxId == null || inboxId.isEmpty()) {
@@ -492,37 +433,6 @@ public class WallpaperStore {
             edit.putString(inboxId, libId);
         }
         edit.apply();
-    }
-
-    /** 修改某张壁纸的标题（预览弹窗里改，空串表示未命名）。 */
-    public static void setTitle(Context context, String id, String title) {
-        try {
-            List<Item> items = load(context);
-            boolean changed = false;
-            for (Item item : items) {
-                if (item.id.equals(id)) {
-                    item.title = title == null ? "" : title;
-                    changed = true;
-                }
-            }
-            if (changed) {
-                saveLibrary(context, items);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** 读取某张壁纸的标题，无记录/未命名返回空串。 */
-    public static String getTitle(Context context, String id) {
-        try {
-            for (Item item : load(context)) {
-                if (item.id.equals(id)) {
-                    return item.title == null ? "" : item.title;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return "";
     }
 
     /**
@@ -667,12 +577,11 @@ public class WallpaperStore {
         writeFull(context, id, bitmap);
         // 保存缩略图（中心正方形，边长按屏幕上的方格宽度取）
         writeThumb(context, id, bitmap);
-        // 追加元数据（归属指定壁纸库，标题取导入时记录的原文件名）
+        // 追加元数据（归属指定壁纸库）
         List<Item> items = load(context);
         Item item = new Item();
         item.id = id;
         item.joinLib(libId);
-        item.title = pendingTitle(context, inboxId);
         items.add(item);
         saveLibrary(context, items);
         // 这里以前会「顺手导出一份到导出目录」，v3.89 起删掉：导出目录改成只有两个手动入口
@@ -743,7 +652,6 @@ public class WallpaperStore {
         Item fresh = new Item();
         fresh.id = newId;
         fresh.joinLib(libId);
-        fresh.title = src.title;
         items.add(fresh);
         for (Item item : items) {
             if (item.id.equals(srcId)) {
@@ -773,9 +681,6 @@ public class WallpaperStore {
             Files.deleteIfExists(inboxFile.toPath());
         } catch (Exception ignored) {
         }
-        context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
-                .remove(inboxId)
-                .apply();
         putPendingTarget(context, inboxId, null);
     }
 
@@ -817,10 +722,6 @@ public class WallpaperStore {
                 }
             }
             saveLibrary(context, remain);
-            // 顺带清掉可能残留的待编辑标题记录
-            context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
-                    .remove(id)
-                    .apply();
         } catch (Exception ignored) {
         }
     }
@@ -990,9 +891,6 @@ public class WallpaperStore {
             } catch (Exception | OutOfMemoryError ignored) {
                 // 表里已经没有这张了，文件删不掉就只是白占地方，不该让整个整理动作报失败
             }
-            context.getSharedPreferences(TITLE_PREFS, Context.MODE_PRIVATE).edit()
-                    .remove(id)
-                    .apply();
         }
         return orphaned.size();
     }
@@ -1477,6 +1375,21 @@ public class WallpaperStore {
         saveLibrary(context, items);
     }
 
+    /** 库里是否还留着老版本写入的标题（一次性清除按钮的显示条件）。纯读。 */
+    public static boolean hasStoredTitles(Context context) {
+        for (Item item : load(context)) {
+            if (item.title != null && !item.title.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 一次性清除存量标题：整表原样重写，序列化不再写 title 键，旧键随之消失。 */
+    public static void clearStoredTitles(Context context) throws Exception {
+        saveItems(context, load(context));
+    }
+
     /** 矩形坐标保留两位小数：0.01 像素的精度对复原取景框足够，又不至于让 library.json 啰嗦。 */
     private static double round2(float v) {
         return Math.round(v * 100d) / 100d;
@@ -1494,7 +1407,7 @@ public class WallpaperStore {
             if (item.libIds.size() > 1) {
                 obj.put("lib_ids", new JSONArray(item.libIds));
             }
-            obj.put("title", item.title == null ? "" : item.title);
+            // 标题已整体下线：不再写 title 键；读侧仍兼容老文件里的存量（见 Item.title）
             // 有参数才写这六个键：老条目读出来 srcWidth=0，写回时不带，文件不虚胖；
             // 旧版本读到不认识的键会直接忽略，所以降级回滚不会崩
             if (item.hasCropRect()) {

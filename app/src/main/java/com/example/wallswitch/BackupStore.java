@@ -380,8 +380,8 @@ public final class BackupStore {
 
     /**
      * library.json 里有记录、盘上没有图片文件的条目：丢掉并计数，否则会留下点开黑图的死条目。
-     * 写回必须走 {@link WallpaperStore#saveItems} —— 它自己那份只写 id/lib_id/title 的副本已经删掉了，
-     * 留着就会在还原时把裁剪参数（src_w/src_h/crop_*）整表抹掉。
+     * 写回必须走 {@link WallpaperStore#saveItems} —— 留着旧副本就会在还原时把裁剪参数
+     * （src_w/src_h/crop_*）整表抹掉。
      */
     private static void dropMissingImages(Context context) {
         try {

@@ -69,7 +69,7 @@ public class PinnedWallpaper {
         return id == null || id.isEmpty() ? null : id;
     }
 
-    /** 抽屉副标题：「库名 · 标题」；没配置或库已删返回 null（由界面画成「未设置」）。 */
+    /** 抽屉副标题：钉住的那张所在库名；没配置或库已删返回 null（由界面画成「未设置」）。 */
     public static String label(Context ctx) {
         String libId = libId(ctx);
         String wpId = wallpaperId(ctx);
@@ -80,10 +80,7 @@ public class PinnedWallpaper {
         if (lib == null) {
             return null;
         }
-        String title = WallpaperStore.getTitle(ctx, wpId);
-        return ctx.getString(R.string.pinned_selected,
-                lib.name == null ? "" : lib.name,
-                title == null || title.isEmpty() ? ctx.getString(R.string.untitled) : title);
+        return lib.name == null ? "" : lib.name;
     }
 
     /** 配好了（两张键都在）—— 通知上那颗开关画不画就看它，与"屏上是不是正钉着"是两回事。 */

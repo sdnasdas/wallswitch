@@ -43,18 +43,9 @@ public class Switcher {
     // 最近一次设置壁纸的失败原因（供界面/日志显示，用于区分"没执行"和"执行了但失败"）
     private static volatile String lastError;
 
-    // 最近一次成功应用的壁纸标题（按范围分别记录，供自动切换通知显示"切到了哪张"）
-    private static volatile String lastTitleHome;
-    private static volatile String lastTitleLock;
-
     /** 最近一次设置壁纸的失败原因，null 表示最近一次没有失败。 */
     public static String lastError() {
         return lastError;
-    }
-
-    /** 最近一次应用的壁纸标题（forHome 区分桌面/锁屏）：本轮未成功应用返回 null，已应用但未命名返回空串。 */
-    public static String lastAppliedTitle(boolean forHome) {
-        return forHome ? lastTitleHome : lastTitleLock;
     }
 
     /** 生成某库某范围的进度键前缀（LibraryStore 迁移也使用）。 */
@@ -71,9 +62,6 @@ public class Switcher {
         // 这里是所有上屏路径的唯一收口（桌面引擎与锁屏静态存档都在下面），拦一道即可全覆盖。
         if (!TakeoverManager.isEnabled(ctx)) {
             lastError = "takeover_off";
-            // 别让通知/状态行沿用上一轮的旧标题，否则看起来像切成功了
-            lastTitleHome = null;
-            lastTitleLock = null;
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
@@ -121,8 +109,6 @@ public class Switcher {
     public static boolean prev(Context ctx, String libId, boolean forHome) {
         if (!TakeoverManager.isEnabled(ctx)) {
             lastError = "takeover_off";
-            lastTitleHome = null;
-            lastTitleLock = null;
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
@@ -221,9 +207,6 @@ public class Switcher {
     public static boolean setCurrent(Context ctx, String libId, String wallpaperId, boolean forHome) {
         if (!TakeoverManager.isEnabled(ctx)) {
             lastError = "takeover_off";
-            // 别让通知/状态行沿用上一轮的旧标题，否则看起来像切成功了
-            lastTitleHome = null;
-            lastTitleLock = null;
             return false;
         }
         LibraryStore.Library lib = LibraryStore.get(ctx, libId);
@@ -264,8 +247,6 @@ public class Switcher {
             // 桌面只走引擎：没激活就没法切，如实报错让界面提示去开开关
             if (!WallSwitchService.isActive(ctx)) {
                 lastError = "engine_inactive";
-                // 本轮桌面没切，别让通知沿用上一轮的旧标题（否则看起来像切成功了）
-                lastTitleHome = null;
                 return false;
             }
             // 切图 = 推进指针 + 通知引擎重绘（引擎在后台线程解码并直接画上 Surface）
@@ -276,13 +257,6 @@ public class Switcher {
             applied = TakeoverManager.setLockFromFile(ctx,
                     WallpaperStore.getFullFile(ctx, wallpaperId), wallpaperId) != 0;
             lastError = applied ? null : "not_applied";
-        }
-        // 记录本次切到的壁纸标题（成功才有意义），供自动切换通知显示"切到了哪张"
-        String appliedTitle = applied ? WallpaperStore.getTitle(ctx, wallpaperId) : null;
-        if (forHome) {
-            lastTitleHome = appliedTitle;
-        } else {
-            lastTitleLock = appliedTitle;
         }
         // 成功后刷新小组件缩略图与常驻通知。v3.81 起只有一条通知，但桌面与锁屏切完都得刷它
         //（以前只在 forHome 时刷，那时锁屏根本没有对应的状态可显示）

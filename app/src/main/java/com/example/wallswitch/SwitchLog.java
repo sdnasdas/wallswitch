@@ -193,9 +193,10 @@ public final class SwitchLog {
     }
 
     /** 记一行「这一面暂停了」：任务撤掉、屏上这张停住，所以不挪计时起点。异步写。 */
-    public static void recordPaused(Context ctx, boolean forHome, String title) {
+    public static void recordPaused(Context ctx, boolean forHome) {
         recordConfig(ctx, forHome, false, (c, prevTime, now) ->
-                c.getString(R.string.log_config_paused, title));
+                c.getString(R.string.log_config_paused,
+                        c.getString(forHome ? R.string.scope_home : R.string.scope_lock)));
     }
 
     /** 记一行「继续自动切换」：从这一刻重新起算，所以挪计时起点。异步写。 */
@@ -407,8 +408,9 @@ public final class SwitchLog {
     public static final class RecordLine {
         /** 去掉行尾 id 段后的整行原文（反查 id 索引的键）。 */
         public final String line;
-        /** 切换当时所在库的名字；老格式的行没有这一段，为 null。 */
+        /** 切换所在库的名字；老格式（库名缺失、第一对引号直接是壁纸标题）为 null。 */
         public final String libName;
+        /** 壁纸标题：只有 v3.138 之前落盘的老格式行才有；新格式恒为 null。 */
         public final String title;
 
         private RecordLine(String line, String libName, String title) {
@@ -419,12 +421,13 @@ public final class SwitchLog {
     }
 
     /**
-     * 拆一条记录行，给「点记录行看缩略图」用。只认记录行（{@code 09:35  桌面「自然」「雪山」（…）}）。
+     * 拆一条记录行，给「点记录行看缩略图」用。只认记录行（新格式 {@code 桌面「库名」（…）}）。
      *
-     * <p>段头、日期行、配置行一律返回 null：配置行以 {@code ——} 开头，虽然暂停行里也有「标题」，
-     * 但那是配置标记，不是这一轮真的上屏了一张。
+     * <p>段头、日期行、配置行一律返回 null：配置行以 {@code ——} 开头或不含范围词。
      *
-     * <p>老行没有库名（{@code 桌面「雪山」}），库名给 null；新行行尾的 id 段要先剥掉（{@link #stripRefs}）。
+     * <p>老格式是 {@code 桌面「库名」「标题」}（更老的没有库名：{@code 桌面「标题」}）：
+     * 紧跟着第一对引号又来一个「，那第一对就是库名、第二对是标题；新格式只有一对，就是库名
+     * （标题功能已下线）。老行没有库名时它会按新格式被当成库名读——只影响显示，反查走行尾 id。
      */
     public static RecordLine parseRecordLine(Context ctx, String line) {
         if (ctx == null || line == null) {
@@ -445,16 +448,14 @@ public final class SwitchLog {
         if (firstClose < 0) {
             return null;
         }
-        String libName = null;
-        int titleOpen = open;
-        // 新格式是 `桌面「库名」「标题」`：紧跟着第一对引号又来一个「，那第一对就是库名
+        String libName = text.substring(open + 1, firstClose);
+        String title = null;
         if (firstClose + 1 < text.length() && text.charAt(firstClose + 1) == '「') {
-            libName = text.substring(open + 1, firstClose);
-            titleOpen = firstClose + 1;
+            int titleOpen = firstClose + 1;
+            int close = text.lastIndexOf('」');
+            title = close > titleOpen + 1 ? text.substring(titleOpen + 1, close) : null;
         }
-        int close = text.lastIndexOf('」');
-        return close > titleOpen + 1
-                ? new RecordLine(text, libName, text.substring(titleOpen + 1, close)) : null;
+        return new RecordLine(text, libName, title);
     }
 
     /** 给记录行追加行尾 id 段；两把 id 都没有（配置行）时原样返回。 */

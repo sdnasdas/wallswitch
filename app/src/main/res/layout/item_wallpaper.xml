@@ -90,17 +90,4 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
-
-    <TextView
-        android:id="@+id/tv_wallpaper_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:visibility="gone"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="4dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:paddingStart="2dp"
-        android:paddingEnd="2dp"
-        android:textAppearance="?attr/textAppearanceBodySmall" />
 </LinearLayout>

@@ -178,6 +178,14 @@
             app:key="switch_log"
             app:persistent="false"
             app:title="@string/settings_design_switch_log" />
+
+        <Preference
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_delete"
+            app:key="clear_titles"
+            app:persistent="false"
+            app:summary="@string/clear_titles_desc"
+            app:title="@string/clear_titles_title" />
     </PreferenceCategory>
 
     <PreferenceCategory

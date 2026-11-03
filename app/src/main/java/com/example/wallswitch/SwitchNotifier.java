@@ -89,7 +89,6 @@ public class SwitchNotifier {
                 .setSmallIcon(R.drawable.ic_widget_switch)
                 .setContentTitle(title)
                 .setContentText(text)
-                // 标题可能较长（壁纸标题 + 库名），用大文本样式完整展示
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setGroup(GROUP)
                 .setWhen(System.currentTimeMillis())
@@ -102,24 +101,11 @@ public class SwitchNotifier {
         }
     }
 
-    /** 成功提示正文：库「库名」｜桌面（或锁屏）：标题；本轮没上屏标题时标「未切换」。 */
+    /** 成功提示正文：一句话报「哪个范围换了图」，库名带上；细节看切换日志。 */
     private static CharSequence successText(Context ctx, boolean forHome, LibraryStore.Library lib) {
-        StringBuilder sb = new StringBuilder(
-                ctx.getString(R.string.notify_ok_text, lib.name == null ? "" : lib.name));
-        sb.append(forHome
-                ? scopePart(ctx, R.string.notify_ok_home, R.string.notify_ok_home_skipped,
-                        Switcher.lastAppliedTitle(true))
-                : scopePart(ctx, R.string.notify_ok_lock, R.string.notify_ok_lock_skipped,
-                        Switcher.lastAppliedTitle(false)));
-        return sb.toString();
-    }
-
-    /** 单个范围的通知片段：本轮没切成功写「未切换」，切成功但没标题写「未命名」。 */
-    private static String scopePart(Context ctx, int appliedRes, int skippedRes, String title) {
-        if (title == null) {
-            return ctx.getString(skippedRes);
-        }
-        return ctx.getString(appliedRes, title.isEmpty() ? ctx.getString(R.string.untitled) : title);
+        return ctx.getString(R.string.notify_ok_body,
+                ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock),
+                lib.name == null ? "" : lib.name);
     }
 
     /** 下一条通知的独立 id（自增序号，保证历次通知都保留在通知栏）。 */

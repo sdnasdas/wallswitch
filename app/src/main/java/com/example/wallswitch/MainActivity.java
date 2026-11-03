@@ -14,6 +14,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Shader;
@@ -47,6 +48,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.Button;
@@ -723,6 +725,19 @@ public class MainActivity extends AppCompatActivity {
         } catch (OutOfMemoryError | Exception e) {
             return null;
         }
+    }
+
+    /** 成品图宽高各半解码（点日志看图小窗用，长边约 1400）：读头算出一半再喂 decodeBounded。 */
+    private static Bitmap decodeFullHalf(Context app, String id) {
+        File file = WallpaperStore.getFullFile(app, id);
+        if (file == null || !file.isFile()) {
+            return null;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+        int longSide = Math.max(bounds.outWidth, bounds.outHeight);
+        return longSide <= 0 ? null : decodeBounded(file, longSide / 2);
     }
 
     // ==================== 此刻 ====================
@@ -2027,7 +2042,6 @@ public class MainActivity extends AppCompatActivity {
             final WallpaperStore.Item item = items.get(position - 1);
             ImageView img = v.findViewById(R.id.img_thumb);
             img.setImageBitmap(thumbFor(item.id));
-            ((TextView) v.findViewById(R.id.tv_wallpaper_title)).setText(itemTitle(item));
             // 右上角格式角标：判的是成品图（上屏那张），缩略图永远是 JPEG，不能用它判
             TextView format = v.findViewById(R.id.tv_full_format);
             Boolean fullJpeg = WallpaperStore.fullIsJpeg(MainActivity.this, item.id);
@@ -2157,8 +2171,6 @@ public class MainActivity extends AppCompatActivity {
                 confirmRemoveSelected(one);
             } else if (id == R.id.action_detail_preview) {
                 toggleDetailPreview();
-            } else if (id == R.id.action_detail_rename) {
-                showRenameDialog(current);
             } else if (id == R.id.action_detail_delete) {
                 handleTrashClick(current);
             }
@@ -2275,14 +2287,13 @@ public class MainActivity extends AppCompatActivity {
         bindDetailChrome();
     }
 
-    /** 顶栏标题与页码 + 当值那张的编辑权限。 */
+    /** 顶栏页码 + 当值那张的编辑权限。 */
     private void bindDetailChrome() {
         WallpaperStore.Item item = detailItem();
         if (item == null) {
             return;
         }
-        detailToolbar.setTitle(itemTitle(item));
-        detailToolbar.setSubtitle(getString(R.string.detail_position,
+        detailToolbar.setTitle(getString(R.string.detail_position,
                 detailPager.getCurrentItem() + 1, detailAdapter.items.size()));
         boolean live = WallpaperStore.isLive(this, item.id);
         // 当值那张改不动也删不掉（闸门在 blockWhileInUse）：直接把两个入口置灰，别让人点了才知道
@@ -4765,6 +4776,8 @@ public class MainActivity extends AppCompatActivity {
         String subtitle = "";
         String meta = "";
         String kind = "";
+        /** 这条记录切到的那张的 id（行尾隐藏段第一把）；老行没有，卡片就不画小缩略图。 */
+        String thumbId;
         SwitchLog.RecordLine record;
         List<SwitchLog.EntryRef> refs;
     }
@@ -4895,13 +4908,23 @@ public class MainActivity extends AppCompatActivity {
                 row.record = SwitchLog.parseRecordLine(this, text);
                 if (row.record != null) {
                     row.type = LogRow.ENTRY;
-                    row.title = row.record.title;
                     row.refs = refs == null ? null : refs.get(row.record.line);
+                    if (row.refs != null && !row.refs.isEmpty()) {
+                        row.thumbId = row.refs.get(0).wallpaperId;
+                    }
                     int firstOpen = body.indexOf('「');
                     int lastClose = body.lastIndexOf('」');
                     String scope = firstOpen > 0 ? body.substring(0, firstOpen).trim() : "";
-                    row.subtitle = row.record.libName == null || row.record.libName.isEmpty()
-                            ? scope : scope + " · " + row.record.libName;
+                    if (row.record.title != null) {
+                        // 老格式：第二对引号里是壁纸标题，库名跟着范围走副标题
+                        row.title = row.record.title;
+                        row.subtitle = row.record.libName == null || row.record.libName.isEmpty()
+                                ? scope : scope + " · " + row.record.libName;
+                    } else {
+                        // 新格式：唯一一对引号是库名；标题已下线，主位就让给库名
+                        row.title = row.record.libName;
+                        row.subtitle = scope;
+                    }
                     row.meta = lastClose >= 0 && lastClose + 1 < body.length()
                             ? trimLogDecor(body.substring(lastClose + 1)) : "";
                     row.kind = row.meta.contains("手动") ? "手动" : "自动";
@@ -5092,11 +5115,30 @@ public class MainActivity extends AppCompatActivity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.TOP);
             row.setPadding(dp(14), dp(12), dp(14), dp(12));
+            // 左列：时间在上，下面一颗小缩略图（该行切到的那张；比点开弹窗的图小得多）。
+            // 复用网格那套 thumbs/<id>.jpg 与 thumbFor 缓存，不另解图
+            LinearLayout left = new LinearLayout(MainActivity.this);
+            left.setOrientation(LinearLayout.VERTICAL);
             TextView time = new TextView(MainActivity.this);
             time.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall);
             time.setTextColor(MaterialColors.getColor(time,
                     com.google.android.material.R.attr.colorOnSurface));
-            row.addView(time, new LinearLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT));
+            left.addView(time, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            ImageView thumb = new ImageView(MainActivity.this);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            thumb.setClipToOutline(true);
+            thumb.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(8));
+                }
+            });
+            LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            thumbLp.topMargin = dp(6);
+            thumb.setVisibility(View.GONE);
+            left.addView(thumb, thumbLp);
+            row.addView(left, new LinearLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT));
             LinearLayout words = new LinearLayout(MainActivity.this);
             words.setOrientation(LinearLayout.VERTICAL);
             TextView title = new TextView(MainActivity.this);
@@ -5129,7 +5171,7 @@ public class MainActivity extends AppCompatActivity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, dp(4), 0, dp(4));
             card.setLayoutParams(lp);
-            return new LogCardHolder(card, time, title, subtitle, meta, badge);
+            return new LogCardHolder(card, time, thumb, title, subtitle, meta, badge);
         }
 
         @Override
@@ -5141,6 +5183,13 @@ public class MainActivity extends AppCompatActivity {
             }
             LogCardHolder h = (LogCardHolder) holder;
             h.time.setText(item.time);
+            Bitmap cardThumb = item.thumbId == null ? null : thumbFor(item.thumbId);
+            if (cardThumb != null) {
+                h.thumb.setImageBitmap(cardThumb);
+                h.thumb.setVisibility(View.VISIBLE);
+            } else {
+                h.thumb.setVisibility(View.GONE);
+            }
             h.title.setText(item.title);
             h.subtitle.setText(item.subtitle);
             h.subtitle.setVisibility(item.subtitle.isEmpty() ? View.GONE : View.VISIBLE);
@@ -5164,12 +5213,14 @@ public class MainActivity extends AppCompatActivity {
     private static final class LogCardHolder extends RecyclerView.ViewHolder {
         final MaterialCardView card;
         final TextView time, title, subtitle, meta, badge;
+        final ImageView thumb;
 
-        LogCardHolder(MaterialCardView card, TextView time, TextView title,
+        LogCardHolder(MaterialCardView card, TextView time, ImageView thumb, TextView title,
                       TextView subtitle, TextView meta, TextView badge) {
             super(card);
             this.card = card;
             this.time = time;
+            this.thumb = thumb;
             this.title = title;
             this.subtitle = subtitle;
             this.meta = meta;
@@ -5374,71 +5425,40 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 记录行 → 缩略图小窗。新行行尾藏着壁纸 id，直接按 id 取图（壁纸改标题、库改名都不影响）；
-     * 老行没有 id，才退回「库名 + 标题」反查。
-     * 找不到（已删）就明说；仍有多张（同名但不是同一张图）不猜，并排摆候选；
-     * 复制出来的副本视觉上是同一张，按解出来的缩略图去重，只留一份。
-     * 缩略图就是网格用的 thumbs/&lt;id&gt;.jpg，反查与解码一起放后台线程，解完再弹。
+     * 记录行 → 看图小窗。行尾藏着壁纸 id，直接按 id 取图（库改名都不影响）；
+     * v3.131 之前的老行没有 id 段，无从反查，点了就提示找不到。
+     * 显示的是<b>成品图宽高各半</b>的完整构图（不是方形缩略图），挂 previews 大图缓存，
+     * 解码放后台线程，解完再弹；半尺寸解不动时退回网格那颗方形缩略图。
      */
     void showLogThumbnail(SwitchLog.RecordLine record,
                                   List<SwitchLog.EntryRef> exact, AlertDialog logDialog) {
         final Context app = getApplicationContext();
-        final String untitled = getString(R.string.untitled);
         final int pageToken = logPageToken;
         final int pageScope = logScope;
         new Thread(() -> {
             List<Bitmap> thumbs = new ArrayList<>();
-            if (exact != null && !exact.isEmpty()) {
-                Set<String> seen = new HashSet<>();
-                for (SwitchLog.EntryRef ref : exact) {
-                    if (ref.wallpaperId == null || ref.wallpaperId.isEmpty()
-                            || !seen.add(ref.wallpaperId)) {
-                        continue;
-                    }
-                    WallpaperStore.Item item = WallpaperStore.get(app, ref.wallpaperId);
-                    Bitmap thumb = item == null ? null : WallpaperStore.getThumb(app, item.id);
-                    if (thumb != null && !containsSameThumb(thumbs, thumb)) {
-                        thumbs.add(thumb);
+            Set<String> seen = new HashSet<>();
+            for (SwitchLog.EntryRef ref : exact == null ? new ArrayList<SwitchLog.EntryRef>() : exact) {
+                if (ref.wallpaperId == null || ref.wallpaperId.isEmpty()
+                        || !seen.add(ref.wallpaperId)) {
+                    continue;
+                }
+                WallpaperStore.Item item = WallpaperStore.get(app, ref.wallpaperId);
+                if (item == null) {
+                    continue;
+                }
+                String key = "log_" + item.id;
+                Bitmap thumb = previews.get(key);
+                if (thumb == null) {
+                    thumb = decodeFullHalf(app, item.id);
+                    if (thumb == null) {
+                        thumb = WallpaperStore.getThumb(app, item.id);
+                    } else {
+                        previews.put(key, thumb);
                     }
                 }
-            } else {
-                List<WallpaperStore.Item> byTitle = new ArrayList<>();
-                for (WallpaperStore.Item item : WallpaperStore.load(app)) {
-                    String itemTitle = item.title == null ? "" : item.title;
-                    // 日志里的「未命名」对应的是空标题，不是用户真的把它命名成了这三个字
-                    if (record.title.equals(untitled)
-                            ? itemTitle.isEmpty() : itemTitle.equals(record.title)) {
-                        byTitle.add(item);
-                    }
-                }
-                // 带库名的老行先收窄到那个库；库改过名、或那张后来挪走了，就退回按标题找，
-                // 不能因为条件对不上就说「不在了」
-                List<WallpaperStore.Item> matches = byTitle;
-                if (record.libName != null && !record.libName.isEmpty()) {
-                    List<String> libIds = new ArrayList<>();
-                    for (LibraryStore.Library lib : LibraryStore.load(app)) {
-                        if (record.libName.equals(lib.name)) {
-                            libIds.add(lib.id);
-                        }
-                    }
-                    List<WallpaperStore.Item> inLib = new ArrayList<>();
-                    for (WallpaperStore.Item item : byTitle) {
-                        for (String lid : item.libIds) {
-                            if (libIds.contains(lid)) {
-                                inLib.add(item);
-                                break;
-                            }
-                        }
-                    }
-                    if (!inLib.isEmpty()) {
-                        matches = inLib;
-                    }
-                }
-                for (WallpaperStore.Item item : matches) {
-                    Bitmap thumb = WallpaperStore.getThumb(app, item.id);
-                    if (thumb != null && !containsSameThumb(thumbs, thumb)) {
-                        thumbs.add(thumb);
-                    }
+                if (thumb != null && !containsSameThumb(thumbs, thumb)) {
+                    thumbs.add(thumb);
                 }
             }
             runOnUiThread(() -> {
@@ -5461,7 +5481,7 @@ public class MainActivity extends AppCompatActivity {
         }, "log-thumb").start();
     }
 
-    /** 只摆缩略图的小窗：每张与网格一格同大，圆角 12dp（与网格的 RoundedGrid 一致）。 */
+    /** 只摆图的小窗：宽与网格一格同大、高按各自宽高比，圆角 12dp（与网格的 RoundedGrid 一致）。 */
     void showThumbnailWindow(List<Bitmap> thumbs) {
         float density = getResources().getDisplayMetrics().density;
         // 与网格一格的显示宽度一致：屏宽 − 两侧 12dp 内边距 − 每格 4dp×2 外边距，再对半
@@ -5470,13 +5490,16 @@ public class MainActivity extends AppCompatActivity {
         int gap = (int) (8 * density);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
         for (Bitmap thumb : thumbs) {
             ShapeableImageView image = new ShapeableImageView(this);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
             image.setContentDescription(getString(R.string.thumb_desc));
             image.setShapeAppearanceModel(ShapeAppearanceModel.builder()
                     .setAllCornerSizes(12 * density).build());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
+            int h = thumb.getWidth() > 0
+                    ? Math.round(cell * thumb.getHeight() / (float) thumb.getWidth()) : cell;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, h);
             if (row.getChildCount() > 0) {
                 lp.setMarginStart(gap);
             }
@@ -5536,55 +5559,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.log_view_copied, Toast.LENGTH_SHORT).show();
         } catch (Exception ignored) {
         }
-    }
-
-    /**
-     * 长按浮出的铅笔 → 改标题小窗：一个输入框加一行现场信息，不显示图片。
-     * 看构图这件事已经归给「点格子进裁剪页」（那里看到的是原图 + 上次的取景框），这里只回答两个问题：
-     * 这张叫什么、库里存的到底是多大一张。尺寸只读图片文件头（inJustDecodeBounds），主线程就能拿到，
-     * 不再后台解整张图；原图留存情况决定进裁剪页时能不能复原上次取景框。
-     */
-    void showRenameDialog(WallpaperStore.Item item) {
-        EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setText(item.title == null ? "" : item.title);
-        input.setSelection(input.getText().length());
-        TextView info = new TextView(this);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        info.setPadding(pad, 0, pad, 0);
-        info.setTextSize(13f);
-        info.setTextColor(getColor(R.color.text_secondary));
-        info.setText(renameInfoText(item));
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.addView(wrapInput(input, R.string.rename_hint));
-        content.addView(info);
-        new AppAlertDialogBuilder(this)
-                .setTitle(R.string.rename_title)
-                .setView(content)
-                .setPositiveButton(R.string.confirm, (dialog, which) -> {
-                    // 标题会被自动切换的通知带上，用来确认「切到了哪张」；留空 = 未命名
-                    String title = input.getText().toString().trim();
-                    WallpaperStore.setTitle(this, item.id, title);
-                    item.title = title;
-                    refreshList();
-                })
-                .setNegativeButton(R.string.cancel, null)
-                .show();
-    }
-
-    /** 改标题小窗那行信息：库里成品图的真实像素尺寸 + 原图有没有留存。 */
-    String renameInfoText(WallpaperStore.Item item) {
-        String original = getString(WallpaperStore.hasOriginal(this, item.id)
-                ? R.string.rename_info_has_original : R.string.rename_info_no_original);
-        File file = WallpaperStore.getFullFile(this, item.id);
-        if (!file.isFile()) {
-            return getString(R.string.rename_info_missing, original);
-        }
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-        return getString(R.string.rename_info, bounds.outWidth, bounds.outHeight, original);
     }
 
     private void showSetWallpaperDialog(WallpaperStore.Item item) {
@@ -5705,7 +5679,7 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.delete_confirm_title)
                 // 个数只数点得出名字的那些：连同本库，文案里的数字与列出的库必须对得上
                 .setMessage(getString(R.string.delete_confirm_msg,
-                        itemTitle(item), others.toString(), otherCount + 1))
+                        others.toString(), otherCount + 1))
                 .setPositiveButton(R.string.delete_purge, (d, which) -> deleteWallpaperEverywhere(item))
                 .setNegativeButton(R.string.delete_unlink,
                         (d, which) -> applyOrganizeChange(ORGANIZE_REMOVE,
@@ -5884,7 +5858,8 @@ public class MainActivity extends AppCompatActivity {
         public View getView(int position, View convertView, @NonNull ViewGroup parent) {
             View row = newPinRow(convertView, parent);
             WallpaperStore.Item item = items.get(position);
-            ((TextView) row.findViewById(R.id.tv_pick_name)).setText(itemTitle(item));
+            // 标题已下线：这行只剩缩略图 + 原图尺寸，名字那格藏掉
+            row.findViewById(R.id.tv_pick_name).setVisibility(View.GONE);
             ((TextView) row.findViewById(R.id.tv_pick_sub)).setText(item.srcWidth > 0 && item.srcHeight > 0
                     ? getString(R.string.pinned_pic_sub, item.srcWidth, item.srcHeight)
                     : "");
@@ -5894,11 +5869,6 @@ public class MainActivity extends AppCompatActivity {
                     item.id.equals(liveId) ? View.VISIBLE : View.INVISIBLE);
             return row;
         }
-    }
-
-    /** 壁纸显示名（未命名则用占位文案）。 */
-    String itemTitle(WallpaperStore.Item item) {
-        return item.title == null || item.title.isEmpty() ? getString(R.string.untitled) : item.title;
     }
 
     /** 弹窗输入框统一套一层 TextInputLayout（M3 描边 + 浮动提示），返回可直接 setView 的容器。 */

@@ -96,27 +96,27 @@ public final class WallpaperExporter {
      * 把一张已入库的成品图按原始字节复制到导出目录（不解码、不重压，零画质损失）。
      *
      * <p><b>同名是覆盖而不是叠副本</b>：SAF 的 {@code createDocument} 遇到同名不会覆盖，
-     * 会自动改名成「标题_ab12cd(1).png」，所以必须先按显示名在目录里找出已有那份、
+     * 会自动改名成「名字_ab12cd(1).png」，所以必须先按显示名在目录里找出已有那份、
      * 拿它的 URI 重写。不这么做的话，每按一次「立即导出全部」目录里就多一整副本堆，
      * 而且改过构图的壁纸永远更新不到。
      *
      * <p>纯 IO，调用方放在后台线程。
      */
-    public static boolean exportFile(Context context, File source, String title, String id) {
-        return exportFile(context, source, title, id, null);
+    public static boolean exportFile(Context context, File source, String id) {
+        return exportFile(context, source, id, null);
     }
 
     /**
      * @param index 「显示名 → 文档 URI」索引；传 null 表示自己列一次目录。
      *              批量导出由 {@link #exportAll} 建一份复用，免得每张都整表扫一遍。
      */
-    private static boolean exportFile(Context context, File source, String title, String id,
+    private static boolean exportFile(Context context, File source, String id,
                                       Map<String, Uri> index) {
         Uri tree = treeUri(context);
         if (tree == null || source == null || !source.exists()) {
             return false;
         }
-        String name = exportName(title, id, source);
+        String name = exportName(id, source);
         String mime = source.getName().endsWith(FULL_EXT_PNG) ? "image/png" : "image/jpeg";
         InputStream in = null;
         OutputStream out = null;
@@ -253,19 +253,17 @@ public final class WallpaperExporter {
         List<WallpaperStore.Item> items = WallpaperStore.load(context);
         for (WallpaperStore.Item item : items) {
             File file = WallpaperStore.getFullFile(context, item.id);
-            if (exportFile(context, file, item.title, item.id, index)) {
+            if (exportFile(context, file, item.id, index)) {
                 ok++;
             }
         }
         return ok;
     }
 
-    /** 导出文件名：标题 + id 前 6 位，避免重名；标题里的非法字符替换掉。 */
-    private static String exportName(String title, String id, File source) {
-        String base = title == null || title.isEmpty() ? "wallpaper" : title;
-        base = base.replaceAll("[\\\\/:*?\"<>|]", "_");
-        String suffix = id == null ? "0" : id.substring(0, Math.min(6, id.length()));
-        return base + "_" + suffix + (source.getName().endsWith(FULL_EXT_PNG) ? ".png" : ".jpg");
+    /** 导出文件名：wp_ + id 前 6 位（id 唯一，撞名只发生在同一张的重复导出，本来就该覆盖）。 */
+    private static String exportName(String id, File source) {
+        String suffix = id == null || id.isEmpty() ? "0" : id.substring(0, Math.min(6, id.length()));
+        return "wp_" + suffix + (source.getName().endsWith(FULL_EXT_PNG) ? ".png" : ".jpg");
     }
 
     private static void closeQuietly(java.io.Closeable closeable) {

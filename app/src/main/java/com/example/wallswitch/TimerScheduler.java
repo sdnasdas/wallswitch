@@ -199,7 +199,7 @@ public class TimerScheduler {
         scheduleInternal(ctx, forHome, true);
         if (logTag != null) {
             String currentId = Switcher.getCurrent(ctx, libId, forHome);
-            SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome, currentId),
+            SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome),
                     logTag, next, currentId, libId);
         }
         WidgetProvider.updateWidget(ctx);
@@ -215,9 +215,8 @@ public class TimerScheduler {
     public static void setPaused(Context ctx, boolean forHome, boolean paused) {
         LibraryStore.setSlotPaused(ctx, forHome, paused);
         if (paused) {
-            String title = currentTitleForLog(ctx, forHome);
             cancelScope(ctx, forHome);
-            SwitchLog.recordPaused(ctx, forHome, title);
+            SwitchLog.recordPaused(ctx, forHome);
         } else {
             long next = restartScope(ctx, forHome, null);
             SwitchLog.recordResumed(ctx, forHome, next);
@@ -250,12 +249,6 @@ public class TimerScheduler {
                 .putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome), triggerMillis)
                 .apply();
         scheduleInternal(ctx, forHome, true, remaining);
-    }
-
-    /** 该范围此刻在屏上的壁纸标题（暂停标记行用；没库给空串）。 */
-    public static String currentTitleForLog(Context ctx, boolean forHome) {
-        String libId = LibraryStore.slotLibId(ctx, forHome);
-        return libId == null || libId.isEmpty() ? "" : currentTitle(ctx, libId, forHome);
     }
 
     /** 取消指定范围的定时任务，并清除该范围的倒计时记录。 */
@@ -347,7 +340,7 @@ public class TimerScheduler {
             if (ok) {
                 String currentId = Switcher.getCurrent(ctx, lib.id, forHome);
                 SwitchLog.recordAuto(ctx, forHome,
-                        switchDetail(ctx, lib.id, forHome, currentId), planned, currentId, lib.id);
+                        switchDetail(ctx, lib.id, forHome), planned, currentId, lib.id);
             }
         }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
@@ -366,30 +359,14 @@ public class TimerScheduler {
     }
 
     /**
-     * 日志第一行里那段「切到哪张」的可读描述：库名 + 该范围切换后的当前壁纸标题。
-     * 找不到标题时用「未命名」占位；库查不到（刚删/还没建）时退回只写标题的老格式。
-     *
-     * <p>库名与标题只给人看；点日志反查用的是 {@link SwitchLog} 写在行尾的隐藏 id 段，
-     * 所以壁纸改名、库改名都不影响反查。
+     * 日志第一行里那段「切到哪」的可读描述：范围 + 库名（标题已下线）。
+     * 点日志反查用的是 {@link SwitchLog} 写在行尾的隐藏 id 段，所以库改名也不影响反查。
      */
-    private static String switchDetail(Context ctx, String libId, boolean forHome, String currentId) {
-        String scope = ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock);
-        String title = titleOf(ctx, currentId);
+    private static String switchDetail(Context ctx, String libId, boolean forHome) {
         LibraryStore.Library lib = libId == null ? null : LibraryStore.get(ctx, libId);
-        return lib == null || lib.name == null || lib.name.isEmpty()
-                ? ctx.getString(R.string.log_detail_scope, scope, title)
-                : ctx.getString(R.string.log_detail_scope_lib, scope, lib.name, title);
-    }
-
-    /** 某个范围此刻在屏上的壁纸标题（指针没设或标题为空时给占位文案）。 */
-    private static String currentTitle(Context ctx, String libId, boolean forHome) {
-        return titleOf(ctx, Switcher.getCurrent(ctx, libId, forHome));
-    }
-
-    /** 按壁纸 id 取标题（空标题给占位文案）。 */
-    private static String titleOf(Context ctx, String id) {
-        String title = id == null ? null : WallpaperStore.getTitle(ctx, id);
-        return title == null || title.isEmpty() ? ctx.getString(R.string.untitled) : title;
+        return ctx.getString(R.string.log_detail_scope,
+                ctx.getString(forHome ? R.string.scope_home : R.string.scope_lock),
+                lib == null || lib.name == null ? "" : lib.name);
     }
 
     /**
