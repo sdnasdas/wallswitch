@@ -13,6 +13,7 @@ import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -26,6 +27,7 @@ import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceGroup;
 import androidx.preference.PreferenceScreen;
 import androidx.preference.SwitchPreferenceCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.appbar.MaterialToolbar;
@@ -53,6 +55,9 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     private PreferenceScreen homeScreen;
     private GroupCardDecoration groupDecoration;
     private boolean resetScrollAfterBind;
+    // 离开首页进二级页前记下的首页滚动位置；返回首页时恢复，与切换日志页「原位不动」对齐
+    private int homeScrollPos = -1;
+    private int homeScrollOffset;
     private PreferenceScreen boundScreen;
     private PreferenceScreen transitionTarget;
     private RecyclerView transitionList;
@@ -142,25 +147,61 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
         transitionTarget = screen;
         transitionList = list;
-        // 先遮住旧列表，再做底部三栏收起与新页绑定；旧页的滚动位置/布局变化就不会露出来。
-        transitionOffset = dp(16) * (screen == homeScreen ? -1 : 1)
+        // transitionOffset 是新页的进场起点：进二级页从右滑入、回首页从左滑入（RTL 取反）。
+        transitionOffset = list.getResources().getDimensionPixelSize(R.dimen.ui_motion_distance)
+                * (screen == homeScreen ? -1 : 1)
                 * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
-        list.setAlpha(0f);
-        list.setTranslationX(transitionOffset);
         // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。
         notifyScreenChanged();
-        bindTransitionTarget();
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            // 先遮住旧列表再换屏，旧页的滚动位置/布局变化就不会露出来。
+            list.setAlpha(0f);
+            list.setTranslationX(transitionOffset);
+            bindTransitionTarget();
+            return;
+        }
+        // 旧页朝进场的反方向退出去，退完才换屏绑定，和 UiMotion 的 SharedAxis 两段节奏对齐。
+        final int generation = transitionGeneration;
+        list.animate().alpha(0f).translationX(-transitionOffset)
+                .setDuration(list.getResources().getInteger(R.integer.ui_motion_exit_duration))
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    if (generation == transitionGeneration && transitionList == list) {
+                        bindTransitionTarget();
+                    }
+                }).start();
     }
 
     private void applyScreen(PreferenceScreen screen) {
         if (screen != getPreferenceScreen()) {
             resetScrollAfterBind |= getView() != null;
             boundScreen = null;
+            if (getPreferenceScreen() == homeScreen) {
+                saveHomeScroll();
+            }
         }
         setPreferenceScreen(screen);
         configureGroupedPresentation();
         bindActions();
         refreshAll();
+    }
+
+    private void saveHomeScroll() {
+        homeScrollPos = -1;
+        RecyclerView list = getView() == null ? null : getListView();
+        if (list == null || homeScreen == null) {
+            return;
+        }
+        RecyclerView.LayoutManager lm = list.getLayoutManager();
+        if (!(lm instanceof LinearLayoutManager)) {
+            return;
+        }
+        int pos = ((LinearLayoutManager) lm).findFirstVisibleItemPosition();
+        View first = pos < 0 ? null : lm.findViewByPosition(pos);
+        if (first != null) {
+            homeScrollPos = pos;
+            homeScrollOffset = first.getTop();
+        }
     }
 
     private void bindTransitionTarget() {
@@ -193,7 +234,8 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             if (!ValueAnimator.areAnimatorsEnabled()) {
                 cancelScreenTransition();
             } else {
-                list.animate().alpha(1f).translationX(0f).setDuration(150)
+                list.animate().alpha(1f).translationX(0f)
+                        .setDuration(list.getResources().getInteger(R.integer.ui_motion_enter_duration))
                         .setInterpolator(new DecelerateInterpolator())
                         .withEndAction(() -> {
                             if (generation == transitionGeneration && transitionList == list) {
@@ -288,6 +330,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
      */
     public void leaveSettings() {
         finishNavigation();
+        homeScrollPos = -1;
         if (homeScreen != null && getPreferenceScreen() != homeScreen) {
             applyScreen(homeScreen);
         }
@@ -382,7 +425,18 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
         tintPreferenceIcons(getPreferenceScreen(), list.getContext().getColor(R.color.icon_neutral));
         if (resetScrollAfterBind) {
-            list.scrollToPosition(0);
+            if (getPreferenceScreen() == homeScreen && homeScrollPos >= 0) {
+                RecyclerView.LayoutManager lm = list.getLayoutManager();
+                if (lm instanceof LinearLayoutManager) {
+                    ((LinearLayoutManager) lm).scrollToPositionWithOffset(
+                            homeScrollPos, homeScrollOffset);
+                } else {
+                    list.scrollToPosition(homeScrollPos);
+                }
+                homeScrollPos = -1;
+            } else {
+                list.scrollToPosition(0);
+            }
             resetScrollAfterBind = false;
         }
         refreshAll();
@@ -402,6 +456,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         cancelScreenTransition();
         boundScreen = null;
         resetScrollAfterBind = false;
+        homeScrollPos = -1;
         if (groupDecoration != null) {
             getListView().removeItemDecoration(groupDecoration);
             groupDecoration = null;

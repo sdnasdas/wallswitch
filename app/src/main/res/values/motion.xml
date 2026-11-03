@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <integer name="ui_motion_exit_duration">90</integer>
-    <integer name="ui_motion_enter_duration">150</integer>
-    <integer name="ui_motion_duration">240</integer>
-    <dimen name="ui_motion_distance">16dp</dimen>
+    <!-- 全套页面转场共用这一组 token：UiMotion（Activity 内 SharedAxis）、设置页一二级（SettingsFragment）、
+         Activity 窗口动画（ui_page_*）。总时长 = 退场 120ms + 进场 300ms，
+         SharedAxis 那路靠 fadeThreshold = exit/duration 拆出同样的两段。 -->
+    <integer name="ui_motion_exit_duration">120</integer>
+    <integer name="ui_motion_enter_duration">300</integer>
+    <integer name="ui_motion_duration">420</integer>
+    <dimen name="ui_motion_distance">24dp</dimen>
 
     <style name="Animation.Ws.Page" parent="android:style/Animation.Activity">
         <item name="android:activityOpenEnterAnimation">@anim/ui_page_enter</item>
