@@ -339,6 +339,9 @@ public class MainActivity extends AppCompatActivity {
         }
         bottomNav.setSelectedItemId(tab);
         showTab(tab, false);
+        if (libraryOpen) {
+            pageLibrary.setVisibility(View.VISIBLE);
+        }
 
         // 老版本缩略图（长边 256 的等比图）在方格上会被放大发虚：
         // 后台一次性重做成「中心正方形 + 按屏幕取边长」，做完清缓存重绑一次
@@ -471,11 +474,11 @@ public class MainActivity extends AppCompatActivity {
         if (libAdapter.mode != LibAdapter.NORMAL) {
             exitGalleryMode();
         }
-        View target = id == R.id.nav_gallery ? (libraryOpen ? pageLibrary : pageGallery)
+        View target = id == R.id.nav_gallery ? pageGallery
                 : id == R.id.nav_settings ? pageSettings : pageNow;
         int before = currentTab == R.id.nav_now ? 0 : currentTab == R.id.nav_gallery ? 1 : 2;
         int after = id == R.id.nav_now ? 0 : id == R.id.nav_gallery ? 1 : 2;
-        boolean forward = currentTab == id ? target == pageLibrary : after > before;
+        boolean forward = after > before;
         currentTab = id;
         if (animate && previous != null && previous != target) {
             for (View page : pages) {
@@ -521,15 +524,19 @@ public class MainActivity extends AppCompatActivity {
         if (currentTab != R.id.nav_gallery) {
             bottomNav.setSelectedItemId(R.id.nav_gallery);
         } else {
-            showTab(R.id.nav_gallery, true);
+            refreshList();
         }
+        UiMotion.navigate(this, true, pageLibrary);
     }
 
     private void closeLibrary() {
         exitOrganizeMode();
         closeDetail();
         libraryOpen = false;
-        showTab(R.id.nav_gallery, true);
+        refreshLibs();
+        if (pageLibrary.getVisibility() == View.VISIBLE) {
+            UiMotion.navigate(this, false, pageLibrary);
+        }
     }
 
     private void setupSettingsSecondaryPage() {
