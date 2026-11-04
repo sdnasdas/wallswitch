@@ -98,7 +98,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             WidgetProvider.updateWidget(requireContext());
         });
         click("pinned", this::onPinnedTapped);
-        click("clear_titles", this::onClearTitlesTapped);
         click("transition", this::pickTransition);
         click("motion", this::pickMotion);
         click(QuickSetSheetDialog.KEY_DISMISS_THRESHOLD_DP, this::pickQuickSheetThreshold);
@@ -411,7 +410,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         String version = "v" + UpdateChecker.localVersion(ctx);
         summary("version", version);
         summary("settings_about", version);
-        refreshClearTitlesRow();
     }
 
     /** 检查更新那一行：下载进度轮询每 300ms 刷它一次，所以单独拎出来，不连带整页重算。 */
@@ -419,61 +417,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (isAdded() && getActivity() instanceof MainActivity) {
             summary("update", host().updateStatus());
         }
-    }
-
-    /** 存量标题清除那一行：库里还有没有老标题要整份读 library.json，放后台线程。 */
-    private void refreshClearTitlesRow() {
-        if (findPreference("clear_titles") == null) {
-            return;
-        }
-        final Context app = requireContext().getApplicationContext();
-        new Thread(() -> {
-            final boolean any = WallpaperStore.hasStoredTitles(app);
-            final android.app.Activity activity = getActivity();
-            if (activity == null) {
-                return;
-            }
-            activity.runOnUiThread(() -> {
-                if (!isAdded()) {
-                    return;
-                }
-                Preference p = findPreference("clear_titles");
-                if (p != null) {
-                    p.setVisible(any);
-                }
-            });
-        }, "pref-titles-row").start();
-    }
-
-    /** 一次性清除存量壁纸标题：确认后整表重写（title 键不再落盘），完成后这行自己消失。 */
-    private void onClearTitlesTapped() {
-        new AppAlertDialogBuilder(requireContext())
-                .setTitle(R.string.clear_titles_title)
-                .setMessage(R.string.clear_titles_confirm)
-                .setPositiveButton(R.string.confirm, (d, which) -> {
-                    final Context app = requireContext().getApplicationContext();
-                    new Thread(() -> {
-                        try {
-                            WallpaperStore.clearStoredTitles(app);
-                        } catch (Exception ignored) {
-                        }
-                        final android.app.Activity activity = getActivity();
-                        if (activity == null) {
-                            return;
-                        }
-                        activity.runOnUiThread(() -> {
-                            if (!isAdded()) {
-                                return;
-                            }
-                            Preference p = findPreference("clear_titles");
-                            if (p != null) {
-                                p.setVisible(false);
-                            }
-                        });
-                    }, "clear-titles").start();
-                })
-                .setNegativeButton(R.string.cancel, null)
-                .show();
     }
 
     /** 一键设置：没选过直接进两级选图；选过了给「换一张 / 清除」两条明面出口（原来清除藏在长按里）。 */

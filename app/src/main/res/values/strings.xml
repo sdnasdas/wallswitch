@@ -227,10 +227,6 @@
     <string name="notify_ok_title">壁纸已自动切换</string>
     <string name="notify_ok_body">%1$s壁纸已切换【%2$s】</string>
     <string name="notify_fail_title">自动切换失败</string>
-    <!-- 一次性：老版本给每张壁纸存过 title（通知/日志/导出文件名用过），功能下线后这行清掉存量，清完自己藏 -->
-    <string name="clear_titles_title">清除全部壁纸标题</string>
-    <string name="clear_titles_desc">老版本记下的壁纸名字，新版本已不再使用</string>
-    <string name="clear_titles_confirm">把所有壁纸的老标题从库里清掉？清除后找不回来。</string>
     <!-- 当值闸门：这张正被桌面/锁屏当值或被图钉钉着时，重编与彻底删除都不放行（解除关联不算，它不动文件） -->
     <string name="in_use_title">此壁纸正在应用</string>
     <string name="in_use_home">桌面</string>

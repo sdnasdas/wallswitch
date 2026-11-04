@@ -171,14 +171,6 @@
                     app:title="@string/save_wallpaper_title" />
             </PreferenceCategory>
         </PreferenceScreen>
-
-        <Preference
-            app:iconSpaceReserved="false"
-            app:icon="@drawable/ic_delete"
-            app:key="clear_titles"
-            app:persistent="false"
-            app:summary="@string/clear_titles_desc"
-            app:title="@string/clear_titles_title" />
     </PreferenceCategory>
 
     <PreferenceCategory

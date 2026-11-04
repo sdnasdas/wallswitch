@@ -127,8 +127,8 @@ public class WallpaperStore {
         public String libId;
         /** 挂在的库 id 集合，按挂上的先后排；判定归属一律用它（{@link #inLib}），别再用 libId 比等。 */
         public final List<String> libIds = new ArrayList<>();
-        // 标题功能已下线：不再显示、不再写盘。这个字段只为「一次性清除」按钮读出老数据里的
-        // 存量 title（load 时顺手接住），以及老备份包还原时把旧键解析掉；新代码不许再赋值
+        // 标题功能已下线：不再显示、不再写盘。这个字段只在 load 时接住老数据里的存量 title，
+        // 让老备份包还原时旧键被解析掉而不报错；新代码不许再赋值
         public String title;
         // 上次成品图是从原图的哪块矩形导出的。坐标一律是**原图像素坐标**，与导出用的区域解码同一套，
         // 不另立归一化约定 —— 少一次换算就少一处能错的地方。
@@ -1373,21 +1373,6 @@ public class WallpaperStore {
     /** 整表写回 library.json。BackupStore 还原时也走这里，保证字段序列化只有一处定义。 */
     public static void saveItems(Context context, List<Item> items) throws Exception {
         saveLibrary(context, items);
-    }
-
-    /** 库里是否还留着老版本写入的标题（一次性清除按钮的显示条件）。纯读。 */
-    public static boolean hasStoredTitles(Context context) {
-        for (Item item : load(context)) {
-            if (item.title != null && !item.title.isEmpty()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 一次性清除存量标题：整表原样重写，序列化不再写 title 键，旧键随之消失。 */
-    public static void clearStoredTitles(Context context) throws Exception {
-        saveItems(context, load(context));
     }
 
     /** 矩形坐标保留两位小数：0.01 像素的精度对复原取景框足够，又不至于让 library.json 啰嗦。 */
