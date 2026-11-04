@@ -152,12 +152,11 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 * list.getResources().getInteger(R.integer.ui_motion_distance_percent) / 100f
                 * (screen == homeScreen ? -1 : 1)
                 * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
-        // 二级页不留底部三栏：转场一开始就让 Activity 收起/放回，别等淡入结束才跳一下。
-        // 存首页滚动位置必须赶在这之前——收底栏会让列表布局变一档，存晚了恢复就对不上。
+        // 底栏收起/放回会让列表布局变一档，必须等旧页退完再动（notifyScreenChanged 在
+        // bindTransitionTarget 里）；存首页滚动位置则要赶在一切布局变化之前。
         if (getPreferenceScreen() == homeScreen && screen != homeScreen) {
             saveHomeScroll();
         }
-        notifyScreenChanged();
         if (!ValueAnimator.areAnimatorsEnabled()) {
             // 先遮住旧列表再换屏，旧页的滚动位置/布局变化就不会露出来。
             list.setAlpha(0f);
@@ -207,6 +206,9 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     }
 
     private void bindTransitionTarget() {
+        // 底栏的收起/放回挪到这一刻：旧页刚退完还是透明的、新页还没进场，
+        // 布局变一档落在换屏空档里看不见；收早了首页列表还在屏上，会看见它先跳一下。
+        notifyScreenChanged();
         transitionList.setAlpha(0f);
         transitionList.setTranslationX(transitionOffset);
         applyScreen(transitionTarget);
