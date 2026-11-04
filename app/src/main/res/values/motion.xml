@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 全套页面转场共用这一组 token：UiMotion（Activity 内 SharedAxis）、设置页一二级（SettingsFragment）、
+    <!-- 全套页面转场共用这一组 token：UiMotion 与设置页一二级都是旧页退完再让新页进场；
          Activity 窗口动画（ui_page_*，平移距离写死 30%，与本处 ui_motion_distance_percent 保持一致）。
-         总时长 = 退场 150ms + 进场 300ms，SharedAxis 那路靠 fadeThreshold = exit/duration 拆出同样的两段。 -->
+         总时长 = 退场 150ms + 进场 300ms，详情预览的 FadeThrough 靠 fadeThreshold = exit/duration 拆段。 -->
     <integer name="ui_motion_exit_duration">150</integer>
     <integer name="ui_motion_enter_duration">300</integer>
     <integer name="ui_motion_duration">450</integer>

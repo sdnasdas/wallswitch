@@ -464,12 +464,17 @@ public class MainActivity extends AppCompatActivity {
         boolean forward = currentTab == id ? target == pageLibrary : after > before;
         currentTab = id;
         if (animate && previous != null && previous != target) {
+            for (View page : pages) {
+                if (page != previous && page != target) {
+                    page.setVisibility(View.GONE);
+                }
+            }
             UiMotion.navigate(this, forward, previous, target);
         } else {
             UiMotion.finish(this);
-        }
-        for (View page : pages) {
-            page.setVisibility(page == target ? View.VISIBLE : View.GONE);
+            for (View page : pages) {
+                page.setVisibility(page == target ? View.VISIBLE : View.GONE);
+            }
         }
         updateBottomNav();
         refreshCurrentPage();
@@ -2234,7 +2239,6 @@ public class MainActivity extends AppCompatActivity {
         detailAdapter.setItems(items);
         detailPager.setCurrentItem(index, false);
         UiMotion.navigate(this, true, pageDetail);
-        pageDetail.setVisibility(View.VISIBLE);
         // 黑底上状态栏图标得是浅色
         WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
                 .setAppearanceLightStatusBars(false);
@@ -2251,7 +2255,6 @@ public class MainActivity extends AppCompatActivity {
             exitDetailPreview();
         }
         UiMotion.navigate(this, false, pageDetail);
-        pageDetail.setVisibility(View.GONE);
         boolean night = (getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
@@ -4716,7 +4719,6 @@ public class MainActivity extends AppCompatActivity {
         updateLogOrderButton();
         bindSwitchLogPage();
         UiMotion.navigate(this, true, pageLog);
-        pageLog.setVisibility(View.VISIBLE);
     }
 
     private void bindSwitchLogPage() {
@@ -4746,7 +4748,6 @@ public class MainActivity extends AppCompatActivity {
         UiMotion.finish(this);
         if (pageLog != null && pageLog.getVisibility() == View.VISIBLE) {
             UiMotion.navigate(this, false, pageLog);
-            pageLog.setVisibility(View.GONE);
         }
         if (logJumpButton != null) {
             logJumpButton.setVisibility(View.GONE);

@@ -4,6 +4,8 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 
 import androidx.transition.ChangeImageTransform;
@@ -13,30 +15,42 @@ import androidx.transition.TransitionSet;
 
 import com.google.android.material.transition.FadeThroughProvider;
 import com.google.android.material.transition.MaterialFadeThrough;
-import com.google.android.material.transition.MaterialSharedAxis;
-import com.google.android.material.transition.SlideDistanceProvider;
 
 final class UiMotion {
+    private static Navigation running;
+
     private UiMotion() {
     }
 
     static void navigate(Activity activity, boolean forward, View... targets) {
-        sharedAxis(activity, MaterialSharedAxis.X, forward, targets);
-    }
-
-    private static void sharedAxis(Activity activity, int axis, boolean forward, View... targets) {
-        MaterialSharedAxis transition = new MaterialSharedAxis(axis, forward);
-        // 位移按屏宽取，不是固定 dp：小滑距只剩淡入淡出，看不出「新页从右缘推进来」
-        ((SlideDistanceProvider) transition.getPrimaryAnimatorProvider()).setSlideDistance(
-                Math.round(activity.getResources().getDisplayMetrics().widthPixels
-                        * activity.getResources().getInteger(R.integer.ui_motion_distance_percent)
-                        / 100f));
-        ((FadeThroughProvider) transition.getSecondaryAnimatorProvider()).setProgressThreshold(
-                fadeThreshold(activity));
-        for (View target : targets) {
-            transition.addTarget(target);
+        finish(activity);
+        View outgoing = null;
+        View incoming = null;
+        if (targets.length == 2) {
+            outgoing = targets[0];
+            incoming = targets[1];
+        } else if (targets.length == 1) {
+            if (targets[0].getVisibility() == View.VISIBLE) {
+                outgoing = targets[0];
+            } else {
+                incoming = targets[0];
+            }
         }
-        begin(activity, transition);
+        ViewGroup root = activity.findViewById(android.R.id.content);
+        if (!root.isLaidOut() || !ValueAnimator.areAnimatorsEnabled()) {
+            settle(outgoing, incoming);
+            return;
+        }
+        float distance = activity.getResources().getDisplayMetrics().widthPixels
+                * activity.getResources().getInteger(R.integer.ui_motion_distance_percent) / 100f;
+        float enterOffset = forward ? distance : -distance;
+        if (root.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) {
+            enterOffset = -enterOffset;
+        }
+        running = new Navigation(outgoing, incoming, enterOffset,
+                activity.getResources().getInteger(R.integer.ui_motion_exit_duration),
+                activity.getResources().getInteger(R.integer.ui_motion_enter_duration));
+        running.start();
     }
 
     static void preview(Activity activity, View images, View... chrome) {
@@ -80,6 +94,93 @@ final class UiMotion {
     }
 
     static void finish(Activity activity) {
+        Navigation navigation = running;
+        running = null;
+        if (navigation != null) {
+            navigation.settle();
+        }
         TransitionManager.endTransitions(activity.findViewById(android.R.id.content));
+    }
+
+    private static void settle(View outgoing, View incoming) {
+        if (outgoing != null) {
+            outgoing.setVisibility(View.GONE);
+            outgoing.setAlpha(1f);
+            outgoing.setTranslationX(0f);
+        }
+        if (incoming != null) {
+            incoming.setVisibility(View.VISIBLE);
+            incoming.setAlpha(1f);
+            incoming.setTranslationX(0f);
+        }
+    }
+
+    private static final class Navigation {
+        private final View outgoing;
+        private final View incoming;
+        private final float enterOffset;
+        private final int exitDuration;
+        private final int enterDuration;
+
+        private Navigation(View outgoing, View incoming, float enterOffset,
+                           int exitDuration, int enterDuration) {
+            this.outgoing = outgoing;
+            this.incoming = incoming;
+            this.enterOffset = enterOffset;
+            this.exitDuration = exitDuration;
+            this.enterDuration = enterDuration;
+        }
+
+        private void start() {
+            if (incoming != null) {
+                incoming.setAlpha(0f);
+                incoming.setTranslationX(enterOffset);
+            }
+            if (outgoing == null) {
+                enter();
+                return;
+            }
+            outgoing.setVisibility(View.VISIBLE);
+            outgoing.setAlpha(1f);
+            outgoing.setTranslationX(0f);
+            outgoing.animate().alpha(0f).translationX(-enterOffset)
+                    .setDuration(exitDuration)
+                    .setInterpolator(new AccelerateInterpolator())
+                    .withEndAction(() -> {
+                        if (running != this) {
+                            return;
+                        }
+                        outgoing.setVisibility(View.GONE);
+                        outgoing.setAlpha(1f);
+                        outgoing.setTranslationX(0f);
+                        enter();
+                    }).start();
+        }
+
+        private void enter() {
+            if (incoming == null) {
+                running = null;
+                return;
+            }
+            incoming.setVisibility(View.VISIBLE);
+            incoming.animate().alpha(1f).translationX(0f)
+                    .setDuration(enterDuration)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .withEndAction(() -> {
+                        if (running == this) {
+                            running = null;
+                        }
+                    }).start();
+        }
+
+        private void settle() {
+            if (outgoing != null) {
+                outgoing.animate().withEndAction(null).cancel();
+            }
+            if (incoming != null) {
+                incoming.animate().withEndAction(null).cancel();
+            }
+            UiMotion.settle(outgoing, incoming);
+        }
     }
 }
