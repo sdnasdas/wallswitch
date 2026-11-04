@@ -11,3 +11,4 @@ check/work/
 # IDE / 工具目录
 .idea/
 .trae/
+.superpowers/
