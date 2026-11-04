@@ -133,6 +133,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_NOTIFY_PROMPTED = "notify_prompted";
     private static final String STATE_TAB = "tab";
     private static final String STATE_LIB_OPEN = "lib_open";
+    private static final String STATE_SETTINGS_SCREEN = "settings_screen";
+    private static final String STATE_SETTINGS_TITLE = "settings_title";
 
     private ActivityResultLauncher<PickVisualMediaRequest> pickLauncher;
     // 通知权限请求（Android 13+ 自动切换提示需要 POST_NOTIFICATIONS）
@@ -166,8 +168,11 @@ public class MainActivity extends AppCompatActivity {
 
     // ---- 页面骨架 ----
     private BottomNavigationView bottomNav;
-    private View pageNow, pageGallery, pageLibrary, pageSettings, pageDetail, pageLog, selectionBar;
+    private View pageNow, pageGallery, pageLibrary, pageSettings, pageSettingsSecondary,
+            pageDetail, pageLog, selectionBar;
     private int currentTab;
+    private String settingsSecondaryKey;
+    private String settingsSecondaryTitle;
     /** 图库那一栏现在停在库详情（true）还是库卡片网格（false）。 */
     private boolean libraryOpen;
     /** 程序化拨一键设置开关时置真，别把刷新当成用户拨动又去钉/退一遍。 */
@@ -283,6 +288,7 @@ public class MainActivity extends AppCompatActivity {
         pageGallery = findViewById(R.id.page_gallery);
         pageLibrary = findViewById(R.id.page_library);
         pageSettings = findViewById(R.id.page_settings);
+        pageSettingsSecondary = findViewById(R.id.page_settings_secondary);
         pageLog = findViewById(R.id.page_switch_log);
         pageDetail = findViewById(R.id.page_detail);
         selectionBar = findViewById(R.id.selection_bar);
@@ -294,6 +300,7 @@ public class MainActivity extends AppCompatActivity {
         setupLibraryPage();
         setupDetailPage();
         setupSwitchLogPage();
+        setupSettingsSecondaryPage();
         setupSelectionBar();
         setupNavigation();
         setupBackPressed();
@@ -322,6 +329,13 @@ public class MainActivity extends AppCompatActivity {
             if (savedInstanceState.getBoolean(STATE_LIB_OPEN, false) && currentLib() != null) {
                 libraryOpen = true;
             }
+            settingsSecondaryKey = savedInstanceState.getString(STATE_SETTINGS_SCREEN);
+            settingsSecondaryTitle = savedInstanceState.getString(STATE_SETTINGS_TITLE);
+            if (settingsSecondaryKey != null) {
+                ensureSettingsSecondary(settingsSecondaryKey);
+                setSettingsSecondaryTitle(settingsSecondaryTitle);
+                pageSettingsSecondary.setVisibility(View.VISIBLE);
+            }
         }
         bottomNav.setSelectedItemId(tab);
         showTab(tab, false);
@@ -345,6 +359,8 @@ public class MainActivity extends AppCompatActivity {
         super.onSaveInstanceState(outState);
         outState.putInt(STATE_TAB, currentTab);
         outState.putBoolean(STATE_LIB_OPEN, libraryOpen);
+        outState.putString(STATE_SETTINGS_SCREEN, settingsSecondaryKey);
+        outState.putString(STATE_SETTINGS_TITLE, settingsSecondaryTitle);
     }
 
     @Override
@@ -383,9 +399,9 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 系统栏避让：页面那一层只垫上、左、右；底部交给 BottomNavigationView 自己按导航条加内边距
      * （它默认就会这么做，根布局再垫一次就成了双份）。多选底栏顶替导航时自己补底部；
-     * 二级页面（库详情、设置二级页、图库多选/排序）把底部导航整条收起来，
+     * 图库多选/排序、库内多选把底部导航整条收起来，
      * 这时没人垫底部，交回 main_root 自己垫（见 {@link #applyBottomInset}）。
-     * 全屏的单张详情把上下两头分给顶栏与动作条。
+     * 库详情、设置二级页、日志与单张详情是独立覆盖层，各自处理 Insets，不改变一级页布局。
      */
     private void setupInsets() {
         InsetsHelper.edgeToEdge(this);
@@ -400,6 +416,8 @@ public class MainActivity extends AppCompatActivity {
             applyBottomInset();
             detailTop.setPadding(b[0], b[1], b[2], 0);
             detailBottom.setPadding(b[0], dp(32), b[2], b[3]);
+            pageLibrary.setPadding(b[0], b[1], b[2], b[3]);
+            pageSettingsSecondary.setPadding(b[0], b[1], b[2], b[3]);
             logRoot.setPadding(b[0], b[1], b[2], b[3]);
             selectionBar.setPadding(0, dp(6), 0, dp(6) + b[3]);
             return insets;
@@ -437,11 +455,7 @@ public class MainActivity extends AppCompatActivity {
     private void showTab(int id, boolean animate) {
         UiMotion.finish(this);
         if (currentTab == R.id.nav_settings && id != currentTab) {
-            androidx.fragment.app.Fragment settings = getSupportFragmentManager()
-                    .findFragmentById(R.id.settings_container);
-            if (settings instanceof SettingsFragment) {
-                ((SettingsFragment) settings).leaveSettings();
-            }
+            closeSettingsSecondary();
         }
         View previous = null;
         View[] pages = {pageNow, pageGallery, pageLibrary, pageSettings};
@@ -480,34 +494,17 @@ public class MainActivity extends AppCompatActivity {
         refreshCurrentPage();
     }
 
-    /**
-     * 底部三栏只在一级页面露：进了库详情、设置二级页，或图库多选/排序、库内多选时整条收起来，
-     * 返回上一层才回来（多选时由 {@link #selectionBar} 顶上，见 {@link #enterOrganizeMode}）。
-     */
+    /** 图库多选/排序、库内多选用动作模式顶替底部三栏；全屏二级覆盖页不改变它。 */
     private void updateBottomNav() {
         // 进程重建时设置页的 Fragment 会在 super.onCreate 里就跑完 onCreatePreferences，
         // 那时骨架还没 findViewById、两个 adapter 也还没建，先放过（onCreate 末尾会再算一次）。
         if (bottomNav == null || libAdapter == null || wallpaperAdapter == null) {
             return;
         }
-        boolean secondary = (currentTab == R.id.nav_gallery && libraryOpen)
-                || libAdapter.mode != LibAdapter.NORMAL
-                || wallpaperAdapter.isOrganizeMode()
-                || (currentTab == R.id.nav_settings && !settingsAtHome());
+        boolean secondary = libAdapter.mode != LibAdapter.NORMAL
+                || wallpaperAdapter.isOrganizeMode();
         bottomNav.setVisibility(secondary ? View.GONE : View.VISIBLE);
         applyBottomInset();
-    }
-
-    /** 设置栏现在停在首页（true）还是某张二级页（false）；设置页还没装好也按首页算。 */
-    private boolean settingsAtHome() {
-        androidx.fragment.app.Fragment settings = getSupportFragmentManager()
-                .findFragmentById(R.id.settings_container);
-        return !(settings instanceof SettingsFragment) || ((SettingsFragment) settings).isAtHome();
-    }
-
-    /** 设置页一二级互跳时调一次，底部三栏跟着收起/回来。 */
-    void onSettingsScreenChanged() {
-        updateBottomNav();
     }
 
     private void openLibrary(String libId) {
@@ -533,6 +530,46 @@ public class MainActivity extends AppCompatActivity {
         closeDetail();
         libraryOpen = false;
         showTab(R.id.nav_gallery, true);
+    }
+
+    private void setupSettingsSecondaryPage() {
+        MaterialToolbar toolbar = findViewById(R.id.toolbar_settings_secondary);
+        toolbar.setNavigationOnClickListener(v -> closeSettingsSecondary());
+    }
+
+    void openSettingsSecondary(String key, CharSequence title) {
+        if (key == null || pageSettingsSecondary.getVisibility() == View.VISIBLE) {
+            return;
+        }
+        UiMotion.finish(this);
+        settingsSecondaryKey = key;
+        settingsSecondaryTitle = title == null ? "" : title.toString();
+        getSupportFragmentManager().beginTransaction()
+                .replace(R.id.settings_secondary_container, SettingsFragment.secondary(key))
+                .commitNow();
+        setSettingsSecondaryTitle(settingsSecondaryTitle);
+        UiMotion.navigate(this, true, pageSettingsSecondary);
+    }
+
+    private void ensureSettingsSecondary(String key) {
+        if (getSupportFragmentManager().findFragmentById(R.id.settings_secondary_container) == null) {
+            getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.settings_secondary_container, SettingsFragment.secondary(key))
+                    .commitNow();
+        }
+    }
+
+    private void setSettingsSecondaryTitle(CharSequence title) {
+        ((MaterialToolbar) findViewById(R.id.toolbar_settings_secondary)).setTitle(title);
+    }
+
+    private void closeSettingsSecondary() {
+        UiMotion.finish(this);
+        settingsSecondaryKey = null;
+        settingsSecondaryTitle = null;
+        if (pageSettingsSecondary.getVisibility() == View.VISIBLE) {
+            UiMotion.navigate(this, false, pageSettingsSecondary);
+        }
     }
 
     /**
@@ -567,13 +604,9 @@ public class MainActivity extends AppCompatActivity {
                     closeLibrary();
                     return;
                 }
-                if (currentTab == R.id.nav_settings) {
-                    androidx.fragment.app.Fragment settings = getSupportFragmentManager()
-                            .findFragmentById(R.id.settings_container);
-                    if (settings instanceof SettingsFragment
-                            && ((SettingsFragment) settings).handleBackNavigation()) {
-                        return;
-                    }
+                if (pageSettingsSecondary.getVisibility() == View.VISIBLE) {
+                    closeSettingsSecondary();
+                    return;
                 }
                 if (currentTab != R.id.nav_now) {
                     bottomNav.setSelectedItemId(R.id.nav_now);
@@ -2805,6 +2838,11 @@ public class MainActivity extends AppCompatActivity {
         if (f instanceof SettingsFragment) {
             ((SettingsFragment) f).refreshAll();
         }
+        androidx.fragment.app.Fragment secondary = getSupportFragmentManager()
+                .findFragmentById(R.id.settings_secondary_container);
+        if (secondary instanceof SettingsFragment) {
+            ((SettingsFragment) secondary).refreshAll();
+        }
     }
 
     private void refreshLauncherOverlayRow() {
@@ -2849,6 +2887,11 @@ public class MainActivity extends AppCompatActivity {
         androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentById(R.id.settings_container);
         if (f instanceof SettingsFragment) {
             ((SettingsFragment) f).refreshUpdateRow();
+        }
+        androidx.fragment.app.Fragment secondary = getSupportFragmentManager()
+                .findFragmentById(R.id.settings_secondary_container);
+        if (secondary instanceof SettingsFragment) {
+            ((SettingsFragment) secondary).refreshUpdateRow();
         }
     }
 

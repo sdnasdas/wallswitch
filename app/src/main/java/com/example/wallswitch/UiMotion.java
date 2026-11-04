@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
@@ -121,6 +122,8 @@ final class UiMotion {
         private final float enterOffset;
         private final int exitDuration;
         private final int enterDuration;
+        private ViewTreeObserver enterObserver;
+        private ViewTreeObserver.OnPreDrawListener enterPreDraw;
 
         private Navigation(View outgoing, View incoming, float enterOffset,
                            int exitDuration, int enterDuration) {
@@ -163,17 +166,55 @@ final class UiMotion {
                 return;
             }
             incoming.setVisibility(View.VISIBLE);
-            incoming.animate().alpha(1f).translationX(0f)
-                    .setDuration(enterDuration)
-                    .setInterpolator(new DecelerateInterpolator())
-                    .withEndAction(() -> {
-                        if (running == this) {
-                            running = null;
-                        }
-                    }).start();
+            incoming.setAlpha(0f);
+            incoming.setTranslationX(enterOffset);
+            enterObserver = incoming.getViewTreeObserver();
+            enterPreDraw = () -> {
+                if (running != this) {
+                    return true;
+                }
+                if (incoming.isLayoutRequested()) {
+                    incoming.requestLayout();
+                    return true;
+                }
+                removeEnterPreDraw();
+                if (!ValueAnimator.areAnimatorsEnabled()) {
+                    running = null;
+                    settle();
+                } else {
+                    incoming.animate().alpha(1f).translationX(0f)
+                            .setDuration(enterDuration)
+                            .setInterpolator(new DecelerateInterpolator())
+                            .withEndAction(() -> {
+                                if (running == this) {
+                                    running = null;
+                                }
+                            }).start();
+                }
+                return true;
+            };
+            enterObserver.addOnPreDrawListener(enterPreDraw);
+            incoming.requestLayout();
+        }
+
+        private void removeEnterPreDraw() {
+            if (enterPreDraw != null) {
+                if (enterObserver != null && enterObserver.isAlive()) {
+                    enterObserver.removeOnPreDrawListener(enterPreDraw);
+                }
+                if (incoming != null) {
+                    ViewTreeObserver current = incoming.getViewTreeObserver();
+                    if (current != enterObserver && current.isAlive()) {
+                        current.removeOnPreDrawListener(enterPreDraw);
+                    }
+                }
+            }
+            enterObserver = null;
+            enterPreDraw = null;
         }
 
         private void settle() {
+            removeEnterPreDraw();
             if (outgoing != null) {
                 outgoing.animate().withEndAction(null).cancel();
             }

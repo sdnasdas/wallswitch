@@ -1,16 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 主界面 v3.134：单 Activity + 底部三栏（此刻 / 图库 / 设置），抽屉与「库列表首页」下线。
-     page_host 里叠着几页，同一时刻只露一页：
+     page_host 里叠着三个一级页，同一时刻只露一页：
        page_now      此刻：桌面/锁屏两张预览卡 + 上一张/暂停/下一张 + 一键设置 + 最近切换
        page_gallery  图库：库卡片网格（长按多选删库，⋯ 里调整顺序）
-       page_library  库详情：盖在图库之上的二级页（改名、设为桌面/锁屏、三列网格、长按多选）
        page_settings 设置：PreferenceFragmentCompat（原抽屉里那六张卡片）
-     page_detail 单张详情是全屏的，连底部导航一起盖住（黑底看图 + 底部动作条）。
-     底部三栏只在一级页面露：库详情、设置二级页、图库多选/排序、库内多选都把它整条收起来，
-     返回上一层才回来（见 MainActivity#updateBottomNav）。
+     page_library / page_settings_secondary / page_switch_log / page_detail 都是 app_root 上的全屏覆盖层，
+     旧页与底部导航不重排；图库多选/排序、库内多选仍会收起底部三栏（见 MainActivity#updateBottomNav）。
      系统栏避让：main_root 只吃上/左/右，底部由 BottomNavigationView 自己按导航条加内边距；
      三栏收起时没人垫底部，改由 main_root 自己垫（MainActivity#applyBottomInset）；
-     page_detail 自己处理（见 MainActivity#setupInsets）。 -->
+     全屏覆盖层分别处理自己的 Insets（见 MainActivity#setupInsets）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/app_root"
@@ -39,11 +37,6 @@
                 layout="@layout/page_gallery"
                 android:visibility="gone" />
 
-            <include
-                android:id="@+id/page_library"
-                layout="@layout/page_library"
-                android:visibility="gone" />
-
             <LinearLayout
                 android:id="@+id/page_settings"
                 android:layout_width="match_parent"
@@ -67,61 +60,6 @@
             </LinearLayout>
         </FrameLayout>
 
-        <!-- 多选态的底部动作条（库详情里勾了几张之后：移动到 / 复制到 / 设为封面 / 移出），出现时顶替底部导航。
-             「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」 -->
-        <LinearLayout
-            android:id="@+id/selection_bar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/colorSurfaceContainer"
-            android:orientation="horizontal"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:visibility="gone">
-
-            <Button
-                android:id="@+id/sel_move"
-                style="@style/Widget.Material3.Button.TextButton.Icon"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/sel_move"
-                app:icon="@drawable/ic_move"
-                app:iconGravity="top" />
-
-            <Button
-                android:id="@+id/sel_copy"
-                style="@style/Widget.Material3.Button.TextButton.Icon"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/sel_copy"
-                app:icon="@drawable/ic_copy"
-                app:iconGravity="top" />
-
-            <Button
-                android:id="@+id/sel_cover"
-                style="@style/Widget.Material3.Button.TextButton.Icon"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/sel_cover"
-                app:icon="@drawable/ic_cover"
-                app:iconGravity="top" />
-
-            <Button
-                android:id="@+id/sel_remove"
-                style="@style/Widget.Material3.Button.TextButton.Icon"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/sel_remove"
-                android:textColor="?attr/colorError"
-                app:icon="@drawable/ic_remove_circle"
-                app:iconGravity="top"
-                app:iconTint="?attr/colorError" />
-        </LinearLayout>
-
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/bottom_nav"
             android:layout_width="match_parent"
@@ -130,6 +68,72 @@
             app:itemTextColor="@color/text_primary"
             app:menu="@menu/bottom_nav" />
     </LinearLayout>
+
+    <include
+        android:id="@+id/page_library"
+        layout="@layout/page_library"
+        android:visibility="gone" />
+
+    <!-- 库内多选动作条浮在覆盖层上；出现时顶替底部导航。
+         「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」 -->
+    <LinearLayout
+        android:id="@+id/selection_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="?attr/colorSurfaceContainer"
+        android:orientation="horizontal"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/sel_move"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sel_move"
+            app:icon="@drawable/ic_move"
+            app:iconGravity="top" />
+
+        <Button
+            android:id="@+id/sel_copy"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sel_copy"
+            app:icon="@drawable/ic_copy"
+            app:iconGravity="top" />
+
+        <Button
+            android:id="@+id/sel_cover"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sel_cover"
+            app:icon="@drawable/ic_cover"
+            app:iconGravity="top" />
+
+        <Button
+            android:id="@+id/sel_remove"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sel_remove"
+            android:textColor="?attr/colorError"
+            app:icon="@drawable/ic_remove_circle"
+            app:iconGravity="top"
+            app:iconTint="?attr/colorError" />
+    </LinearLayout>
+
+    <include
+        android:id="@+id/page_settings_secondary"
+        layout="@layout/page_settings_secondary"
+        android:visibility="gone" />
 
     <!-- 切换记录是全屏二级页，盖住主页面与底部导航；详情页仍放最后，必要时可盖在日志之上 -->
     <include

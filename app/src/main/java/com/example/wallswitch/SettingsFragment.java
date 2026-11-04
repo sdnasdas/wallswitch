@@ -1,6 +1,5 @@
 package com.example.wallswitch;
 
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
@@ -12,9 +11,6 @@ import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewTreeObserver;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
 import android.widget.Toast;
@@ -27,10 +23,8 @@ import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceGroup;
 import androidx.preference.PreferenceScreen;
 import androidx.preference.SwitchPreferenceCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
@@ -47,39 +41,37 @@ import java.util.function.Consumer;
  */
 public class SettingsFragment extends PreferenceFragmentCompat {
 
-    private static final String STATE_SCREEN = "settings_design_screen";
+    private static final String ARG_SCREEN = "settings_screen_key";
     private static final String SYSTEM_SCREEN = "settings_system";
 
     private final List<List<Preference>> visualGroups = new ArrayList<>();
     private final List<PreferenceCategory> groupHeaders = new ArrayList<>();
     private PreferenceScreen homeScreen;
     private GroupCardDecoration groupDecoration;
-    private boolean resetScrollAfterBind;
-    // 离开首页进二级页前记下的首页滚动位置；返回首页时恢复，与切换日志页「原位不动」对齐
-    private int homeScrollPos = -1;
-    private int homeScrollOffset;
-    private PreferenceScreen boundScreen;
-    private PreferenceScreen transitionTarget;
-    private RecyclerView transitionList;
-    private ViewTreeObserver transitionObserver;
-    private ViewTreeObserver.OnPreDrawListener transitionPreDraw;
-    private int transitionGeneration;
-    private float transitionOffset;
+
+    static SettingsFragment secondary(String screenKey) {
+        SettingsFragment fragment = new SettingsFragment();
+        Bundle args = new Bundle();
+        args.putString(ARG_SCREEN, screenKey);
+        fragment.setArguments(args);
+        return fragment;
+    }
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.preferences, null);
         homeScreen = getPreferenceScreen();
-        String key = savedInstanceState == null ? rootKey : savedInstanceState.getString(STATE_SCREEN);
-        Preference restored = key == null ? null : homeScreen.findPreference(key);
-        showScreen(restored instanceof PreferenceScreen ? (PreferenceScreen) restored : homeScreen);
+        Bundle args = getArguments();
+        String key = args == null ? null : args.getString(ARG_SCREEN);
+        Preference target = key == null ? null : homeScreen.findPreference(key);
+        applyScreen(target instanceof PreferenceScreen ? (PreferenceScreen) target : homeScreen);
     }
 
     private void bindActions() {
         click("takeover_status", () -> {
             Preference screen = homeScreen.findPreference(SYSTEM_SCREEN);
             if (screen instanceof PreferenceScreen) {
-                showScreen((PreferenceScreen) screen);
+                openSecondary((PreferenceScreen) screen);
             }
         });
         click("takeover", () -> host().onTakeoverRowTapped());
@@ -128,237 +120,18 @@ public class SettingsFragment extends PreferenceFragmentCompat {
 
     @Override
     public void onNavigateToScreen(@NonNull PreferenceScreen preferenceScreen) {
-        showScreen(preferenceScreen);
+        openSecondary(preferenceScreen);
     }
 
-    private void showScreen(PreferenceScreen screen) {
-        if (screen == transitionTarget) {
-            return;
-        }
-        RecyclerView list = getView() == null ? null : getListView();
-        cancelScreenTransition();
-        // 首次创建/恢复只绑定页面，不给尚未显示过的列表做入场动画。
-        if (list == null || !list.isAttachedToWindow() || !list.isLaidOut()
-                || screen == getPreferenceScreen()) {
-            applyScreen(screen);
-            notifyScreenChanged();
-            return;
-        }
-        transitionTarget = screen;
-        transitionList = list;
-        // transitionOffset 是新页的进场起点：进二级页从右缘滑入、回首页从左缘滑入（RTL 取反），
-        // 行程按屏宽取（与 UiMotion / ui_page_* 的 30% 同源）
-        transitionOffset = list.getWidth()
-                * list.getResources().getInteger(R.integer.ui_motion_distance_percent) / 100f
-                * (screen == homeScreen ? -1 : 1)
-                * (list.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? -1 : 1);
-        // 底栏收起/放回会让列表布局变一档，必须等旧页退完再动（notifyScreenChanged 在
-        // bindTransitionTarget 里）；存首页滚动位置则要赶在一切布局变化之前。
-        if (getPreferenceScreen() == homeScreen && screen != homeScreen) {
-            saveHomeScroll();
-        }
-        if (!ValueAnimator.areAnimatorsEnabled()) {
-            // 先遮住旧列表再换屏，旧页的滚动位置/布局变化就不会露出来。
-            list.setAlpha(0f);
-            list.setTranslationX(transitionOffset);
-            bindTransitionTarget();
-            return;
-        }
-        // 旧页朝进场的反方向退出去，退完才换屏绑定，和 UiMotion 的 SharedAxis 两段节奏对齐。
-        final int generation = transitionGeneration;
-        list.animate().alpha(0f).translationX(-transitionOffset)
-                .setDuration(list.getResources().getInteger(R.integer.ui_motion_exit_duration))
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    if (generation == transitionGeneration && transitionList == list) {
-                        bindTransitionTarget();
-                    }
-                }).start();
+    private void openSecondary(PreferenceScreen screen) {
+        host().openSettingsSecondary(screen.getKey(), screen.getTitle());
     }
 
     private void applyScreen(PreferenceScreen screen) {
-        if (screen != getPreferenceScreen()) {
-            resetScrollAfterBind |= getView() != null;
-            boundScreen = null;
-        }
         setPreferenceScreen(screen);
         configureGroupedPresentation();
         bindActions();
         refreshAll();
-    }
-
-    private void saveHomeScroll() {
-        homeScrollPos = -1;
-        RecyclerView list = getView() == null ? null : getListView();
-        if (list == null || homeScreen == null) {
-            return;
-        }
-        RecyclerView.LayoutManager lm = list.getLayoutManager();
-        if (!(lm instanceof LinearLayoutManager)) {
-            return;
-        }
-        int pos = ((LinearLayoutManager) lm).findFirstVisibleItemPosition();
-        View first = pos < 0 ? null : lm.findViewByPosition(pos);
-        if (first != null) {
-            homeScrollPos = pos;
-            homeScrollOffset = first.getTop();
-        }
-    }
-
-    private void bindTransitionTarget() {
-        // 底栏的收起/放回挪到这一刻：旧页刚退完还是透明的、新页还没进场，
-        // 布局变一档落在换屏空档里看不见；收早了首页列表还在屏上，会看见它先跳一下。
-        notifyScreenChanged();
-        transitionList.setAlpha(0f);
-        transitionList.setTranslationX(transitionOffset);
-        applyScreen(transitionTarget);
-        // 转场中返回首页时，首页 adapter 可能根本没有换过，也要走 pre-draw。
-        if (boundScreen == transitionTarget) {
-            awaitTransitionPreDraw();
-        }
-    }
-
-    private void awaitTransitionPreDraw() {
-        removeTransitionPreDraw();
-        RecyclerView list = transitionList;
-        RecyclerView.Adapter<?> adapter = list.getAdapter();
-        int generation = transitionGeneration;
-        transitionObserver = list.getViewTreeObserver();
-        transitionPreDraw = () -> {
-            if (generation != transitionGeneration || transitionList != list) {
-                return true;
-            }
-            // onBindPreferences 之后才安装；还须等新 adapter 的布局/条目更新落地。
-            if (list.getAdapter() != adapter || boundScreen != transitionTarget
-                    || list.isLayoutRequested() || list.hasPendingAdapterUpdates()) {
-                list.requestLayout();
-                return true;
-            }
-            removeTransitionPreDraw();
-            if (!ValueAnimator.areAnimatorsEnabled()) {
-                cancelScreenTransition();
-            } else {
-                list.animate().alpha(1f).translationX(0f)
-                        .setDuration(list.getResources().getInteger(R.integer.ui_motion_enter_duration))
-                        .setInterpolator(new DecelerateInterpolator())
-                        .withEndAction(() -> {
-                            if (generation == transitionGeneration && transitionList == list) {
-                                cancelScreenTransition();
-                            }
-                        }).start();
-            }
-            return true;
-        };
-        transitionObserver.addOnPreDrawListener(transitionPreDraw);
-        list.requestLayout();
-    }
-
-    private void removeTransitionPreDraw() {
-        if (transitionPreDraw != null) {
-            if (transitionObserver != null && transitionObserver.isAlive()) {
-                transitionObserver.removeOnPreDrawListener(transitionPreDraw);
-            }
-            // attach/detach 会替换或合并 observer，也清掉当前树上的同一监听。
-            if (transitionList != null) {
-                ViewTreeObserver current = transitionList.getViewTreeObserver();
-                if (current != transitionObserver && current.isAlive()) {
-                    current.removeOnPreDrawListener(transitionPreDraw);
-                }
-            }
-        }
-        transitionObserver = null;
-        transitionPreDraw = null;
-    }
-
-    private void cancelScreenTransition() {
-        transitionGeneration++;
-        removeTransitionPreDraw();
-        if (transitionList != null) {
-            transitionList.animate().withEndAction(null).setListener(null).cancel();
-            transitionList.setAlpha(1f);
-            transitionList.setTranslationX(0f);
-        }
-        transitionList = null;
-        transitionTarget = null;
-    }
-
-    /** 由 Activity 的主线程返回处理调用；首页不消费返回。 */
-    public boolean handleBackNavigation() {
-        if (isAtHome()) {
-            return false;
-        }
-        showScreen(homeScreen);
-        return true;
-    }
-
-    /** 现在停在设置首页（true）还是某张二级页（false）；转场中按目标页算。 */
-    public boolean isAtHome() {
-        PreferenceScreen screen = transitionTarget == null ? getPreferenceScreen() : transitionTarget;
-        return homeScreen == null || screen == null || screen == homeScreen;
-    }
-
-    private void notifyScreenChanged() {
-        if (getActivity() instanceof MainActivity) {
-            ((MainActivity) getActivity()).onSettingsScreenChanged();
-        }
-    }
-
-    @Override
-    public void onSaveInstanceState(@NonNull Bundle outState) {
-        super.onSaveInstanceState(outState);
-        PreferenceScreen screen = transitionTarget == null ? getPreferenceScreen() : transitionTarget;
-        if (screen != null) {
-            outState.putString(STATE_SCREEN, screen.getKey());
-        }
-    }
-
-    @Override
-    public void onStop() {
-        // 页面被隐藏/应用退到后台时收敛到最后一次导航，不留下等待绘制的透明列表。
-        finishNavigation();
-        super.onStop();
-    }
-
-    /** 离开设置栏：正在做的一二级转场立即落定，避免回来时列表还停在透明/偏位状态。 */
-    public void finishNavigation() {
-        PreferenceScreen screen = transitionTarget;
-        cancelScreenTransition();
-        if (screen != null) {
-            applyScreen(screen);
-        }
-    }
-
-    /**
-     * 切到别的底栏时调：转场落定后再收回设置首页。
-     * 不收的话下次点「设置」会直接落在二级页上，底部三栏一进来就得藏（看着像自己消失了）。
-     */
-    public void leaveSettings() {
-        finishNavigation();
-        homeScrollPos = -1;
-        if (homeScreen != null && getPreferenceScreen() != homeScreen) {
-            applyScreen(homeScreen);
-        }
-        notifyScreenChanged();
-    }
-
-    private void updateToolbar() {
-        if (getActivity() == null || getPreferenceScreen() == null) {
-            return;
-        }
-        MaterialToolbar toolbar = getActivity().findViewById(R.id.toolbar_settings);
-        if (toolbar == null) {
-            return;
-        }
-        toolbar.setTitle(getPreferenceScreen().getTitle());
-        if (getPreferenceScreen() == homeScreen) {
-            toolbar.setNavigationIcon(null);
-            toolbar.setNavigationContentDescription(null);
-            toolbar.setNavigationOnClickListener(null);
-        } else {
-            toolbar.setNavigationIcon(R.drawable.ic_back);
-            toolbar.setNavigationContentDescription(R.string.settings_design_back_home);
-            toolbar.setNavigationOnClickListener(v -> handleBackNavigation());
-        }
     }
 
     private void configureGroupedPresentation() {
@@ -409,7 +182,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         list.setPadding(side, 0, side, dp(24));
         list.setClipToPadding(false);
         list.setItemAnimator(null);
-        updateToolbar();
     }
 
     @Override
@@ -428,46 +200,14 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             list.addItemDecoration(groupDecoration);
         }
         tintPreferenceIcons(getPreferenceScreen(), list.getContext().getColor(R.color.icon_neutral));
-        if (resetScrollAfterBind) {
-            if (getPreferenceScreen() == homeScreen && homeScrollPos >= 0) {
-                RecyclerView.LayoutManager lm = list.getLayoutManager();
-                if (lm instanceof LinearLayoutManager) {
-                    ((LinearLayoutManager) lm).scrollToPositionWithOffset(
-                            homeScrollPos, homeScrollOffset);
-                } else {
-                    list.scrollToPosition(homeScrollPos);
-                }
-                homeScrollPos = -1;
-            } else {
-                list.scrollToPosition(0);
-            }
-            resetScrollAfterBind = false;
-        }
         refreshAll();
-        boundScreen = getPreferenceScreen();
-        if (transitionList == list && boundScreen == transitionTarget) {
-            list.setAlpha(0f);
-            list.setTranslationX(transitionOffset);
-            awaitTransitionPreDraw();
-        } else if (transitionList != list) {
-            list.setAlpha(1f);
-            list.setTranslationX(0f);
-        }
     }
 
     @Override
     public void onDestroyView() {
-        cancelScreenTransition();
-        boundScreen = null;
-        resetScrollAfterBind = false;
-        homeScrollPos = -1;
         if (groupDecoration != null) {
             getListView().removeItemDecoration(groupDecoration);
             groupDecoration = null;
-        }
-        MaterialToolbar toolbar = requireActivity().findViewById(R.id.toolbar_settings);
-        if (toolbar != null) {
-            toolbar.setNavigationOnClickListener(null);
         }
         super.onDestroyView();
     }
@@ -627,7 +367,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (!isAdded() || !(getActivity() instanceof MainActivity)) {
             return;
         }
-        updateToolbar();
         Context ctx = requireContext();
         boolean home = TakeoverManager.isHomeTakenOver(ctx);
         boolean lock = TakeoverManager.isLockTakenOver(ctx) || TakeoverManager.isLockTakenByEngine(ctx);
