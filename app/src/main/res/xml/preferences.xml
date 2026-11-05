@@ -170,6 +170,19 @@
                     app:summary="@string/save_wallpaper_desc"
                     app:title="@string/save_wallpaper_title" />
             </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_live_tool">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_motion_photo"
+                    app:key="live_converter"
+                    app:persistent="false"
+                    app:summary="@string/live_converter_summary"
+                    app:title="@string/video_trim_title" />
+            </PreferenceCategory>
         </PreferenceScreen>
     </PreferenceCategory>
 

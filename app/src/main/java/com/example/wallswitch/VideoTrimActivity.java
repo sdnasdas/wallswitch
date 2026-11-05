@@ -24,6 +24,7 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.IntentCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
@@ -47,17 +48,28 @@ import com.google.android.material.slider.RangeSlider;
 import com.google.android.material.slider.Slider;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @OptIn(markerClass = UnstableApi.class)
 public final class VideoTrimActivity extends AppCompatActivity {
+    /**
+     * 独立「视频转 Live」的输入：相册/文件选择器给的视频 Uri。
+     * 带着它这一页就是「裁完存相册」，不带着它仍是导入壁纸那条（源在收件箱、成品交回编辑页取景）。
+     */
+    public static final String EXTRA_SOURCE_URI = "video_source_uri";
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(() -> {
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
@@ -72,7 +84,7 @@ public final class VideoTrimActivity extends AppCompatActivity {
     private TextView coverLabel;
     private TextView status;
     private View busy;
-    private View confirm;
+    private TextView confirm;
     private TextView play;
     private View coverMarker;
     private LinearLayout thumbnailStrip;
@@ -86,6 +98,9 @@ public final class VideoTrimActivity extends AppCompatActivity {
     private File scratch;
     private File pendingLive;
     private String inboxId;
+    private Uri sourceUri;
+    private boolean toAlbum;
+    private String albumName;
     private Bundle restored;
     private boolean binding;
     private boolean exporting;
@@ -102,26 +117,32 @@ public final class VideoTrimActivity extends AppCompatActivity {
         setContentView(R.layout.activity_video_trim);
         InsetsHelper.apply(this, R.id.video_trim_root);
         restored = state;
+        sourceUri = IntentCompat.getParcelableExtra(getIntent(), EXTRA_SOURCE_URI, Uri.class);
+        toAlbum = sourceUri != null;
         inboxId = getIntent().getStringExtra(EditActivity.EXTRA_INBOX_ID);
-        if (inboxId == null) {
+        if (!toAlbum && inboxId == null) {
             finish();
             return;
         }
-        source = WallpaperStore.getInboxFile(this, inboxId);
         try {
             scratch = Files.createTempDirectory(getCacheDir().toPath(), "video-live-").toFile();
         } catch (IOException e) {
             Toast.makeText(this, getString(R.string.video_trim_failed, e.getMessage()), Toast.LENGTH_LONG).show();
-            cancelImport();
+            leave();
             return;
+        }
+        if (toAlbum) {
+            source = new File(scratch, "input");
+        } else {
+            source = WallpaperStore.getInboxFile(this, inboxId);
         }
         Toolbar toolbar = findViewById(R.id.video_trim_toolbar);
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.getNavigationIcon().mutate().setTint(getColor(R.color.text_secondary));
         toolbar.setNavigationContentDescription(R.string.cancel);
-        toolbar.setNavigationOnClickListener(v -> cancelImport());
+        toolbar.setNavigationOnClickListener(v -> leave());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() { cancelImport(); }
+            @Override public void handleOnBackPressed() { leave(); }
         });
         playerView = findViewById(R.id.video_trim_player);
         coverImage = findViewById(R.id.video_trim_cover_image);
@@ -167,15 +188,47 @@ public final class VideoTrimActivity extends AppCompatActivity {
             requestCover();
         });
         rangeSlider.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> positionTimeline());
-        findViewById(R.id.video_trim_cancel).setOnClickListener(v -> cancelImport());
+        findViewById(R.id.video_trim_cancel).setOnClickListener(v -> leave());
         play.setOnClickListener(v -> togglePreview());
         confirm.setOnClickListener(v -> generateLive());
-        worker.execute(this::readVideo);
+        if (toAlbum) {
+            applyAlbumMode();
+            worker.execute(this::copySourceAndRead);
+        } else {
+            worker.execute(this::readVideo);
+        }
     }
 
-    private void cancelImport() {
+    /**
+     * 「裁完存相册」那一档的文案：这一档片段上限取消，产出也不回编辑页取景，
+     * 所以最长 3 秒那行、生成按钮和提示语都得换成保存的说法（布局里写死的是壁纸档那套）。
+     */
+    private void applyAlbumMode() {
+        rangeLabel.setText(R.string.video_trim_limit_none);
+        confirm.setText(R.string.video_trim_confirm_save);
+    }
+
+    /** 相册那一档的起手：先把选中的视频整份复制进缓存再读。 */
+    private void copySourceAndRead() {
+        try (InputStream in = getContentResolver().openInputStream(sourceUri)) {
+            if (in == null) {
+                throw new IOException("打不开选中的视频");
+            }
+            // 扩展名无所谓：抽取、播放、重编码三处都靠内容嗅探，不认文件名
+            Files.copy(in, source.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception | OutOfMemoryError e) {
+            handler.post(() -> showFailure(e));
+            return;
+        }
+        readVideo();
+    }
+
+    /** 退出这一页：壁纸那一档要顺手把收件箱那份待编辑文件删掉，相册那一档只删缓存。 */
+    private void leave() {
         closed = true;
-        WallpaperStore.cancelImport(this, inboxId);
+        if (inboxId != null) {
+            WallpaperStore.cancelImport(this, inboxId);
+        }
         finish();
     }
 
@@ -200,7 +253,7 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 throw new IOException("文件中没有视频轨");
             }
             long duration = Long.parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-            VideoSelection initial = new VideoSelection(duration);
+            VideoSelection initial = new VideoSelection(duration, toAlbum ? 0 : VideoSelection.MAX_DURATION_MS);
             VideoFrameTimes timestamps = readFrameTimes();
             if (restored != null) {
                 initial.setEnd(restored.getLong("end", initial.endMs()));
@@ -508,11 +561,15 @@ public final class VideoTrimActivity extends AppCompatActivity {
         try {
             retriever.setDataSource(video.getAbsolutePath());
             long duration = Long.parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-            if (duration <= 0 || duration > VideoSelection.MAX_DURATION_MS + 50) {
+            long expected = selection.endMs() - selection.startMs();
+            if (duration <= 0 || duration > expected + 50) {
                 throw new IOException("导出片段时长异常");
             }
             retriever.setDataSource(source.getAbsolutePath());
-            bitmap = frameAtUs(retriever, sourceCoverUs, WallpaperStore.maxWallpaperDim(this));
+            // 壁纸档按屏幕长边压（成品图要上屏）；相册那一档再小一档就照视频原尺寸出，不放大
+            bitmap = frameAtUs(retriever, sourceCoverUs, toAlbum
+                    ? coverMaxSide(retriever, WallpaperStore.maxWallpaperDim(this))
+                    : WallpaperStore.maxWallpaperDim(this));
             File jpeg = new File(scratch, "cover.jpg");
             try (FileOutputStream out = new FileOutputStream(jpeg)) {
                 if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)) {
@@ -541,6 +598,10 @@ public final class VideoTrimActivity extends AppCompatActivity {
             return;
         }
         pendingLive = null;
+        if (toAlbum) {
+            saveToAlbum(live);
+            return;
+        }
         try {
             Files.move(live.toPath(), source.toPath(), StandardCopyOption.REPLACE_EXISTING);
             Intent intent = new Intent(this, EditActivity.class);
@@ -550,6 +611,68 @@ public final class VideoTrimActivity extends AppCompatActivity {
             finish();
         } catch (Exception e) {
             showFailure(e);
+        }
+    }
+
+    /**
+     * 相册那一档的出口：把拼好的 live.jpg 原样写进 Pictures/WallSwitch（和「保存当前壁纸」同一个目录、
+     * 同一条 MediaStore 链路），写完给一颗「打开相册」。全程流式，不再落中间文件。
+     */
+    private void saveToAlbum(File live) {
+        albumName = "live_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                .format(new Date()) + ".jpg";
+        status.setText(R.string.video_trim_saving);
+        worker.execute(() -> {
+            Uri saved;
+            try (InputStream in = new FileInputStream(live)) {
+                saved = TakeoverManager.saveStreamToAlbum(this, albumName, in);
+            } catch (Exception | OutOfMemoryError e) {
+                saved = null;
+            }
+            final Uri result = saved;
+            final long bytes = live.length();
+            handler.post(() -> {
+                if (closed || isFinishing()) {
+                    return;
+                }
+                if (result == null) {
+                    showFailure(new IOException(getString(R.string.video_trim_save_failed)));
+                    return;
+                }
+                showSaved(result, bytes);
+            });
+        });
+    }
+
+    /** 成功窗：正键直接打开那张（相册/看图器会把它当动态照片播），负键收掉这一页。 */
+    private void showSaved(Uri saved, long bytes) {
+        // 生成已完成：转圈收掉、状态行报落点。这一档仍留着 exporting，控件保持禁用，
+        // 免得这扇窗还开着时又点一次生成、把 albumName 顶掉。
+        busy.setVisibility(View.GONE);
+        status.setText(getString(R.string.video_trim_saved_at, albumName));
+        new AppAlertDialogBuilder(this)
+                .setTitle(R.string.video_trim_saved_title)
+                .setMessage(getString(R.string.video_trim_saved_message, sizeText(bytes)))
+                .setPositiveButton(R.string.video_trim_open_album, (dialog, which) -> openInAlbum(saved))
+                .setNegativeButton(R.string.video_trim_done, (dialog, which) -> leave())
+                .setOnCancelListener(dialog -> leave())
+                .show();
+    }
+
+    /** 大小文案：不足 1MB 用 KB，免得一条几 MB 的 Live 显示成「0.0 MB」。 */
+    private static String sizeText(long bytes) {
+        return bytes < 1024 * 1024
+                ? String.format(Locale.getDefault(), "%.0f KB", bytes / 1024d)
+                : String.format(Locale.getDefault(), "%.1f MB", bytes / 1048576d);
+    }
+
+    private void openInAlbum(Uri saved) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(saved, "image/jpeg")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.video_trim_no_viewer, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -563,7 +686,8 @@ public final class VideoTrimActivity extends AppCompatActivity {
         coverSlider.setEnabled(editable && hasFrame);
         busy.setVisibility(value ? View.VISIBLE : View.GONE);
         status.setText(value ? R.string.video_trim_exporting
-                : editable && !hasFrame ? R.string.video_trim_no_frames : R.string.video_trim_hint);
+                : editable && !hasFrame ? R.string.video_trim_no_frames
+                : toAlbum ? R.string.video_trim_hint_save : R.string.video_trim_hint);
     }
 
     private void showFailure(Throwable error) {
@@ -582,6 +706,27 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 .setMessage(status.getText())
                 .setPositiveButton(android.R.string.ok, null)
                 .show();
+    }
+
+    /**
+     * 封面取「视频长边」和屏幕长边（{@code ceiling}）里小的那个：相册也是全屏显示这张，
+     * 比屏幕还大的封面只是多占内存。带 rotation 换算 —— 元数据给的是编码宽高，竖着拍的
+     * 视频要把它换过来，否则长边取小了，封面会被白压一档。
+     */
+    private static int coverMaxSide(MediaMetadataRetriever retriever, int ceiling) {
+        try {
+            int width = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+            int height = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            int rotation = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+            if (rotation == 90 || rotation == 270) {
+                int swap = width;
+                width = height;
+                height = swap;
+            }
+            return Math.max(1, Math.min(ceiling, Math.max(width, height)));
+        } catch (Exception e) {
+            return ceiling;
+        }
     }
 
     private static Bitmap frameAtUs(MediaMetadataRetriever retriever, long timeUs, int maxSide) throws IOException {

@@ -13,10 +13,12 @@
     <string name="settings_design_launcher_preview">桌面图标预览</string>
     <string name="settings_design_pinned">临时固定一张</string>
     <string name="settings_design_data">数据管理</string>
-    <string name="settings_design_backup_summary">导出成品图、备份整库、还原与保存当前壁纸</string>
+    <string name="settings_design_backup_summary">导出成品图、备份整库、还原、保存当前壁纸与视频转 Live</string>
     <string name="settings_design_export">成品图导出</string>
     <string name="settings_design_backup_restore">整库备份与还原</string>
     <string name="settings_design_current_wallpaper">当前系统壁纸</string>
+    <string name="settings_design_live_tool">实况工具</string>
+    <string name="live_converter_summary">选一段视频，裁头尾后拼成 Live 照片存进相册；时长不限，不进壁纸库</string>
 
     <string name="settings_design_app">应用</string>
     <string name="settings_design_system">系统与后台</string>

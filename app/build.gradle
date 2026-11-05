@@ -38,8 +38,8 @@ android {
         // 152/3.145：进出库改为单页覆盖，旧图库不再先退出，消除换页空白停顿
         // 153/3.146：设置页「清除存量标题」那颗临时入口整体删除 —— 它被 setVisible(false) 后
         // 卡片装饰器仍按旧快照找它的行位置，找不到就跳过整组，「数据管理」整块圆角底跟着没了
-        versionCode 153
-        versionName "3.146"
+        versionCode 154
+        versionName "3.147"
     }
 
     signingConfigs {

@@ -143,6 +143,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> savePermLauncher;
     // 全局「桌面图标预览底图」的单张选图（选一次、抠图后存应用目录，之后裁剪页直接复用）
     private ActivityResultLauncher<PickVisualMediaRequest> overlayLauncher;
+    // 设置页「视频转 Live」的单段选视频（选完交裁剪页，产出直接进相册，不落壁纸库）
+    private ActivityResultLauncher<PickVisualMediaRequest> liveVideoLauncher;
     // SAF 导出目录选择（ACTION_OPEN_DOCUMENT_TREE）
     private ActivityResultLauncher<Uri> exportDirLauncher;
     // 还原：用户直接指一个备份包（ACTION_OPEN_DOCUMENT，每次现授临时读权限，不依赖卸载前那个目录授权）
@@ -278,6 +280,8 @@ public class MainActivity extends AppCompatActivity {
                 this::onSavePermissionResult);
         overlayLauncher = registerForActivityResult(
                 new ActivityResultContracts.PickVisualMedia(), this::onOverlayPicked);
+        liveVideoLauncher = registerForActivityResult(
+                new ActivityResultContracts.PickVisualMedia(), this::onLiveVideoPicked);
         exportDirLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocumentTree(), this::onExportDirPicked);
         restoreZipLauncher = registerForActivityResult(
@@ -4385,6 +4389,26 @@ public class MainActivity extends AppCompatActivity {
                 refreshTakeoverUi();
             });
         }, "takeover-sync").start();
+    }
+
+    /**
+     * 设置页「视频转 Live」入口：挑一段视频交裁剪页。
+     * 这一档不限片段长度，产出直接写相册（Pictures/WallSwitch），不进壁纸库、也不占收件箱。
+     */
+    void pickLiveConverterVideo() {
+        PickVisualMediaRequest.Builder builder = new PickVisualMediaRequest.Builder();
+        builder.setMediaType(ActivityResultContracts.PickVisualMedia.VideoOnly.INSTANCE);
+        liveVideoLauncher.launch(builder.build());
+    }
+
+    /** 视频到手就开裁剪页；读权限跟着这次结果走，所以裁剪页第一步先把整段复制进缓存。 */
+    void onLiveVideoPicked(Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        Intent intent = new Intent(this, VideoTrimActivity.class);
+        intent.putExtra(VideoTrimActivity.EXTRA_SOURCE_URI, uri);
+        startActivity(intent);
     }
 
     /** 选一张首页截图作为全局「桌面图标预览底图」（抠图后存应用目录，之后不用再选）。 */

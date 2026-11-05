@@ -230,7 +230,7 @@ public final class TakeoverManager {
         try (InputStream in = new FileInputStream(full)) {
             boolean written;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                written = saveStreamToAlbum(ctx, name, in);
+                written = saveStreamToAlbum(ctx, name, in) != null;
             } else {
                 File outFile = new File(ctx.getFilesDir(), name);
                 try (OutputStream out = new FileOutputStream(outFile)) {
@@ -464,8 +464,9 @@ public final class TakeoverManager {
         return dot > 0 ? n.substring(dot) : ".png";
     }
 
-    /** 把输入流原样写进公共相册（库里的成品图是现成的 PNG 或 JPEG 字节，接管中保存时直接复制）。 */
-    private static boolean saveStreamToAlbum(Context ctx, String name, InputStream in) {
+    /** 把输入流原样写进公共相册（库里的成品图是现成的 PNG 或 JPEG 字节，接管中保存时直接复制）。
+     *  返回写进去的那条 MediaStore 记录，失败返回 null（调用方要拿它去「打开相册」）。 */
+    static Uri saveStreamToAlbum(Context ctx, String name, InputStream in) {
         ContentResolver cr = ctx.getContentResolver();
         Uri existing = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, SAVED_DIR);
         if (existing != null) {
@@ -483,20 +484,20 @@ public final class TakeoverManager {
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVED_DIR);
         Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
         if (uri == null) {
-            return false;
+            return null;
         }
         try (OutputStream out = cr.openOutputStream(uri)) {
             if (out == null) {
-                return false;
+                return null;
             }
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
             }
-            return true;
+            return uri;
         } catch (Exception e) {
-            return false;
+            return null;
         }
     }
 

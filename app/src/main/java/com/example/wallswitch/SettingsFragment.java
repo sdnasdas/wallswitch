@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
@@ -109,6 +110,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             }
         });
         click("export_dir", this::onExportDirTapped);
+        click("live_converter", () -> host().pickLiveConverterVideo());
         click("export_now", () -> host().exportAllWallpapers());
         click("backup", () -> host().startBackup());
         click("restore", () -> host().launchRestorePicker());
@@ -397,6 +399,14 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         summary("export_dir", WallpaperExporter.isConfigured(ctx)
                 ? getString(R.string.export_dir_set_state, WallpaperExporter.displayName(ctx))
                 : getString(R.string.export_dir_unset));
+        // 存相册用的是 MediaStore RELATIVE_PATH（Android 10 起才有），低版本直接灰掉这一行
+        Preference liveConverter = findPreference("live_converter");
+        if (liveConverter != null) {
+            boolean supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+            liveConverter.setEnabled(supported);
+            liveConverter.setSummary(supported ? getString(R.string.live_converter_summary)
+                    : getString(R.string.live_converter_need_q));
+        }
         SharedPreferences prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE);
         long at = prefs.getLong("backup_last_at", 0L);
         String name = prefs.getString("backup_last_name", "");

@@ -155,6 +155,18 @@
     <string name="video_trim_pause">暂停预览</string>
     <string name="video_trim_seconds">%1$.2f 秒</string>
     <string name="video_trim_range_time">%1$.2f — %2$.2f · %3$.2f 秒</string>
+    <string name="video_trim_limit_none">不限时长</string>
+    <string name="video_trim_confirm_save">生成 Live，存到相册</string>
+    <string name="video_trim_hint_save">拖动左右手柄裁头尾；黄色标记是封面。生成后存进相册，不进壁纸库。</string>
+    <string name="video_trim_saving">正在保存到相册…</string>
+    <string name="video_trim_saved_title">已保存到相册</string>
+    <string name="video_trim_saved_message">约 %1$s\n位置：Pictures/WallSwitch</string>
+    <string name="video_trim_saved_at">已存为 %1$s</string>
+    <string name="video_trim_open_album">打开相册</string>
+    <string name="video_trim_done">完成</string>
+    <string name="video_trim_save_failed">写入相册失败，请重试或换个视频</string>
+    <string name="video_trim_no_viewer">没有能打开图片的应用</string>
+    <string name="live_converter_need_q">需要 Android 10 及以上</string>
     <string name="decode_failed">图片解码失败，已跳过该图</string>
     <string name="save_failed">保存失败</string>
 
