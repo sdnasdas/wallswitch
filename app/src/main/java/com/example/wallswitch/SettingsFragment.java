@@ -64,6 +64,13 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         homeScreen = getPreferenceScreen();
         Bundle args = getArguments();
         String key = args == null ? null : args.getString(ARG_SCREEN);
+        if (key == null) {
+            // 「系统与权限」只是那一页的容器：首页进它走顶部「壁纸接管」那一行，不留第二颗门
+            Preference system = homeScreen.findPreference(SYSTEM_SCREEN);
+            if (system != null) {
+                system.setVisible(false);
+            }
+        }
         Preference target = key == null ? null : homeScreen.findPreference(key);
         applyScreen(target instanceof PreferenceScreen ? (PreferenceScreen) target : homeScreen);
     }
@@ -372,7 +379,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         boolean home = TakeoverManager.isHomeTakenOver(ctx);
         boolean lock = TakeoverManager.isLockTakenOver(ctx) || TakeoverManager.isLockTakenByEngine(ctx);
         String takeover = getString(R.string.pref_takeover_sum,
-                getString(home ? R.string.takeover_state_on : R.string.takeover_state_off),
                 getString(home ? R.string.takeover_by_app : R.string.takeover_by_system),
                 getString(lock ? R.string.takeover_by_app : R.string.takeover_by_system));
         summary("takeover", takeover);
@@ -383,7 +389,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         checked("status_notify", StatusNotifier.isEnabled(ctx));
         checked("ticking", TimerScheduler.tickingCountdown(ctx));
         String pin = PinnedWallpaper.label(ctx);
-        summary("pinned", pin == null ? getString(R.string.pinned_unset) : pin);
+        summary("pinned", pin == null ? getString(R.string.settings_state_unset) : pin);
         String transition = transitionLabel();
         String motion = motionLabel();
         summary("transition", transition);
@@ -395,23 +401,23 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 getString(R.string.settings_quick_threshold_summary, threshold,
                         Math.round(threshold * metrics.density * 100f / metrics.heightPixels)));
         summary("launcher_overlay", getString(LauncherPreviewOverlay.overlayFile(ctx).exists()
-                ? R.string.launcher_overlay_set : R.string.launcher_overlay_unset));
+                ? R.string.launcher_overlay_set : R.string.settings_state_unset));
         summary("export_dir", WallpaperExporter.isConfigured(ctx)
                 ? getString(R.string.export_dir_set_state, WallpaperExporter.displayName(ctx))
-                : getString(R.string.export_dir_unset));
+                : getString(R.string.settings_state_unset));
         // 存相册用的是 MediaStore RELATIVE_PATH（Android 10 起才有），低版本直接灰掉这一行
         Preference liveConverter = findPreference("live_converter");
         if (liveConverter != null) {
             boolean supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
             liveConverter.setEnabled(supported);
-            liveConverter.setSummary(supported ? getString(R.string.live_converter_summary)
-                    : getString(R.string.live_converter_need_q));
+            // 灰掉时那行是「为什么点不动」的状态，留着；能用时不写说明，裁剪页里已有去向与不进库的提示
+            liveConverter.setSummary(supported ? null : getString(R.string.live_converter_need_q));
         }
         SharedPreferences prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE);
         long at = prefs.getLong("backup_last_at", 0L);
         String name = prefs.getString("backup_last_name", "");
         summary("backup", at == 0L || name == null || name.isEmpty()
-                ? getString(R.string.backup_desc)
+                ? null
                 : getString(R.string.backup_last, TimerScheduler.clockText(ctx, at), name));
         summary("update_source", getString(UpdateChecker.SRC_GITHUB.equals(UpdateChecker.source(ctx))
                 ? R.string.update_source_github : R.string.update_source_gitee));

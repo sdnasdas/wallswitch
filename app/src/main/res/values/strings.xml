@@ -141,7 +141,7 @@
     <string name="video_detected_message">是否转为 Live 导入？可裁剪最多 3 秒，并选择封面首图。</string>
     <string name="video_yes">是</string>
     <string name="video_no">否</string>
-    <string name="video_trim_title">视频转 Live</string>
+    <string name="video_trim_title">视频转实况照片</string>
     <string name="video_trim_range">保留片段</string>
     <string name="video_trim_limit">最长 3 秒</string>
     <string name="video_trim_no_frames">片段内没有视频帧，请扩大裁剪范围</string>
@@ -215,7 +215,7 @@
     <string name="close">关闭</string>
 
     <!-- 自动切换提示（系统通知：成功静音留痕、失败弹横幅） -->
-    <string name="auto_notify_enabled">到点通知</string>
+    <string name="auto_notify_enabled">切换完成通知</string>
     <string name="notify_channel_ok">自动切换记录</string>
     <string name="notify_channel_ok_desc">自动切换完成后静音留痕，不弹横幅、不出声</string>
     <string name="notify_channel_fail">自动切换失败</string>
@@ -284,17 +284,16 @@
     <string name="launcher_overlay_title">桌面图标预览底图</string>
     <string name="section_export">导出与日志</string>
     <string name="section_download">下载</string>
-    <string name="export_dir_title">导出目录</string>
-    <string name="export_now_title">立即导出全部壁纸</string>
+    <string name="export_dir_title">导出文件夹</string>
+    <string name="export_now_title">导出全部壁纸</string>
     <string name="export_dir_unset">未设置 · 点按选一个文件夹（如 Documents/wallswitch）</string>
     <string name="export_dir_set_state">已设置：%1$s</string>
     <string name="export_dir_set">已记住导出目录</string>
     <string name="export_dir_clear_msg">取消后不再自动导出新壁纸（已导出的文件不会被删除），确定吗？</string>
-    <string name="export_now_desc">按原始字节复制，不重压，零画质损失</string>
     <string name="export_need_dir">请先选一个导出目录</string>
     <string name="export_running">正在导出…</string>
     <string name="export_done">已导出 %1$d 张壁纸</string>
-    <string name="launcher_overlay_set">已设置 · 点按查看、更换或清除</string>
+    <string name="launcher_overlay_set">已设置</string>
     <string name="launcher_overlay_action_view">查看当前底图</string>
     <string name="launcher_overlay_action_change">更换底图</string>
     <string name="launcher_overlay_action_clear">清除底图</string>
@@ -318,8 +317,6 @@
         <string name="takeover_info_title">如何关闭接管</string>
     <string name="takeover_info_msg">本应用不提供关闭接管的开关（避免误操作导致壁纸状态不一致）。\n\n若要关闭：到系统「设置 → 壁纸」手动选一张其他壁纸即可；更换后此开关会自动同步为关闭。</string>
     <string name="takeover_info_open_settings">去系统壁纸设置</string>
-    <string name="takeover_state_on">已启用</string>
-    <string name="takeover_state_off">未启用</string>
     <string name="banner_activate">启用</string>
     <string name="banner_not_activated">本应用未启用：桌面壁纸未由本应用接管</string>
     <string name="banner_no_library">「桌面壁纸库」卡片还没设置库，桌面壁纸显示纯色</string>
@@ -327,7 +324,6 @@
 
     <!-- 抽屉：保存当前壁纸（接管中存库里正在显示的那张，未接管存系统壁纸） -->
     <string name="save_wallpaper_title">保存当前壁纸</string>
-    <string name="save_wallpaper_desc">接管中：保存正在显示的那张；未接管：备份系统壁纸到相册</string>
     <string name="save_wallpaper_working">正在保存…</string>
     <string name="save_wallpaper_done">已保存到相册 Pictures/WallSwitch</string>
     <string name="save_wallpaper_failed">保存失败：%1$s</string>
@@ -430,15 +426,15 @@
     <string name="empty_libs">还没有壁纸库</string>
     <string name="empty_libs_hint">点右上角 ＋ 新建一个壁纸库</string>
     <string name="edit_desc">编辑</string>
-    <string name="battery_row_title">电池优化白名单</string>
+    <string name="battery_row_title">电池优化</string>
     <string name="battery_state_on">已允许</string>
-    <string name="battery_state_off">未允许 · 点按设置</string>
+    <string name="battery_state_off">未允许</string>
 
     <!-- v3.19：常驻切换通知（音乐播放器样式：库名+壁纸标题+倒计时+上一张/下一张）
          v3.80 拆成两条（桌面/锁屏各一条各一渠道）→ v3.81 收回一条：通知里放一颗「桌面/锁屏」角标，
          点它翻面，三颗键当场改打在翻到的那一面上。渠道沿用桌面那个 id，他已经在上面调过的设置不丢
          （代价：Android 不会替我们改已存在渠道的显示名，装机后它在通知设置里仍叫「桌面切换状态」） -->
-    <string name="status_notify_enabled">常驻切换通知</string>
+    <string name="status_notify_enabled">常驻通知栏</string>
     <string name="notify_channel_status">壁纸切换状态</string>
     <string name="notify_channel_status_desc">常驻显示当前壁纸与下次自动切换时间，带上一张/暂停/下一张，点角标可切作用面（静音、不被一键清理）</string>
     <string name="notif_action_pause_desc">暂停或继续这一面的自动切换</string>
@@ -454,8 +450,7 @@
     <string name="next_switch_at">预计下次切换时间：%1$s</string>
     <string name="next_switch_short">下次 %1$s</string>
     <!-- 倒计时样式开关：一个开关同时控制常驻通知与小组件 -->
-    <string name="ticking_countdown_title">走秒倒计时</string>
-    <string name="ticking_countdown_desc">开：通知与小组件显示走秒倒计时；关：显示静态的「预计下次切换时间」</string>
+    <string name="ticking_countdown_title">显示剩余秒数</string>
 
     <!-- 引擎切换动画：设置页选择过渡效果（淡入/模糊过渡/无） -->
     <string name="transition_effect_title">切换动画</string>
@@ -464,7 +459,7 @@
     <string name="transition_off">无动画</string>
 
     <!-- 实况（动态照片）：桌面壁纸怎么个动法。只有两档，默认按住播放 -->
-    <string name="motion_mode_title">实况播放</string>
+    <string name="motion_mode_title">实况播放方式</string>
     <string name="motion_hold">按住播放</string>
     <string name="motion_loop">循环播放</string>
     <!-- 循环档的每轮间隔：选了循环紧接着问（滚轮，0 = 不间隔），取消则连档都不切 -->
@@ -475,12 +470,10 @@
 
     <!-- 检查更新：对接 Gitee / GitHub 滚动 Release，来源可选；下载与安装入口都在 App 内 -->
     <string name="update_check_title">检查更新</string>
-    <string name="update_source_title">更新源</string>
-    <string name="update_source_desc">下载最新 APK 用的仓库；Gitee 国内直连，GitHub 需代理</string>
+    <string name="update_source_title">更新来源</string>
     <string name="update_source_gitee">Gitee</string>
     <string name="update_source_github">GitHub</string>
     <string name="auto_update_check_title">自动检查更新</string>
-    <string name="auto_update_check_desc">打开 App 时静默查一次，只有发现新版才提示；关掉后仍可点下面那行手动查</string>
     <string name="update_checking">检查中…</string>
     <string name="update_check_failed">检查失败，稍后再试</string>
     <string name="update_latest">已是最新版本</string>
@@ -512,23 +505,21 @@
     <!-- 整库备份/还原（BackupStore）：一个 zip 装下 图 + 缩略图 + 两个 json + prefs 的那几个 xml。
          还原方向走 ACTION_OPEN_DOCUMENT 现授临时读权限，所以卸载重装后照样点得到；
          备份方向依赖导出目录的 SAF 授权，那个授权随卸载失效 —— 所以重装后要先重选一次目录才能再备份 -->
-    <string name="backup_title">备份整库到导出目录</string>
-    <string name="backup_desc">打成一个 zip（壁纸成品图、原图、缩略图、库与标题、槽位与定时、开关）放进导出目录；卸载重装后能原样接回来</string>
+    <string name="backup_title">生成备份包</string>
     <string name="backup_last">上次备份 %1$s\n%2$s</string>
     <string name="backup_running">正在打包…</string>
     <string name="backup_done">已备份 %1$s：%2$d 条元数据 / %3$d 张成品图 / %4$d 张原图 / %5$d 张缩略图</string>
     <string name="backup_failed">备份失败：%1$s</string>
-    <string name="restore_title">从备份包还原</string>
-    <string name="restore_desc">选一个备份 zip，按包里那一刻恢复（同一张壁纸以包为准覆盖，本机独有的那些不动）</string>
+    <string name="restore_title">从备份包恢复</string>
     <string name="restore_reading">正在读包…</string>
     <string name="restore_bad_zip">这个文件读不出内容（可能不是本应用导出的 zip，或传输时被截断了）</string>
     <string name="restore_confirm">备份时间 %1$s，来自 v%2$s。\n\n包里：元数据 %3$d 条、成品图 %4$d 张、原图 %5$d 张、缩略图 %6$d 张，约 %7$d MB。\n本机现在有 %8$d 条。\n\n同一 id 的壁纸会被包里的覆盖；包里没有的条目保留。定时任务会按恢复后的槽位重新排一遍。</string>
-    <string name="restore_go">开始还原</string>
-    <string name="restore_running">正在还原…</string>
-    <string name="restore_done">已还原 %1$d 条元数据、写回 %2$d 个设置项、%3$d 张图（包里缺图而丢弃 %4$d 条）</string>
-    <string name="restore_failed">还原失败：%1$s</string>
-    <string name="restore_ask_title">要从备份包还原吗？</string>
-    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装）。如果你之前备份过，可以现在选那个 zip 接回来；不点也没关系，以后随时能在「设置 → 从备份包还原」里还原。</string>
+    <string name="restore_go">开始恢复</string>
+    <string name="restore_running">正在恢复…</string>
+    <string name="restore_done">已恢复 %1$d 条元数据、写回 %2$d 个设置项、%3$d 张图（包里缺图而丢弃 %4$d 条）</string>
+    <string name="restore_failed">恢复失败：%1$s</string>
+    <string name="restore_ask_title">要从备份包恢复吗？</string>
+    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装）。如果你之前备份过，可以现在选那个 zip 接回来；不点也没关系，以后随时能在「设置 → 从备份包恢复」里恢复。</string>
     <string name="restore_ask_go">选备份包</string>
     <string name="restore_ask_no">先不用</string>
 
@@ -592,19 +583,14 @@
     <!-- 一面的设置面板 -->
     <string name="slot_clear">不再使用此面</string>
     <!-- 设置页（Preference） -->
-    <string name="pref_cat_takeover">接管与后台</string>
-    <string name="pref_cat_switch">切换与通知</string>
-    <string name="pref_cat_motion">动效与预览</string>
-    <string name="pref_cat_backup">备份与导出</string>
+    <string name="pref_cat_takeover">保持后台运行</string>
+    <string name="pref_cat_backup">数据与文件</string>
     <string name="pref_cat_update">更新</string>
     <string name="pref_cat_about">关于</string>
-    <string name="pref_takeover_title">动态壁纸接管</string>
-    <string name="pref_takeover_sum">%1$s · 桌面 %2$s · 锁屏 %3$s</string>
-    <string name="pref_app_details_title">自启动与后台运行</string>
-    <string name="pref_app_details_sum">荣耀 / 华为还需在应用详情里允许自启动、后台运行</string>
-    <string name="pref_auto_notify_sum">自动切换完成后发通知：成功静音留痕，失败弹横幅</string>
-    <string name="pref_status_notify_sum">通知栏常驻当前壁纸，带上一张 / 暂停 / 下一张</string>
-    <string name="pref_version_title">版本</string>
+    <string name="pref_takeover_title">壁纸接管</string>
+    <string name="pref_takeover_sum">桌面 %1$s · 锁屏 %2$s</string>
+    <string name="pref_app_details_title">自启动（系统设置）</string>
+    <string name="pref_version_title">当前版本</string>
     <string name="export_dir_change">更换目录</string>
     <string name="export_dir_cancel">取消导出目录</string>
     <string name="update_downloading_tap">下载中 %1$d%% · 点按取消</string>
