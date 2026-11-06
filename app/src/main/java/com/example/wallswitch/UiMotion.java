@@ -61,6 +61,24 @@ final class UiMotion {
         }
     }
 
+    static final class ContentBindings {
+        private record Bound(long generation, int position) { }
+        private long generation;
+        private final java.util.WeakHashMap<Object, Bound> values = new java.util.WeakHashMap<>();
+
+        void changed() {
+            generation++;
+        }
+
+        void bound(Object view, int position) {
+            values.put(view, new Bound(generation, position));
+        }
+
+        boolean matches(Object view, int position) {
+            return new Bound(generation, position).equals(values.get(view));
+        }
+    }
+
     UiMotion(Activity activity) {
         this.activity = activity;
         root = activity.findViewById(android.R.id.content);
@@ -135,7 +153,8 @@ final class UiMotion {
         if (running != null) {
             if (running.tab && (target == running.front || target == running.back)) {
                 pending.remove(tabRequest);
-                running.towards(target == running.front);
+                if (target == running.front) running.enterWhenReady(ready);
+                else running.towards(false);
             } else {
                 pending.put(tabRequest, () -> replace(target, prepare, ready));
             }
@@ -161,7 +180,7 @@ final class UiMotion {
         if (running != null) {
             if (!running.tab && running.front == target) {
                 pending.remove(target);
-                running.towards(true);
+                running.enterWhenReady(ready);
             } else {
                 pending.put(target, () -> show(target, ready));
             }
@@ -303,7 +322,7 @@ final class UiMotion {
         final View back;
         final View front;
         final boolean tab;
-        final java.util.function.BooleanSupplier ready;
+        java.util.function.BooleanSupplier ready;
         final float offset;
         final float oldZ;
         final int oldAccessibility;
@@ -374,12 +393,35 @@ final class UiMotion {
             shield.setTranslationZ(Math.max(front.getZ(), 1f) + 1f);
             parent.addView(shield, new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            awaitReady();
+        }
+
+        void enterWhenReady(java.util.function.BooleanSupplier ready) {
+            this.ready = ready;
+            if (ready.getAsBoolean()) {
+                towards(true);
+                return;
+            }
+            if (animator != null) {
+                animator.removeAllListeners();
+                animator.cancel();
+                animator = null;
+            }
+            entering = true;
+            // 未换绑时隐藏旧内容，但保留行程以便就绪后续走。
+            front.setAlpha(0f);
+            awaitReady();
+        }
+
+        private void awaitReady() {
+            if (preDraw != null) return;
             observer = front.getViewTreeObserver();
             preDraw = () -> {
                 if (running != this || !ready.getAsBoolean() || !front.isLaidOut()) {
                     return true;
                 }
                 removePreDraw();
+                applyProgress();
                 Trace.beginSection("ui.navigation.ready");
                 towards(entering);
                 Trace.endSection();

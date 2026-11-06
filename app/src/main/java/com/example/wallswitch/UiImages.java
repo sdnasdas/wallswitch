@@ -34,6 +34,7 @@ public final class UiImages implements AutoCloseable {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final WeakReference<UiImages> self = new WeakReference<>(this);
     private final WeakHashMap<View, Slots> bindings = new WeakHashMap<>();
+    private final WeakHashMap<ImageView, DisplayStamp> displayed = new WeakHashMap<>();
     private final Revisions revisions = new Revisions();
     private final Map<String, Info> infos = new HashMap<>();
     private final Map<String, Preview> previewMarks = new HashMap<>();
@@ -77,6 +78,13 @@ public final class UiImages implements AutoCloseable {
         public Info(Boolean jpeg, boolean live) {
             this.jpeg = jpeg;
             this.live = live;
+        }
+    }
+
+    /** 已实际显示的内容身份；退订保留，不持有 View 或 Bitmap。 */
+    record DisplayStamp(String id, long revision, long epoch) {
+        boolean matches(Revisions revisions, Object tag, String targetId) {
+            return id.equals(targetId) && id.equals(tag) && revisions.matches(id, revision, epoch);
         }
     }
 
@@ -163,18 +171,32 @@ public final class UiImages implements AutoCloseable {
         return closed || info == null ? null : info.live;
     }
 
+    /** 当前目标已绑定（允许待解码的占位）；空目标必须没有旧图。 */
+    boolean isBound(ImageView view, String id) {
+        checkThread();
+        if (closed) return false;
+        if (id == null || id.isEmpty()) return view.getTag() == null && view.getDrawable() == null;
+        Slots slots = bindings.get(view);
+        Binding image = slots == null ? null : slots.image;
+        return image != null && image.waiter.key.kind != META
+                && Objects.equals(id, image.waiter.key.id) && binding(image.waiter) != null
+                && (id != null || (view.getTag() == null && view.getDrawable() == null));
+    }
+
     private Waiter bind(View view, String id, int kind, String prefix, int side, BiConsumer<View, Info> apply) {
         checkThread();
         if (closed) return null;
-        if (id == null || id.isEmpty()) {
+        if (id != null && id.isEmpty()) id = null;
+        if (id == null && kind == META) {
             unbind(view);
             view.setTag(null);
-            if (view instanceof ImageView image) image.setImageDrawable(null);
             return null;
         }
         Key key = new Key(id, kind, prefix, side, revisions.revision(id), revisions.epoch());
         Slots slots = bindings.get(view);
-        boolean sameId = id.equals(view.getTag()) && (slots == null || slots.id.equals(id));
+        boolean sameId = Objects.equals(id, view.getTag()) && (slots == null || Objects.equals(slots.id, id));
+        DisplayStamp stamp = view instanceof ImageView image ? displayed.get(image) : null;
+        boolean sameImage = stamp != null && stamp.matches(revisions, view.getTag(), id);
         if (slots == null || !sameId) {
             unbind(view);
             slots = new Slots(id);
@@ -183,13 +205,18 @@ public final class UiImages implements AutoCloseable {
         Binding previous = kind == META ? slots.metadata : slots.image;
         Waiter waiter = new Waiter(new WeakReference<>(view), key, ++generation);
         Binding binding = new Binding(waiter);
-        if (previous != null && sameId && current(previous.waiter.key)) binding.quality = previous.quality;
+        if (previous != null && (kind == META ? sameId : sameImage) && current(previous.waiter.key)) {
+            binding.quality = previous.quality;
+        }
         binding.apply = apply;
         if (kind == META) slots.metadata = binding;
         else slots.image = binding;
         view.setTag(id);
-        if (!sameId && view instanceof ImageView image) image.setImageDrawable(null);
-        return waiter;
+        if (kind != META && !sameImage && view instanceof ImageView image) {
+            displayed.remove(image);
+            image.setImageDrawable(null);
+        }
+        return id == null ? null : waiter;
     }
 
     private void thumbnail(Waiter waiter, boolean synchronous) {
@@ -279,7 +306,7 @@ public final class UiImages implements AutoCloseable {
 
     private Binding binding(Waiter waiter) {
         View view = waiter.view.get();
-        if (view == null || !current(waiter.key) || !waiter.key.id.equals(view.getTag())) return null;
+        if (view == null || !current(waiter.key) || !Objects.equals(waiter.key.id, view.getTag())) return null;
         Slots slots = bindings.get(view);
         Binding binding = slots == null ? null : waiter.key.kind == META ? slots.metadata : slots.image;
         return binding != null && binding.waiter.generation == waiter.generation ? binding : null;
@@ -317,7 +344,9 @@ public final class UiImages implements AutoCloseable {
         if (waiter.key.kind == META) {
             if (apply != null) apply.accept(view, result.info);
         } else if (result.bitmap != null && result.quality >= binding.quality) {
-            ((ImageView) view).setImageBitmap(result.bitmap);
+            ImageView image = (ImageView) view;
+            image.setImageBitmap(result.bitmap);
+            displayed.put(image, new DisplayStamp(waiter.key.id, waiter.key.revision, waiter.key.epoch));
             binding.quality = result.quality;
         }
     }
@@ -330,6 +359,7 @@ public final class UiImages implements AutoCloseable {
         checkThread();
         if (closed || id == null) return;
         revisions.evict(id);
+        clearDisplayed(id);
         WallpaperStore.invalidateImageMarks(id);
         thumbs.remove(id);
         infos.remove(id);
@@ -351,7 +381,7 @@ public final class UiImages implements AutoCloseable {
             return true;
         });
         bindings.values().removeIf(slots -> {
-            if (!slots.id.equals(id)) return false;
+            if (!Objects.equals(slots.id, id)) return false;
             discardSlots(slots);
             return true;
         });
@@ -360,6 +390,7 @@ public final class UiImages implements AutoCloseable {
     public void clear() {
         checkThread();
         revisions.clear();
+        clearDisplayed(null);
         infos.clear();
         previewMarks.clear();
         negatives.clear();
@@ -370,6 +401,17 @@ public final class UiImages implements AutoCloseable {
         thumbs.evictAll();
         previews.evictAll();
         main.removeCallbacksAndMessages(null);
+    }
+
+    private void clearDisplayed(String id) {
+        displayed.entrySet().removeIf(entry -> {
+            DisplayStamp stamp = entry.getValue();
+            if (id != null && !stamp.id.equals(id)) return false;
+            ImageView image = entry.getKey();
+            // Holder 已复用到别的 id 时，只移除旧身份，不碰新内容。
+            if (image != null && stamp.id.equals(image.getTag())) image.setImageDrawable(null);
+            return true;
+        });
     }
 
     private void discardSlots(Slots slots) {

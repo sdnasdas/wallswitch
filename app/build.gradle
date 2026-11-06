@@ -39,8 +39,8 @@ android {
         // 153/3.146：设置页「清除存量标题」那颗临时入口整体删除 —— 它被 setVisible(false) 后
         // 卡片装饰器仍按旧快照找它的行位置，找不到就跳过整组，「数据管理」整块圆角底跟着没了
         // 155/3.148：设置页菜单去小字 + 标题产品化改名；首页「系统与权限」那颗入口下线，进那页只走顶部「壁纸接管」
-        versionCode 156
-        versionName "3.149"
+        versionCode 157
+        versionName "3.150"
     }
 
     signingConfigs {

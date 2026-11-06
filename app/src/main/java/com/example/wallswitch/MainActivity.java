@@ -523,8 +523,10 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         if (animate) {
-            motion.replace(target, prepare,
-                    () -> id != R.id.nav_settings || settingsReady(R.id.settings_container));
+            motion.replace(target, prepare, () -> {
+                if (id == R.id.nav_settings) return settingsReady(R.id.settings_container);
+                return id != R.id.nav_gallery || libAdapter.prepareVisible();
+            });
         } else {
             motion.setTab(target, prepare);
         }
@@ -563,7 +565,7 @@ public class MainActivity extends AppCompatActivity {
         libraryRecycler.scrollToPosition(0);
         refreshList();
         libraryRecycler.post(this::syncAddFab);
-        motion.show(pageLibrary);
+        motion.show(pageLibrary, wallpaperAdapter::isEntryReady);
     }
 
     private void closeLibrary() {
@@ -774,6 +776,49 @@ public class MainActivity extends AppCompatActivity {
     private abstract class ImageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         private RecyclerView recycler;
         private boolean shown;
+        private final UiMotion.ContentBindings bindings = new UiMotion.ContentBindings();
+
+        ImageAdapter() {
+            registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+                @Override public void onChanged() { bindings.changed(); }
+                @Override public void onItemRangeChanged(int start, int count) { bindings.changed(); }
+                @Override public void onItemRangeInserted(int start, int count) { bindings.changed(); }
+                @Override public void onItemRangeRemoved(int start, int count) { bindings.changed(); }
+                @Override public void onItemRangeMoved(int from, int to, int count) { bindings.changed(); }
+            });
+        }
+
+        private boolean hasImageBindings(View view) {
+            if (view instanceof ImageView image && view.getTag() instanceof String id
+                    && !images.isBound(image, id)) return false;
+            if (view instanceof ViewGroup group) {
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    if (!hasImageBindings(group.getChildAt(i))) return false;
+                }
+            }
+            return true;
+        }
+
+        abstract void bindRow(RecyclerView.ViewHolder holder, int position);
+
+        @Override public final void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+            bindRow(holder, position);
+            bindings.bound(holder.itemView, position);
+        }
+
+        boolean prepareVisible() {
+            if (recycler == null || !recycler.isLaidOut() || recycler.isComputingLayout()
+                    || recycler.hasPendingAdapterUpdates() || recycler.isLayoutRequested()) return false;
+            for (int i = 0; i < recycler.getChildCount(); i++) {
+                RecyclerView.ViewHolder holder = recycler.getChildViewHolder(recycler.getChildAt(i));
+                int position = holder.getBindingAdapterPosition();
+                if (position == RecyclerView.NO_POSITION || position >= getItemCount()) return false;
+                if (!bindings.matches(holder.itemView, position) || !hasImageBindings(holder.itemView)) {
+                    onBindViewHolder(holder, position);
+                }
+            }
+            return !recycler.hasPendingAdapterUpdates() && !recycler.isLayoutRequested();
+        }
         private final android.view.ViewTreeObserver.OnGlobalLayoutListener visibility = () -> {
             if (recycler == null || shown == recycler.isShown()) return;
             shown = recycler.isShown();
@@ -783,6 +828,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override public void onAttachedToRecyclerView(@NonNull RecyclerView rv) {
             recycler = rv;
+            rv.setItemAnimator(null);
             shown = rv.isShown();
             rv.getViewTreeObserver().addOnGlobalLayoutListener(visibility);
         }
@@ -1390,7 +1436,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        void bindRow(RecyclerView.ViewHolder holder, int position) {
             View v = holder.itemView;
             final WallpaperStore.Item item = items.get(position);
             ImageView img = v.findViewById(R.id.img_thumb);
@@ -1749,7 +1795,7 @@ public class MainActivity extends AppCompatActivity {
         void refreshBadges() {
             notifyDataSetChanged();
             if (wallpaperAdapter != null) {
-                wallpaperAdapter.notifyItemChanged(0);
+                wallpaperAdapter.refreshHeader();
             }
         }
 
@@ -1781,7 +1827,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        void bindRow(RecyclerView.ViewHolder holder, int position) {
             View item = holder.itemView;
             if (getItemViewType(position) == TYPE_NEW) {
                 // 与旁边的库卡片同高：库卡片现在只剩正方形封面（库名与张数压在封面上）
@@ -2055,7 +2101,7 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, unset ? getString(R.string.cover_unset_done)
                 : getString(R.string.cover_set_done, lib.name), Toast.LENGTH_SHORT).show();
         exitOrganizeMode();
-        wallpaperAdapter.notifyItemChanged(0);
+        wallpaperAdapter.refreshHeader();
     }
 
     /** 「添加」的来源面板：相册（图片与 MP4 混选）/ 图片或视频链接。 */
@@ -2122,6 +2168,8 @@ public class MainActivity extends AppCompatActivity {
         private List<WallpaperStore.Item> items = new ArrayList<>();
         private List<DisplayRow> snapshots = Collections.singletonList(displayRow("library-header"));
         private int filterGeneration;
+        private String entryLibraryId;
+        private String entryCoverId;
         private boolean organizeMode;
         // 勾选按壁纸 id 记，不按下标：一次整理会把选中的那几张从这一页摘走，下标会串位
         private final Set<String> selectedIds = new HashSet<>();
@@ -2162,6 +2210,8 @@ public class MainActivity extends AppCompatActivity {
             List<DisplayRow> next = new ArrayList<>();
             LibraryStore.Library lib = currentLib();
             String cover = lib == null ? null : libCoverId(lib);
+            entryLibraryId = lib == null ? null : lib.id;
+            entryCoverId = cover;
             next.add(displayRow("library-header", lib == null ? null : lib.id,
                     lib == null ? null : lib.name, cover, imageRevision(cover), imageClearEpoch, allItems.size(),
                     visible.isEmpty(), wallpaperFilter,
@@ -2177,6 +2227,19 @@ public class MainActivity extends AppCompatActivity {
             }
             selectedIds.retainAll(alive);
             if (!before.equals(next)) diffRows(before, next).dispatchUpdatesTo(this);
+        }
+
+        void refreshHeader() {
+            publishItems(items);
+        }
+
+        boolean isEntryReady() {
+            if (!prepareVisible()) return false;
+            RecyclerView.ViewHolder header = libraryRecycler.findViewHolderForAdapterPosition(0);
+            return header != null && entryLibraryId != null
+                    && entryLibraryId.equals(currentLibId())
+                    && entryLibraryId.equals(header.itemView.getTag())
+                    && images.isBound(header.itemView.findViewById(R.id.img_header_cover), entryCoverId);
         }
 
         boolean isOrganizeMode() {
@@ -2244,7 +2307,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        void bindRow(RecyclerView.ViewHolder holder, int position) {
             View v = holder.itemView;
             if (position == 0) {
                 bindHeader(v);
@@ -2290,13 +2353,14 @@ public class MainActivity extends AppCompatActivity {
 
         private void bindHeader(View v) {
             LibraryStore.Library lib = currentLib();
+            v.setTag(lib == null ? null : lib.id);
             v.setVisibility(lib == null || organizeMode ? View.GONE : View.VISIBLE);
             if (lib == null || organizeMode) {
                 unbindImageTree(v);
                 return;
             }
             ImageView cover = v.findViewById(R.id.img_header_cover);
-            String coverId = libCoverId(lib);
+            String coverId = entryCoverId;
             if (coverId != null) {
                 images.full(cover, coverId, "p:", getResources().getDisplayMetrics().widthPixels);
             } else {
@@ -2428,7 +2492,7 @@ public class MainActivity extends AppCompatActivity {
         detailUsesFilter = filtered;
         detailAdapter.setItems(items);
         detailPager.setCurrentItem(index, false);
-        motion.show(pageDetail);
+        motion.show(pageDetail, detailAdapter::isEntryReady);
         // 黑底上状态栏图标得是浅色
         WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
                 .setAppearanceLightStatusBars(false);
@@ -2528,6 +2592,14 @@ public class MainActivity extends AppCompatActivity {
         List<WallpaperStore.Item> items = new ArrayList<>();
         private List<DisplayRow> snapshots = new ArrayList<>();
 
+        boolean isEntryReady() {
+            if (!prepareVisible() || detailPager.isLayoutRequested()) return false;
+            WallpaperStore.Item item = detailItem();
+            RecyclerView recycler = (RecyclerView) detailPager.getChildAt(0);
+            RecyclerView.ViewHolder holder = recycler.findViewHolderForAdapterPosition(detailPager.getCurrentItem());
+            return item != null && holder != null && images.isBound((ImageView) holder.itemView, item.id);
+        }
+
         void setItems(List<WallpaperStore.Item> newItems) {
             List<DisplayRow> next = wallpaperRows(newItems);
             List<DisplayRow> before = snapshots;
@@ -2558,7 +2630,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        void bindRow(RecyclerView.ViewHolder holder, int position) {
             String id = items.get(position).id;
             int maxSide = Math.max(getResources().getDisplayMetrics().widthPixels,
                     getResources().getDisplayMetrics().heightPixels);
@@ -5023,7 +5095,7 @@ public class MainActivity extends AppCompatActivity {
         bindingLogControls = false;
         updateLogOrderButton();
         submitSwitchLogPage(snapshot);
-        motion.show(pageLog);
+        motion.show(pageLog, logAdapter::prepareVisible);
         logAdapter.rebindVisible();
     }
 
@@ -5522,7 +5594,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        void bindRow(RecyclerView.ViewHolder holder, int position) {
             LogRow item = rows.get(position);
             if (!(holder instanceof LogCardHolder)) {
                 ((TextView) holder.itemView).setText(item.title);
