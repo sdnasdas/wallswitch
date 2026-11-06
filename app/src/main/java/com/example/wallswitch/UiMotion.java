@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.widget.ImageView;
 
 import androidx.transition.ChangeImageTransform;
@@ -233,6 +234,14 @@ final class UiMotion {
         }
     }
 
+    static float pageTranslation(boolean tab, float offset, float progress) {
+        return tab ? 0f : offset * (1f - progress);
+    }
+
+    static int pageDuration(boolean tab, boolean enter, int enterDuration, int exitDuration) {
+        return tab || enter ? enterDuration : exitDuration;
+    }
+
     private static void reset(View view, int visibility) {
         view.setVisibility(visibility);
         view.setAlpha(1f);
@@ -451,11 +460,13 @@ final class UiMotion {
                 commit(enter);
                 return;
             }
-            int duration = activity.getResources().getInteger(enter
-                    ? R.integer.ui_motion_enter_duration : R.integer.ui_motion_exit_duration);
+            int duration = pageDuration(tab, enter,
+                    activity.getResources().getInteger(R.integer.ui_motion_enter_duration),
+                    activity.getResources().getInteger(R.integer.ui_motion_exit_duration));
             animator = ValueAnimator.ofFloat(progress, target);
             animator.setDuration(Math.max(1, Math.round(duration * Math.abs(target - progress))));
-            animator.setInterpolator(enter ? new DecelerateInterpolator() : new AccelerateInterpolator());
+            animator.setInterpolator(tab ? new LinearInterpolator()
+                    : enter ? new DecelerateInterpolator() : new AccelerateInterpolator());
             animator.addUpdateListener(value -> {
                 float next = (float) value.getAnimatedValue();
                 if (!movementStarted && next != progress) {
@@ -477,8 +488,9 @@ final class UiMotion {
         }
 
         void applyProgress() {
+            // 底页保持实底，上层alpha使内容交叉混合，避免两层同时降透明度时漏底。
             front.setAlpha(progress);
-            front.setTranslationX(offset * (1f - progress));
+            front.setTranslationX(pageTranslation(tab, offset, progress));
         }
 
         void removePreDraw() {

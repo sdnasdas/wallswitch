@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 页面连续覆盖进入；450ms仅供详情预览拆段，窗口动画位移与此处保持一致。 -->
+    <!-- 三栏300ms原位交叉淡化；二级页滑动覆盖，450ms仅供详情预览拆段。 -->
     <integer name="ui_motion_exit_duration">150</integer>
     <integer name="ui_motion_enter_duration">300</integer>
     <integer name="ui_motion_duration">450</integer>
