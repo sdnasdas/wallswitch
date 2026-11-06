@@ -95,6 +95,8 @@ public class EditActivity extends AppCompatActivity {
     /** 确认落盘是否在跑：跑着的时候再次确认/取消/关联原图都不接新活。 */
     private volatile boolean confirmRunning;
     private boolean loading = true;
+    // 仅主线程读写：每次解码与销毁都推进代次，旧源结果不得覆盖当前取景。
+    private int decodeGeneration;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -164,7 +166,6 @@ public class EditActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.edit_reset_crop_done, Toast.LENGTH_SHORT).show();
         });
         chooseSource();
-        readOriginalBounds();
         startDecode();
     }
 
@@ -231,24 +232,30 @@ public class EditActivity extends AppCompatActivity {
         pendingRestoreRect = null;
     }
 
-    /** 读原图像素尺寸（只读文件头，很快）：区域解码要把取景框映射回原图坐标。 */
-    private void readOriginalBounds() {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(sourceFile.getAbsolutePath(), bounds);
-        originalWidth = bounds.outWidth;
-        originalHeight = bounds.outHeight;
-    }
-
-    /** 后台解码源图；期间显示「加载中…」并禁用确认。 */
+    /** 后台读取原图尺寸并解码源图；期间显示「加载中…」并禁用确认。 */
     private void startDecode() {
+        final int generation = ++decodeGeneration;
+        final File decodeSource = sourceFile;
         setLoading(true);
         new Thread(() -> {
             // 批量导入时会连开好几轮编辑页，解码跑后台优先级压峰值功耗（发热），略慢一点点
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-            final Bitmap decoded = WallpaperStore.decodeCropSource(EditActivity.this, sourceFile);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            Bitmap result = null;
+            try {
+                // 尺寸与预览位图必须读同一份源；文件头 IO 也不占主线程。
+                BitmapFactory.decodeFile(decodeSource.getAbsolutePath(), bounds);
+                result = WallpaperStore.decodeCropSource(EditActivity.this, decodeSource);
+            } catch (Exception | OutOfMemoryError ignored) {
+                // 与解码返回 null 一样，由主线程统一提示失败并退出。
+            }
+            final Bitmap decoded = result;
+            final int width = bounds.outWidth;
+            final int height = bounds.outHeight;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
+                if (generation != decodeGeneration || decodeSource != sourceFile
+                        || isFinishing() || isDestroyed()) {
                     if (decoded != null) {
                         decoded.recycle();
                     }
@@ -262,6 +269,8 @@ public class EditActivity extends AppCompatActivity {
                     finish();
                     return;
                 }
+                originalWidth = width;
+                originalHeight = height;
                 cropView.setBitmap(decoded);
                 applyPendingRestore();
                 setLoading(false);
@@ -270,7 +279,7 @@ public class EditActivity extends AppCompatActivity {
     }
 
     /**
-     * 复原取景框。尺寸校验放在这里：{@link #readOriginalBounds()} 读的是当前 sourceFile 的文件头，
+     * 复原取景框。尺寸校验放在这里：{@link #startDecode()} 已交付当前 sourceFile 的原图尺寸，
      * 「那六个参数是不是写给眼前这张原图的」只有在这儿能判定。
      * 对不上就当作没有参数（默认构图），并把提示换成「位置已作废」—— 不单独清除，
      * 因为下一次确认会用新原图的尺寸覆盖写回，一次编辑就自好了。
@@ -371,6 +380,9 @@ public class EditActivity extends AppCompatActivity {
         new Thread(() -> {
             final boolean linked = WallpaperStore.linkOriginal(appCtx, itemId, uri);
             runOnUiThread(() -> {
+                if (linked) {
+                    lastTouchedId = itemId;
+                }
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
@@ -382,7 +394,6 @@ public class EditActivity extends AppCompatActivity {
                 sourceFile = WallpaperStore.getOriginalFile(this, itemId);
                 sourceIsOriginal = true;
                 pendingRestoreRect = null;
-                readOriginalBounds();
                 startDecode();
             });
         }, "link-original").start();
@@ -693,6 +704,7 @@ public class EditActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        ++decodeGeneration;
         // 预览那张大位图没人再画了，主动还掉（正常路径下它只是随 Activity 一起变垃圾，等 GC）
         if (cropView != null) {
             cropView.releaseBitmap();

@@ -92,6 +92,8 @@ public class WallpaperStore {
     // 实况段。进程内记着免得每帧绑格子都读盘；id 是 uuid，新入库天然没有陈旧 entry，
     // 整批还原走 clearFullFormatMarks 一并清。
     private static final ConcurrentHashMap<String, Boolean> LIVE_MARKS = new ConcurrentHashMap<>();
+    private static final Object IMAGE_MARK_LOCK = new Object();
+    private static long imageMarkGeneration;
     // 壁纸分辨率下限：小屏机型也至少按这个处理
     private static final int MIN_WALLPAPER_DIM = 2048;
     // 壁纸分辨率上限：控内存（ARGB_8888 下约 4.6M 像素 ≈ 18MB）
@@ -408,6 +410,8 @@ public class WallpaperStore {
             } catch (Exception ignored) {
             }
             return false;
+        } finally {
+            invalidateImageMarks(id);
         }
     }
 
@@ -500,8 +504,10 @@ public class WallpaperStore {
         fullOut.close();
         Files.deleteIfExists(
                 new File(fullDir, id + (jpeg ? FULL_EXT : LEGACY_FULL_EXT)).toPath());
-        // 刚写完，格式是确定的事实，直接填进标记表（省掉绑格子时那一次摸盘）
-        FULL_JPEG_MARKS.put(id, jpeg);
+        synchronized (IMAGE_MARK_LOCK) {
+            imageMarkGeneration++;
+            FULL_JPEG_MARKS.put(id, jpeg);
+        }
     }
 
     /**
@@ -515,9 +521,13 @@ public class WallpaperStore {
         if (id == null || id.isEmpty()) {
             return null;
         }
-        Boolean cached = FULL_JPEG_MARKS.get(id);
-        if (cached != null) {
-            return cached;
+        final long generation;
+        synchronized (IMAGE_MARK_LOCK) {
+            Boolean cached = FULL_JPEG_MARKS.get(id);
+            if (cached != null) {
+                return cached;
+            }
+            generation = imageMarkGeneration;
         }
         File dir = new File(context.getFilesDir(), DIR_FULL);
         boolean jpeg;
@@ -528,14 +538,29 @@ public class WallpaperStore {
         } else {
             return null;
         }
-        FULL_JPEG_MARKS.put(id, jpeg);
+        synchronized (IMAGE_MARK_LOCK) {
+            if (generation == imageMarkGeneration) {
+                FULL_JPEG_MARKS.put(id, jpeg);
+            }
+        }
         return jpeg;
     }
 
     /** 抹掉全部格式标记：只有「整批覆盖成品图文件」的那条路需要它（从备份包还原）。 */
     public static void clearFullFormatMarks() {
-        LIVE_MARKS.clear();
-        FULL_JPEG_MARKS.clear();
+        synchronized (IMAGE_MARK_LOCK) {
+            imageMarkGeneration++;
+            LIVE_MARKS.clear();
+            FULL_JPEG_MARKS.clear();
+        }
+    }
+
+    static void invalidateImageMarks(String id) {
+        synchronized (IMAGE_MARK_LOCK) {
+            imageMarkGeneration++;
+            LIVE_MARKS.remove(id);
+            FULL_JPEG_MARKS.remove(id);
+        }
     }
 
     /**
@@ -548,9 +573,13 @@ public class WallpaperStore {
         if (id == null || id.isEmpty()) {
             return false;
         }
-        Boolean cached = LIVE_MARKS.get(id);
-        if (cached != null) {
-            return cached;
+        final long generation;
+        synchronized (IMAGE_MARK_LOCK) {
+            Boolean cached = LIVE_MARKS.get(id);
+            if (cached != null) {
+                return cached;
+            }
+            generation = imageMarkGeneration;
         }
         boolean live = false;
         try {
@@ -559,7 +588,11 @@ public class WallpaperStore {
                     && com.example.wallswitch.gl.MotionSource.locate(original) != null;
         } catch (Exception ignored) {
         }
-        LIVE_MARKS.put(id, live);
+        synchronized (IMAGE_MARK_LOCK) {
+            if (generation == imageMarkGeneration) {
+                LIVE_MARKS.put(id, live);
+            }
+        }
         return live;
     }
 
@@ -1029,27 +1062,33 @@ public class WallpaperStore {
     /**
      * 生成并写入某张壁纸的缩略图（中心正方形 + 按屏幕取的边长）。
      * 只回收自己新建的中间位图，入参位图归调用方管（scaleToFit 没缩时返回的就是入参本身）。
+     * 只有压缩成功且输出流正常关闭才返回 true；不能把尝试写入当作成功重建。
      */
-    private static void writeThumb(Context context, String id, Bitmap bitmap) throws IOException {
+    private static boolean writeThumb(Context context, String id, Bitmap bitmap) throws IOException {
         if (bitmap == null) {
-            return;
+            return false;
         }
         File dir = new File(context.getFilesDir(), DIR_THUMB);
         if (!dir.exists() && !dir.mkdirs()) {
-            return;
+            return false;
         }
         Bitmap square = centerSquare(bitmap);
-        Bitmap thumb = scaleToFit(square, thumbSide(context));
-        if (thumb != null) {
-            FileOutputStream out = new FileOutputStream(getThumbFile(context, id));
-            thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
-            out.close();
-        }
-        if (square != null && square != bitmap) {
-            square.recycle();
-        }
-        if (thumb != null && thumb != square && thumb != bitmap) {
-            thumb.recycle();
+        Bitmap thumb = null;
+        try {
+            thumb = scaleToFit(square, thumbSide(context));
+            if (thumb == null) {
+                return false;
+            }
+            try (FileOutputStream out = new FileOutputStream(getThumbFile(context, id))) {
+                return thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
+            }
+        } finally {
+            if (square != null && square != bitmap) {
+                square.recycle();
+            }
+            if (thumb != null && thumb != square && thumb != bitmap) {
+                thumb.recycle();
+            }
         }
     }
 
@@ -1057,15 +1096,17 @@ public class WallpaperStore {
      * 一次性把老规格缩略图重做成新规格（v3.15：256px 等比 → 中心正方形 + 按屏幕取边长）。
      * 只挑「缺失 / 不是正方形 / 边长不足」的重做，逐张判断所以中途被杀下次启动接着做；
      * 整轮跑完写标记，之后不再扫描。含解码与编码，调用方必须放后台线程。
+     * @return 本轮实际成功重建缩略图的 id；已迁移或没有成功重建时返回空列表。
      */
-    public static void regenerateThumbs(Context context) {
+    public static List<String> regenerateThumbs(Context context) {
         if (context == null) {
-            return;
+            return Collections.emptyList();
         }
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         if (prefs.getBoolean(THUMB_REGEN_KEY, false)) {
-            return;
+            return Collections.emptyList();
         }
+        List<String> changedIds = new ArrayList<>();
         int side = thumbSide(context);
         for (Item item : load(context)) {
             File thumbFile = getThumbFile(context, item.id);
@@ -1076,16 +1117,21 @@ public class WallpaperStore {
             if (!full.exists()) {
                 continue;
             }
+            Bitmap src = null;
             try {
-                Bitmap src = decodeBounded(full, side * 2);
-                writeThumb(context, item.id, src);
+                src = decodeBounded(full, side * 2);
+                if (writeThumb(context, item.id, src)) {
+                    changedIds.add(item.id);
+                }
+            } catch (Exception | OutOfMemoryError ignored) {
+            } finally {
                 if (src != null && !src.isRecycled()) {
                     src.recycle();
                 }
-            } catch (Exception | OutOfMemoryError ignored) {
             }
         }
         prefs.edit().putBoolean(THUMB_REGEN_KEY, true).apply();
+        return changedIds;
     }
 
     /** 缩略图要不要重做：文件不存在、解不出尺寸、不是正方形、或边长明显不足。 */
@@ -1127,7 +1173,7 @@ public class WallpaperStore {
         File dir = new File(context.getFilesDir(), DIR_FULL);
         Files.deleteIfExists(new File(dir, id + FULL_EXT).toPath());
         Files.deleteIfExists(new File(dir, id + LEGACY_FULL_EXT).toPath());
-        FULL_JPEG_MARKS.remove(id);
+        invalidateImageMarks(id);
     }
 
     /** 获取收件箱中的待编辑文件。 */

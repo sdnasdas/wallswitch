@@ -73,6 +73,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
@@ -173,6 +174,10 @@ public class MainActivity extends AppCompatActivity {
     private View pageNow, pageGallery, pageLibrary, pageSettings, pageSettingsSecondary,
             pageDetail, pageLog, selectionBar;
     private int currentTab;
+    private UiMotion motion;
+    private UiImages images;
+    private boolean detailOpen;
+    private boolean logOpen;
     private String settingsSecondaryKey;
     private String settingsSecondaryTitle;
     /** 图库那一栏现在停在库详情（true）还是库卡片网格（false）。 */
@@ -219,6 +224,10 @@ public class MainActivity extends AppCompatActivity {
     // 打开/关闭/重新读取都推进：后台日志读取与缩略图解码回来时据此丢掉过期结果
     private int logPageToken;
     private Map<String, List<SwitchLog.EntryRef>> logRefs = new HashMap<>();
+    private boolean bindingLogControls;
+
+    private record LogSnapshot(String[] contents, String[] displayed, List<List<LogRow>> rows,
+                               Map<String, List<SwitchLog.EntryRef>> refs, boolean hasAny) { }
 
     // ---- 单张详情的实况播放（默认不播：点顶栏实况键播一遍，或长按画面按住期间循环播） ----
     private TextureView liveView;
@@ -253,6 +262,11 @@ public class MainActivity extends AppCompatActivity {
         }
     };
     private final ExecutorService imageLoader = Executors.newFixedThreadPool(2);
+    // 日志看图的旧解码路径也要服从图片修订；只在主线程提交缓存。
+    private long imageEpoch;
+    private long imageClearEpoch;
+    private final Map<String, Long> imageRevisions = new HashMap<>();
+    private final java.util.WeakHashMap<View, CellInfo> cellInfos = new java.util.WeakHashMap<>();
 
     // ---- 检查更新 ----
     private String updateStatus = "";
@@ -297,6 +311,10 @@ public class MainActivity extends AppCompatActivity {
         pageDetail = findViewById(R.id.page_detail);
         selectionBar = findViewById(R.id.selection_bar);
         currentTab = R.id.nav_now;
+        motion = new UiMotion(this);
+        images = new UiImages(this, imageLoader, thumbs, previews, motion::whenIdle, motion::discard);
+        motion.setLayers(findViewById(R.id.main_root), pageLibrary, pageSettingsSecondary, pageLog, pageDetail);
+        motion.setTab(pageNow, () -> { });
 
         setupInsets();
         setupNowPage();
@@ -306,7 +324,6 @@ public class MainActivity extends AppCompatActivity {
         setupSwitchLogPage();
         setupSettingsSecondaryPage();
         setupSelectionBar();
-        setupNavigation();
         setupBackPressed();
         if (getSupportFragmentManager().findFragmentById(R.id.settings_container) == null) {
             getSupportFragmentManager().beginTransaction()
@@ -327,37 +344,44 @@ public class MainActivity extends AppCompatActivity {
         maybePromptRestore();
         checkUpdateOnLaunch();
 
-        int tab = R.id.nav_now;
-        if (savedInstanceState != null) {
-            tab = savedInstanceState.getInt(STATE_TAB, R.id.nav_now);
-            if (savedInstanceState.getBoolean(STATE_LIB_OPEN, false) && currentLib() != null) {
-                libraryOpen = true;
-            }
-            settingsSecondaryKey = savedInstanceState.getString(STATE_SETTINGS_SCREEN);
-            settingsSecondaryTitle = savedInstanceState.getString(STATE_SETTINGS_TITLE);
-            if (settingsSecondaryKey != null) {
-                ensureSettingsSecondary(settingsSecondaryKey);
-                setSettingsSecondaryTitle(settingsSecondaryTitle);
-                pageSettingsSecondary.setVisibility(View.VISIBLE);
-            }
-        }
+        int tab = savedInstanceState == null ? R.id.nav_now
+                : savedInstanceState.getInt(STATE_TAB, R.id.nav_now);
         bottomNav.setSelectedItemId(tab);
         showTab(tab, false);
-        if (libraryOpen) {
-            pageLibrary.setVisibility(View.VISIBLE);
+        setupNavigation();
+        if (savedInstanceState != null) {
+            if (tab == R.id.nav_gallery && savedInstanceState.getBoolean(STATE_LIB_OPEN, false)
+                    && currentLib() != null) {
+                libraryOpen = true;
+                refreshList();
+                motion.restore(pageLibrary);
+            }
+            if (tab == R.id.nav_settings) {
+                settingsSecondaryKey = savedInstanceState.getString(STATE_SETTINGS_SCREEN);
+                settingsSecondaryTitle = savedInstanceState.getString(STATE_SETTINGS_TITLE);
+                if (settingsSecondaryKey != null) {
+                    ensureSettingsSecondary(settingsSecondaryKey);
+                    setSettingsSecondaryTitle(settingsSecondaryTitle);
+                    motion.restore(pageSettingsSecondary);
+                }
+            }
         }
 
         // 老版本缩略图（长边 256 的等比图）在方格上会被放大发虚：
         // 后台一次性重做成「中心正方形 + 按屏幕取边长」，做完清缓存重绑一次
         new Thread(() -> {
-            WallpaperStore.regenerateThumbs(getApplicationContext());
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                thumbs.evictAll();
-                refreshCurrentPage();
-            });
+            List<String> changed = WallpaperStore.regenerateThumbs(getApplicationContext());
+            if (!changed.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    for (String id : changed) {
+                        evictImages(id);
+                    }
+                    motion.whenIdle("refresh", this::refreshCurrentPage);
+                });
+            }
         }, "thumb-regen").start();
     }
 
@@ -391,7 +415,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onStop() {
-        UiMotion.finish(this);
+        motion.finish();
         super.onStop();
     }
 
@@ -399,6 +423,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         stopLive();
+        images.close();
+        motion.close();
         updateTick.removeCallbacksAndMessages(null);
         imageLoader.shutdownNow();
     }
@@ -460,16 +486,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showTab(int id, boolean animate) {
-        UiMotion.finish(this);
-        if (currentTab == R.id.nav_settings && id != currentTab) {
-            closeSettingsSecondary();
-        }
-        View previous = null;
-        View[] pages = {pageNow, pageGallery, pageLibrary, pageSettings};
-        for (View page : pages) {
-            if (page.getVisibility() == View.VISIBLE) {
-                previous = page;
-                break;
+        if (currentTab != id) {
+            if (settingsSecondaryKey != null) {
+                closeSettingsSecondary();
+            }
+            if (libraryOpen) {
+                closeLibrary();
             }
         }
         if (wallpaperAdapter.isOrganizeMode()) {
@@ -480,25 +502,37 @@ public class MainActivity extends AppCompatActivity {
         }
         View target = id == R.id.nav_gallery ? pageGallery
                 : id == R.id.nav_settings ? pageSettings : pageNow;
-        int before = currentTab == R.id.nav_now ? 0 : currentTab == R.id.nav_gallery ? 1 : 2;
-        int after = id == R.id.nav_now ? 0 : id == R.id.nav_gallery ? 1 : 2;
-        boolean forward = after > before;
         currentTab = id;
-        if (animate && previous != null && previous != target) {
-            for (View page : pages) {
-                if (page != previous && page != target) {
-                    page.setVisibility(View.GONE);
-                }
-            }
-            UiMotion.navigate(this, forward, previous, target);
-        } else {
-            UiMotion.finish(this);
-            for (View page : pages) {
-                page.setVisibility(page == target ? View.VISIBLE : View.GONE);
-            }
-        }
         updateBottomNav();
-        refreshCurrentPage();
+        Runnable prepare = () -> {
+            android.os.Trace.beginSection("ui.page.prepare");
+            try {
+                if (id == R.id.nav_gallery) {
+                    refreshLibs();
+                } else if (id == R.id.nav_settings) {
+                    androidx.fragment.app.Fragment fragment = getSupportFragmentManager()
+                            .findFragmentById(R.id.settings_container);
+                    if (fragment instanceof SettingsFragment) {
+                        ((SettingsFragment) fragment).refreshAll();
+                    }
+                } else {
+                    refreshNowPage();
+                }
+            } finally {
+                android.os.Trace.endSection();
+            }
+        };
+        if (animate) {
+            motion.replace(target, prepare,
+                    () -> id != R.id.nav_settings || settingsReady(R.id.settings_container));
+        } else {
+            motion.setTab(target, prepare);
+        }
+    }
+
+    private boolean settingsReady(int container) {
+        androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(container);
+        return fragment instanceof SettingsFragment && ((SettingsFragment) fragment).isContentReady();
     }
 
     /** 图库多选/排序、库内多选用动作模式顶替底部三栏；全屏二级覆盖页不改变它。 */
@@ -518,19 +552,18 @@ public class MainActivity extends AppCompatActivity {
         if (LibraryStore.get(this, libId) == null) {
             return;
         }
+        if (currentTab != R.id.nav_gallery) {
+            showTab(R.id.nav_gallery, false);
+            bottomNav.setSelectedItemId(R.id.nav_gallery);
+        }
         currentLibId = libId;
         wallpaperFilter = 0;
         prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, libId).apply();
         libraryOpen = true;
         libraryRecycler.scrollToPosition(0);
-        // scrollToPosition 下一帧才落地，这时 canScrollVertically 还是上一个库的滚动位置
+        refreshList();
         libraryRecycler.post(this::syncAddFab);
-        if (currentTab != R.id.nav_gallery) {
-            bottomNav.setSelectedItemId(R.id.nav_gallery);
-        } else {
-            refreshList();
-        }
-        UiMotion.navigate(this, true, pageLibrary);
+        motion.show(pageLibrary);
     }
 
     private void closeLibrary() {
@@ -538,9 +571,7 @@ public class MainActivity extends AppCompatActivity {
         closeDetail();
         libraryOpen = false;
         refreshLibs();
-        if (pageLibrary.getVisibility() == View.VISIBLE) {
-            UiMotion.navigate(this, false, pageLibrary);
-        }
+        motion.hide(pageLibrary);
     }
 
     private void setupSettingsSecondaryPage() {
@@ -549,21 +580,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void openSettingsSecondary(String key, CharSequence title) {
-        if (key == null || pageSettingsSecondary.getVisibility() == View.VISIBLE) {
+        if (key == null || key.equals(settingsSecondaryKey)) {
             return;
         }
-        UiMotion.finish(this);
         settingsSecondaryKey = key;
         settingsSecondaryTitle = title == null ? "" : title.toString();
-        getSupportFragmentManager().beginTransaction()
-                .replace(R.id.settings_secondary_container, SettingsFragment.secondary(key))
-                .commitNow();
+        ensureSettingsSecondary(key);
         setSettingsSecondaryTitle(settingsSecondaryTitle);
-        UiMotion.navigate(this, true, pageSettingsSecondary);
+        motion.show(pageSettingsSecondary, () -> settingsReady(R.id.settings_secondary_container));
     }
 
     private void ensureSettingsSecondary(String key) {
-        if (getSupportFragmentManager().findFragmentById(R.id.settings_secondary_container) == null) {
+        androidx.fragment.app.Fragment fragment = getSupportFragmentManager()
+                .findFragmentById(R.id.settings_secondary_container);
+        if (fragment instanceof SettingsFragment) {
+            ((SettingsFragment) fragment).showScreen(key);
+        } else {
             getSupportFragmentManager().beginTransaction()
                     .replace(R.id.settings_secondary_container, SettingsFragment.secondary(key))
                     .commitNow();
@@ -575,12 +607,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void closeSettingsSecondary() {
-        UiMotion.finish(this);
         settingsSecondaryKey = null;
         settingsSecondaryTitle = null;
-        if (pageSettingsSecondary.getVisibility() == View.VISIBLE) {
-            UiMotion.navigate(this, false, pageSettingsSecondary);
-        }
+        motion.hide(pageSettingsSecondary);
+        motion.whenIdle("settings-home", this::refreshSettings);
     }
 
     /**
@@ -590,8 +620,7 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                UiMotion.finish(MainActivity.this);
-                if (pageDetail.getVisibility() == View.VISIBLE) {
+                if (detailOpen) {
                     if (detailPreview) {
                         exitDetailPreview();
                         return;
@@ -599,7 +628,7 @@ public class MainActivity extends AppCompatActivity {
                     closeDetail();
                     return;
                 }
-                if (pageLog.getVisibility() == View.VISIBLE) {
+                if (logOpen) {
                     closeSwitchLogPage();
                     return;
                 }
@@ -615,7 +644,7 @@ public class MainActivity extends AppCompatActivity {
                     closeLibrary();
                     return;
                 }
-                if (pageSettingsSecondary.getVisibility() == View.VISIBLE) {
+                if (settingsSecondaryKey != null) {
                     closeSettingsSecondary();
                     return;
                 }
@@ -634,6 +663,14 @@ public class MainActivity extends AppCompatActivity {
 
     /** 按当前所在页刷新：库详情先看库还在不在。 */
     private void refreshCurrentPage() {
+        // 删除/移走当前详情必须先处理；普通页面刷新等导航空闲后按 key 合并。
+        if (detailOpen) {
+            pruneDetailItems();
+        }
+        if (motion.isRunning()) {
+            motion.whenIdle("refresh", this::refreshCurrentPage);
+            return;
+        }
         if (currentTab == R.id.nav_gallery) {
             if (libraryOpen) {
                 if (currentLib() == null) {
@@ -648,6 +685,9 @@ public class MainActivity extends AppCompatActivity {
             refreshSettings();
         } else {
             refreshNowPage();
+        }
+        if (detailOpen && !(currentTab == R.id.nav_gallery && libraryOpen)) {
+            refreshDetail();
         }
     }
 
@@ -698,61 +738,142 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void evictImages(String id) {
-        thumbs.remove(id);
-        previews.remove("p:" + id);
-        previews.remove("d:" + id);
+        imageEpoch++;
+        imageRevisions.put(id, imageRevision(id) + 1);
+        images.evict(id);
+        if (id.equals(liveId)) {
+            stopLive();
+        }
     }
 
-    // ==================== 图片加载 ====================
-
-    /** 取缩略图：先查缓存，未命中再解码并存入（方形 JPEG，几十 KB，主线程解得动）。 */
-    private Bitmap thumbFor(String id) {
-        Bitmap cached = thumbs.get(id);
-        if (cached != null) {
-            return cached;
-        }
-        Bitmap decoded = WallpaperStore.getThumb(this, id);
-        if (decoded != null) {
-            thumbs.put(id, decoded);
-        }
-        return decoded;
+    private long imageRevision(String id) {
+        return imageRevisions.getOrDefault(id, 0L);
     }
 
-    /**
-     * 成品图按长边上限降采样后异步摆进 ImageView：先放缩略图占位，解完再换。
-     * view 的 tag 记着「这一格现在要的是哪张」，回收复用后旧任务回来不会盖错格。
-     */
-    private void loadFullInto(ImageView view, String id, String keyPrefix, int maxSide,
-                              boolean thumbPlaceholder) {
-        view.setTag(id);
-        view.setImageTintList(null);
-        String key = keyPrefix + id;
-        Bitmap cached = previews.get(key);
-        if (cached != null) {
-            view.setImageBitmap(cached);
-            return;
-        }
-        if (thumbPlaceholder) {
-            view.setImageBitmap(thumbs.get(id));
-        } else {
-            view.setImageDrawable(null);
-        }
-        final Context app = getApplicationContext();
-        imageLoader.execute(() -> {
-            Bitmap bmp = decodeBounded(WallpaperStore.getFullFile(app, id), maxSide);
-            if (bmp == null) {
-                bmp = WallpaperStore.getThumb(app, id);
+    private void clearImages() {
+        imageEpoch++;
+        imageClearEpoch++;
+        imageRevisions.clear();
+        cellInfos.clear();
+        stopLive();
+        images.clear();
+    }
+
+    // ==================== 图片加载 / 列表快照 ====================
+
+    private void unbindImageTree(View view) {
+        images.unbind(view);
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) {
+                unbindImageTree(group.getChildAt(i));
             }
-            final Bitmap result = bmp;
-            runOnUiThread(() -> {
-                if (result == null || isDestroyed()) {
-                    return;
-                }
-                previews.put(key, result);
-                if (id.equals(view.getTag())) {
-                    view.setImageBitmap(result);
+        }
+    }
+
+    /** detach 不是 recycle：缓存 holder 重新挂上时重新订阅，但保留已显示的同 id 位图。 */
+    private abstract class ImageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        private RecyclerView recycler;
+        private boolean shown;
+        private final android.view.ViewTreeObserver.OnGlobalLayoutListener visibility = () -> {
+            if (recycler == null || shown == recycler.isShown()) return;
+            shown = recycler.isShown();
+            if (shown) rebindVisible();
+            else unbindImageTree(recycler);
+        };
+
+        @Override public void onAttachedToRecyclerView(@NonNull RecyclerView rv) {
+            recycler = rv;
+            shown = rv.isShown();
+            rv.getViewTreeObserver().addOnGlobalLayoutListener(visibility);
+        }
+
+        @Override public void onDetachedFromRecyclerView(@NonNull RecyclerView rv) {
+            rv.getViewTreeObserver().removeOnGlobalLayoutListener(visibility);
+            unbindImageTree(rv);
+            recycler = null;
+        }
+
+        @Override public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+            unbindImageTree(holder.itemView);
+        }
+
+        @Override public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {
+            unbindImageTree(holder.itemView);
+        }
+
+        @Override public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
+            int position = holder.getBindingAdapterPosition();
+            if (position != RecyclerView.NO_POSITION && position < getItemCount()) {
+                onBindViewHolder(holder, position);
+            }
+        }
+
+        void rebindVisible() {
+            if (recycler == null) return;
+            motion.whenIdle(this, () -> {
+                if (recycler == null || !recycler.isShown()) return;
+                for (int i = 0; i < recycler.getChildCount(); i++) {
+                    onViewAttachedToWindow(recycler.getChildViewHolder(recycler.getChildAt(i)));
                 }
             });
+        }
+    }
+
+    private record CellInfo(String id, long revision, UiImages.Info info) { }
+
+    private void bindCellInfo(View owner, String id, boolean organize,
+                              java.util.function.BiConsumer<View, UiImages.Info> apply) {
+        CellInfo cached = cellInfos.get(owner);
+        if (!id.equals(owner.getTag()) || cached == null || !id.equals(cached.id)
+                || cached.revision != imageRevision(id)) {
+            cellInfos.remove(owner);
+            owner.findViewById(R.id.tv_full_format).setVisibility(View.GONE);
+            owner.findViewById(R.id.tv_live_badge).setVisibility(View.GONE);
+        } else {
+            applyCellInfo(owner, cached.info, organize);
+        }
+        images.metadata(owner, id, apply);
+    }
+
+    private void applyCellInfo(View owner, UiImages.Info info, boolean organize) {
+        String id = (String) owner.getTag();
+        cellInfos.put(owner, new CellInfo(id, imageRevision(id), info));
+        TextView format = owner.findViewById(R.id.tv_full_format);
+        format.setVisibility(organize || info.jpeg == null ? View.GONE : View.VISIBLE);
+        if (info.jpeg != null) {
+            format.setText(info.jpeg ? R.string.fmt_badge_jpeg : R.string.fmt_badge_png);
+        }
+        owner.findViewById(R.id.tv_live_badge).setVisibility(info.live ? View.VISIBLE : View.GONE);
+    }
+
+    /** 不保存可变 Item/Library 引用，避免同 id 的标题、归属和封面变化漏刷。 */
+    private record DisplayRow(String id, List<?> fields) { }
+
+    private static DisplayRow displayRow(String id, Object... fields) {
+        return new DisplayRow(id, java.util.Arrays.asList(fields));
+    }
+
+    private List<DisplayRow> wallpaperRows(List<WallpaperStore.Item> items) {
+        List<DisplayRow> rows = new ArrayList<>();
+        for (WallpaperStore.Item item : items) {
+            rows.add(displayRow(item.id, item.title, item.libId, new ArrayList<>(item.libIds),
+                    item.srcWidth, item.srcHeight, item.cropLeft, item.cropTop, item.cropRight,
+                    item.cropBottom, imageRevision(item.id), imageClearEpoch,
+                    Switcher.inUseWhere(this, item.id)));
+        }
+        return rows;
+    }
+
+    private static DiffUtil.DiffResult diffRows(List<DisplayRow> before, List<DisplayRow> after) {
+        return DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return before.size(); }
+            @Override public int getNewListSize() { return after.size(); }
+            @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                return before.get(oldPos).id.equals(after.get(newPos).id);
+            }
+            @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                return before.get(oldPos).equals(after.get(newPos));
+            }
         });
     }
 
@@ -949,8 +1070,7 @@ public class MainActivity extends AppCompatActivity {
             v.thumb.setImageDrawable(null);
             return;
         }
-        thumbFor(id);
-        loadFullInto(v.thumb, id, "p:", getResources().getDisplayMetrics().widthPixels, true);
+        images.full(v.thumb, id, "p:", getResources().getDisplayMetrics().widthPixels);
     }
 
     /** 预览卡上那行：已暂停 / 下次 HH:mm / 过点等补切。 */
@@ -1225,7 +1345,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 快设壁纸格：复用库详情的格子（缩略图 / 格式角标 / 实况角标 / 使用中），选中画勾与描边。 */
-    private class QuickPickAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class QuickPickAdapter extends ImageAdapter {
 
         private final List<WallpaperStore.Item> items = new ArrayList<>();
         private String selectedId;
@@ -1274,18 +1394,10 @@ public class MainActivity extends AppCompatActivity {
             View v = holder.itemView;
             final WallpaperStore.Item item = items.get(position);
             ImageView img = v.findViewById(R.id.img_thumb);
-            img.setImageBitmap(thumbFor(item.id));
+            images.thumbnail(img, item.id);
             img.setImageAlpha(255);
-            TextView format = v.findViewById(R.id.tv_full_format);
-            Boolean fullJpeg = WallpaperStore.fullIsJpeg(MainActivity.this, item.id);
-            if (fullJpeg == null) {
-                format.setVisibility(View.GONE);
-            } else {
-                format.setVisibility(View.VISIBLE);
-                format.setText(fullJpeg ? R.string.fmt_badge_jpeg : R.string.fmt_badge_png);
-            }
-            v.findViewById(R.id.tv_live_badge).setVisibility(
-                    WallpaperStore.isLive(MainActivity.this, item.id) ? View.VISIBLE : View.GONE);
+            bindCellInfo(v, item.id, false,
+                    (owner, info) -> applyCellInfo(owner, info, false));
             TextView inUse = v.findViewById(R.id.tv_in_use);
             inUse.setVisibility(Switcher.inUseWhere(MainActivity.this, item.id) != null
                     ? View.VISIBLE : View.GONE);
@@ -1515,11 +1627,21 @@ public class MainActivity extends AppCompatActivity {
 
     /** 批量删库：连带清库内壁纸文件、切换进度与定时任务（都在 LibraryStore.delete 内部）。 */
     private void deleteLibs(List<LibraryStore.Library> libs) {
+        List<WallpaperStore.Item> before = WallpaperStore.load(this);
         boolean removedCurrent = false;
         for (LibraryStore.Library lib : libs) {
             LibraryStore.delete(this, lib.id);
             if (lib.id.equals(currentLibId())) {
                 removedCurrent = true;
+            }
+        }
+        Set<String> alive = new HashSet<>();
+        for (WallpaperStore.Item item : WallpaperStore.load(this)) {
+            alive.add(item.id);
+        }
+        for (WallpaperStore.Item item : before) {
+            if (!alive.contains(item.id)) {
+                evictImages(item.id);
             }
         }
         if (removedCurrent) {
@@ -1537,7 +1659,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 库卡片网格：末尾一格「新建库」（排序与多选态下不显示）。 */
-    private class LibAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class LibAdapter extends ImageAdapter {
 
         static final int NORMAL = 0;
         static final int SELECT = 1;
@@ -1549,11 +1671,15 @@ public class MainActivity extends AppCompatActivity {
             final LibraryStore.Library lib;
             final int count;
             final String thumbId;
+            final DisplayRow snapshot;
 
             Row(LibraryStore.Library lib, int count, String thumbId) {
                 this.lib = lib;
                 this.count = count;
                 this.thumbId = thumbId;
+                snapshot = displayRow(lib.id, lib.name, count, thumbId, imageRevision(thumbId), imageClearEpoch,
+                        LibraryStore.ownsScope(MainActivity.this, lib.id, true),
+                        LibraryStore.ownsScope(MainActivity.this, lib.id, false));
             }
         }
 
@@ -1562,17 +1688,28 @@ public class MainActivity extends AppCompatActivity {
         final Set<String> selectedIds = new HashSet<>();
 
         void setItems(List<LibraryStore.Library> libs) {
-            rows.clear();
+            List<DisplayRow> before = rowSnapshots();
+            List<Row> next = new ArrayList<>();
             Map<String, Integer> counts = WallpaperStore.libMemberCounts(MainActivity.this);
             for (LibraryStore.Library lib : libs) {
                 Integer n = counts.get(lib.id);
-                rows.add(new Row(lib, n == null ? 0 : n, libCoverId(lib)));
+                next.add(new Row(lib, n == null ? 0 : n, libCoverId(lib)));
             }
+            rows.clear();
+            rows.addAll(next);
             selectedIds.retainAll(currentIds());
-            notifyDataSetChanged();
+            List<DisplayRow> after = rowSnapshots();
+            if (!before.equals(after)) diffRows(before, after).dispatchUpdatesTo(this);
             if (mode == SELECT) {
                 updateGalleryToolbar();
             }
+        }
+
+        private List<DisplayRow> rowSnapshots() {
+            List<DisplayRow> out = new ArrayList<>();
+            for (Row row : rows) out.add(row.snapshot);
+            if (mode == NORMAL) out.add(displayRow("new-library"));
+            return out;
         }
 
         void setMode(int newMode) {
@@ -1658,12 +1795,12 @@ public class MainActivity extends AppCompatActivity {
             final LibraryStore.Library lib = row.lib;
             MaterialCardView card = (MaterialCardView) item;
             ImageView cover = item.findViewById(R.id.img_lib_cover);
-            Bitmap bmp = row.thumbId == null ? null : thumbFor(row.thumbId);
-            if (bmp != null) {
+            if (row.thumbId != null) {
                 cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                cover.setImageTintList(null);
-                cover.setImageBitmap(bmp);
+                images.thumbnail(cover, row.thumbId);
             } else {
+                images.unbind(cover);
+                cover.setTag(null);
                 cover.setScaleType(ImageView.ScaleType.CENTER);
                 cover.setImageResource(R.drawable.ic_tab_wallpaper);
                 cover.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(cover,
@@ -1783,6 +1920,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 刷新库详情（头部 + 网格），单张详情开着的话一起跟上。 */
     private void refreshList() {
+        pruneDetailItems();
         LibraryStore.Library lib = currentLib();
         List<WallpaperStore.Item> items = lib == null
                 ? new ArrayList<>() : WallpaperStore.loadByLib(this, lib.id);
@@ -1976,12 +2114,13 @@ public class MainActivity extends AppCompatActivity {
      * 库详情适配器：第 0 格是头部（占满三列），其余是三列正方形壁纸格。
      * 点格 = 单张详情（多选态 = 勾选）；长按 = 进多选并勾上这张。
      */
-    private class WallpaperAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class WallpaperAdapter extends ImageAdapter {
 
         private static final int TYPE_HEADER = 0;
         private static final int TYPE_CELL = 1;
         private List<WallpaperStore.Item> allItems = new ArrayList<>();
         private List<WallpaperStore.Item> items = new ArrayList<>();
+        private List<DisplayRow> snapshots = Collections.singletonList(displayRow("library-header"));
         private int filterGeneration;
         private boolean organizeMode;
         // 勾选按壁纸 id 记，不按下标：一次整理会把选中的那几张从这一页摘走，下标会串位
@@ -1992,7 +2131,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         void setItems(List<WallpaperStore.Item> newItems) {
-            allItems = newItems;
+            allItems = new ArrayList<>(newItems);
             final int generation = ++filterGeneration;
             final int filter = wallpaperFilter;
             if (filter == 0) {
@@ -2007,23 +2146,37 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 runOnUiThread(() -> {
-                    if (!isDestroyed() && generation == filterGeneration) {
-                        publishItems(filtered);
-                        updateWallpaperOrganizeToolbar();
-                        refreshDetail();
-                    }
+                    if (isDestroyed() || generation != filterGeneration) return;
+                    motion.whenIdle("wallpaper-filter", () -> {
+                        if (!isDestroyed() && generation == filterGeneration) {
+                            publishItems(filtered);
+                            updateWallpaperOrganizeToolbar();
+                            refreshDetail();
+                        }
+                    });
                 });
             });
         }
 
         private void publishItems(List<WallpaperStore.Item> visible) {
-            items = visible;
+            List<DisplayRow> next = new ArrayList<>();
+            LibraryStore.Library lib = currentLib();
+            String cover = lib == null ? null : libCoverId(lib);
+            next.add(displayRow("library-header", lib == null ? null : lib.id,
+                    lib == null ? null : lib.name, cover, imageRevision(cover), imageClearEpoch, allItems.size(),
+                    visible.isEmpty(), wallpaperFilter,
+                    lib != null && LibraryStore.ownsScope(MainActivity.this, lib.id, true),
+                    lib != null && LibraryStore.ownsScope(MainActivity.this, lib.id, false)));
+            next.addAll(wallpaperRows(visible));
+            List<DisplayRow> before = snapshots;
+            snapshots = next;
+            items = new ArrayList<>(visible);
             Set<String> alive = new HashSet<>();
             for (WallpaperStore.Item item : visible) {
                 alive.add(item.id);
             }
             selectedIds.retainAll(alive);
-            notifyDataSetChanged();
+            if (!before.equals(next)) diffRows(before, next).dispatchUpdatesTo(this);
         }
 
         boolean isOrganizeMode() {
@@ -2099,18 +2252,10 @@ public class MainActivity extends AppCompatActivity {
             }
             final WallpaperStore.Item item = items.get(position - 1);
             ImageView img = v.findViewById(R.id.img_thumb);
-            img.setImageBitmap(thumbFor(item.id));
-            // 右上角格式角标：判的是成品图（上屏那张），缩略图永远是 JPEG，不能用它判
-            TextView format = v.findViewById(R.id.tv_full_format);
-            Boolean fullJpeg = WallpaperStore.fullIsJpeg(MainActivity.this, item.id);
-            if (organizeMode || fullJpeg == null) {
-                format.setVisibility(View.GONE);
-            } else {
-                format.setVisibility(View.VISIBLE);
-                format.setText(fullJpeg ? R.string.fmt_badge_jpeg : R.string.fmt_badge_png);
-            }
-            v.findViewById(R.id.tv_live_badge).setVisibility(
-                    WallpaperStore.isLive(MainActivity.this, item.id) ? View.VISIBLE : View.GONE);
+            images.thumbnail(img, item.id);
+            // 回填读取此刻的多选态，不捕获旧 itemView 或绑定时的 mode。
+            bindCellInfo(v, item.id, organizeMode,
+                    (owner, info) -> applyCellInfo(owner, info, organizeMode));
             TextView inUse = v.findViewById(R.id.tv_in_use);
             inUse.setVisibility(Switcher.inUseWhere(MainActivity.this, item.id) != null
                     ? View.VISIBLE : View.GONE);
@@ -2146,15 +2291,16 @@ public class MainActivity extends AppCompatActivity {
         private void bindHeader(View v) {
             LibraryStore.Library lib = currentLib();
             v.setVisibility(lib == null || organizeMode ? View.GONE : View.VISIBLE);
-            if (lib == null) {
+            if (lib == null || organizeMode) {
+                unbindImageTree(v);
                 return;
             }
             ImageView cover = v.findViewById(R.id.img_header_cover);
             String coverId = libCoverId(lib);
             if (coverId != null) {
-                thumbFor(coverId);
-                loadFullInto(cover, coverId, "p:", getResources().getDisplayMetrics().widthPixels, true);
+                images.full(cover, coverId, "p:", getResources().getDisplayMetrics().widthPixels);
             } else {
+                images.unbind(cover);
                 cover.setTag(null);
                 cover.setImageDrawable(null);
             }
@@ -2277,12 +2423,12 @@ public class MainActivity extends AppCompatActivity {
         if (items.isEmpty() || index < 0 || index >= items.size()) {
             return;
         }
-        UiMotion.finish(this);
+        detailOpen = true;
         detailLibId = libId;
         detailUsesFilter = filtered;
         detailAdapter.setItems(items);
         detailPager.setCurrentItem(index, false);
-        UiMotion.navigate(this, true, pageDetail);
+        motion.show(pageDetail);
         // 黑底上状态栏图标得是浅色
         WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
                 .setAppearanceLightStatusBars(false);
@@ -2290,15 +2436,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void closeDetail() {
-        UiMotion.finish(this);
-        if (pageDetail.getVisibility() != View.VISIBLE) {
+        if (!detailOpen) {
             return;
         }
+        detailOpen = false;
         stopLive();
+        unbindImageTree(pageDetail);
         if (detailPreview) {
-            exitDetailPreview();
+            exitDetailPreview(false);
         }
-        UiMotion.navigate(this, false, pageDetail);
+        motion.hide(pageDetail);
         boolean night = (getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
@@ -2311,16 +2458,30 @@ public class MainActivity extends AppCompatActivity {
         return pos >= 0 && pos < items.size() ? items.get(pos) : null;
     }
 
+    /** 筛选在后台尚未完成时也先摘走已删除/移出的详情，不能等动画或筛选回调。 */
+    private void pruneDetailItems() {
+        if (!detailOpen) return;
+        Map<String, WallpaperStore.Item> alive = new HashMap<>();
+        for (WallpaperStore.Item item : WallpaperStore.loadByLib(this, detailLibId)) {
+            alive.put(item.id, item);
+        }
+        List<WallpaperStore.Item> remaining = new ArrayList<>();
+        for (WallpaperStore.Item item : detailAdapter.items) {
+            if (alive.containsKey(item.id)) remaining.add(alive.get(item.id));
+        }
+        if (remaining.size() != detailAdapter.items.size()) updateDetailItems(remaining);
+    }
+
     /** 列表变了（改标题、删除、移走）：停在原来那张上，它没了就停在同一位置的下一张，一张不剩就关掉。 */
     private void refreshDetail() {
-        if (pageDetail.getVisibility() != View.VISIBLE) {
-            return;
-        }
+        if (!detailOpen) return;
+        updateDetailItems(detailUsesFilter ? new ArrayList<>(wallpaperAdapter.items())
+                : WallpaperStore.loadByLib(this, detailLibId));
+    }
+
+    private void updateDetailItems(List<WallpaperStore.Item> items) {
         WallpaperStore.Item before = detailItem();
         int oldPos = detailPager.getCurrentItem();
-        List<WallpaperStore.Item> items = detailUsesFilter
-                ? new ArrayList<>(wallpaperAdapter.items())
-                : WallpaperStore.loadByLib(this, detailLibId);
         if (items.isEmpty()) {
             closeDetail();
             return;
@@ -2351,7 +2512,6 @@ public class MainActivity extends AppCompatActivity {
         }
         detailToolbar.setTitle(getString(R.string.detail_position,
                 detailPager.getCurrentItem() + 1, detailAdapter.items.size()));
-        boolean live = WallpaperStore.isLive(this, item.id);
         // 当值那张改不动也删不掉（闸门在 blockWhileInUse）：直接把两个入口置灰，别让人点了才知道
         boolean editable = Switcher.inUseWhere(this, item.id) == null;
         findViewById(R.id.btn_detail_crop).setEnabled(editable);
@@ -2359,17 +2519,21 @@ public class MainActivity extends AppCompatActivity {
         if (delete != null) {
             delete.setEnabled(editable);
         }
-        bindLiveMenu(live);
+        refreshLiveMenu();
     }
 
     /** 详情页翻页：每页一张成品图按屏幕长边降采样，先放缩略图占位。 */
-    private class DetailAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class DetailAdapter extends ImageAdapter {
 
         List<WallpaperStore.Item> items = new ArrayList<>();
+        private List<DisplayRow> snapshots = new ArrayList<>();
 
         void setItems(List<WallpaperStore.Item> newItems) {
-            items = newItems;
-            notifyDataSetChanged();
+            List<DisplayRow> next = wallpaperRows(newItems);
+            List<DisplayRow> before = snapshots;
+            snapshots = next;
+            items = new ArrayList<>(newItems);
+            if (!before.equals(next)) diffRows(before, next).dispatchUpdatesTo(this);
         }
 
         @Override
@@ -2379,7 +2543,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
-            // 从缓存里直接拿回来的页不会重新 bind，铺法得在挂上屏时再对一次
+            super.onViewAttachedToWindow(holder);
+            // 从缓存里直接拿回来的页重新订阅图片，并恢复预览铺法。
             ((ImageView) holder.itemView).setScaleType(detailPreview
                     ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_CENTER);
         }
@@ -2395,10 +2560,9 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
             String id = items.get(position).id;
-            thumbFor(id);
             int maxSide = Math.max(getResources().getDisplayMetrics().widthPixels,
                     getResources().getDisplayMetrics().heightPixels);
-            loadFullInto((ImageView) holder.itemView, id, "d:", maxSide, true);
+            images.full((ImageView) holder.itemView, id, "d:", maxSide);
             // 桌面预览时按桌面的方式铺（centerCrop，和引擎上屏一样），平时整张看全（fitCenter）
             ((ImageView) holder.itemView).setScaleType(detailPreview
                     ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_CENTER);
@@ -2407,7 +2571,8 @@ public class MainActivity extends AppCompatActivity {
             // 长按画面播实况：按住期间循环，松手即停。不是实况的那张不吃长按（返回 false，什么都不发生）
             holder.itemView.setOnLongClickListener(v -> {
                 WallpaperStore.Item current = detailItem();
-                if (current == null || !current.id.equals(id) || !WallpaperStore.isLive(MainActivity.this, id)) {
+                if (!detailOpen || current == null || !current.id.equals(v.getTag())
+                        || Boolean.FALSE.equals(images.cachedLive(current.id))) {
                     return false;
                 }
                 // 按住看实况时不让 ViewPager2 把这次手势抢去翻页
@@ -2492,12 +2657,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void exitDetailPreview() {
+        exitDetailPreview(true);
+    }
+
+    private void exitDetailPreview(boolean animate) {
         if (!detailPreview) {
             return;
         }
         stopLive();
-        UiMotion.preview(this, detailPager.getChildAt(0), detailOverlay,
-                findViewById(R.id.detail_top), findViewById(R.id.detail_bottom));
+        if (animate) {
+            UiMotion.preview(this, detailPager.getChildAt(0), detailOverlay,
+                    findViewById(R.id.detail_top), findViewById(R.id.detail_bottom));
+        } else {
+            UiMotion.finishPreview(this);
+        }
         detailPreview = false;
         detailOverlay.setVisibility(View.GONE);
         findViewById(R.id.detail_top).setVisibility(View.VISIBLE);
@@ -2506,6 +2679,10 @@ public class MainActivity extends AppCompatActivity {
                 .show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         setCutoutShortEdges(false);
         applyDetailScaleType();
+        if (detailOpen) {
+            refreshLiveMenu();
+            detailAdapter.rebindVisible();
+        }
     }
 
     private void setCutoutShortEdges(boolean on) {
@@ -2594,7 +2771,24 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshLiveMenu() {
         WallpaperStore.Item item = detailItem();
-        bindLiveMenu(item != null && WallpaperStore.isLive(this, item.id));
+        if (!detailOpen || item == null) {
+            images.unbind(detailToolbar);
+            bindLiveMenu(false);
+            return;
+        }
+        images.unbind(detailToolbar);
+        detailToolbar.setTag(item.id);
+        Boolean live = images.cachedLive(item.id);
+        // 未知时仍可点；startLive 已有后台 locate + liveToken，不能丢掉用户请求。
+        bindLiveMenu(liveId != null || !Boolean.FALSE.equals(live));
+        if (live == null) {
+            images.metadata(detailToolbar, item.id, (owner, info) -> {
+                WallpaperStore.Item current = detailItem();
+                if (detailOpen && current != null && current.id.equals(owner.getTag())) {
+                    bindLiveMenu(liveId != null || info.live);
+                }
+            });
+        }
     }
 
     /**
@@ -2604,6 +2798,7 @@ public class MainActivity extends AppCompatActivity {
      * 所以这里看到的就是上屏后会动的那一块。
      */
     private void startLive(WallpaperStore.Item item, boolean held) {
+        if (!detailOpen) return;
         stopLive();
         final int token = liveToken;
         liveId = item.id;
@@ -2845,14 +3040,28 @@ public class MainActivity extends AppCompatActivity {
         if (currentTab != R.id.nav_settings) {
             return;
         }
-        androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentById(R.id.settings_container);
+        int container = settingsSecondaryKey != null
+                ? R.id.settings_secondary_container : R.id.settings_container;
+        androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentById(container);
         if (f instanceof SettingsFragment) {
             ((SettingsFragment) f).refreshAll();
         }
-        androidx.fragment.app.Fragment secondary = getSupportFragmentManager()
-                .findFragmentById(R.id.settings_secondary_container);
-        if (secondary instanceof SettingsFragment) {
-            ((SettingsFragment) secondary).refreshAll();
+    }
+
+    boolean isActiveSettings(SettingsFragment fragment) {
+        if (currentTab != R.id.nav_settings) {
+            return false;
+        }
+        int container = settingsSecondaryKey == null
+                ? R.id.settings_container : R.id.settings_secondary_container;
+        return fragment == getSupportFragmentManager().findFragmentById(container);
+    }
+
+    void publishSettingsRefresh(Object key, Runnable action) {
+        if (motion != null && motion.isAnimating()) {
+            motion.whenIdle(key, action);
+        } else {
+            action.run();
         }
     }
 
@@ -3025,12 +3234,12 @@ public class MainActivity extends AppCompatActivity {
         if (view == null) {
             return;
         }
-        Bitmap bmp = wallpaperId == null ? null : thumbFor(wallpaperId);
-        if (bmp != null) {
+        if (wallpaperId != null) {
             view.setPadding(0, 0, 0, 0);
-            view.setImageTintList(null);
-            view.setImageBitmap(bmp);
+            images.thumbnail(view, wallpaperId);
         } else {
+            images.unbind(view);
+            view.setTag(null);
             int pad = (int) (padDp * getResources().getDisplayMetrics().density);
             view.setPadding(pad, pad, pad, pad);
             view.setImageTintList(ColorStateList.valueOf(placeholderTint));
@@ -3370,6 +3579,13 @@ public class MainActivity extends AppCompatActivity {
         }
         if (kind != ORGANIZE_COPY) {
             repointPinnedAwayFrom(fromLibId, ids);
+        }
+        if (destroyed > 0) {
+            for (String id : ids) {
+                if (WallpaperStore.get(this, id) == null) {
+                    evictImages(id);
+                }
+            }
         }
         exitOrganizeMode();
         refreshList();
@@ -4644,6 +4860,7 @@ public class MainActivity extends AppCompatActivity {
      * （自愈那条路），recreate 之后正好落到它上面。
      */
     void runRestore(Uri uri) {
+        clearImages();
         Toast.makeText(this, R.string.restore_running, Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             final BackupStore.RestoreResult r = BackupStore.restore(getApplicationContext(), uri);
@@ -4654,7 +4871,9 @@ public class MainActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
+                clearImages();
                 if (r.error != null) {
+                    refreshCurrentPage();
                     Toast.makeText(this, getString(R.string.restore_failed, r.error),
                             Toast.LENGTH_LONG).show();
                     return;
@@ -4686,12 +4905,13 @@ public class MainActivity extends AppCompatActivity {
                         if (logDialog != null && logDialog.isShowing()) {
                             logDialog.dismiss();
                         }
-                        if (pageLog != null && pageLog.getVisibility() == View.VISIBLE) {
-                            logPageToken++;
-                            logContents[0] = "";
-                            logContents[1] = "";
-                            logRefs.clear();
-                            bindSwitchLogPage();
+                        logPageToken++;
+                        logContents[0] = logContents[1] = "";
+                        logDisplayed[0] = logDisplayed[1] = "";
+                        logRefs = new HashMap<>();
+                        logToolbar.getMenu().findItem(R.id.action_log_copy).setEnabled(false);
+                        if (logOpen) {
+                            showSwitchLog();
                         }
                         Toast.makeText(this, R.string.log_clear_done, Toast.LENGTH_SHORT).show();
                         refreshSwitchLogRow();
@@ -4738,7 +4958,7 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
         logScopeToggle.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-            if (!isChecked) {
+            if (!isChecked || bindingLogControls || !logOpen) {
                 return;
             }
             logScope = checkedId == R.id.log_scope_lock ? 1 : 0;
@@ -4746,6 +4966,7 @@ public class MainActivity extends AppCompatActivity {
         });
         // 一个按钮点按切换：文字显示当前顺序，图标用上下双箭头
         logOrderButton.setOnClickListener(v -> {
+            if (!logOpen) return;
             logNewestFirst = !logNewestFirst;
             SwitchLog.setNewestFirst(this, logNewestFirst);
             updateLogOrderButton();
@@ -4782,66 +5003,108 @@ public class MainActivity extends AppCompatActivity {
         logJumpButton.setVisibility(View.VISIBLE);
     }
 
-    private void openSwitchLogPage(String home, String lock,
-                                   Map<String, List<SwitchLog.EntryRef>> refs) {
-        logContents[0] = home == null ? "" : home;
-        logContents[1] = lock == null ? "" : lock;
-        logRefs = refs == null ? new HashMap<>() : refs;
-        logScope = 0;
-        logNewestFirst = SwitchLog.newestFirst(this);
-        logScopeToggle.check(R.id.log_scope_home);
+    /** 后台构造两范围的显示快照；只有字符串/模型，没有 View 操作。 */
+    private static LogSnapshot prepareLogSnapshot(Context app, String[] contents,
+            Map<String, List<SwitchLog.EntryRef>> refs, boolean newestFirst) {
+        String[] displayed = new String[2];
+        List<List<LogRow>> rows = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            displayed[i] = SwitchLog.stripRefs(SwitchLog.reorder(contents[i], newestFirst));
+            rows.add(buildLogRows(app, displayed[i], refs));
+        }
+        return new LogSnapshot(contents, displayed, rows, refs,
+                !contents[0].trim().isEmpty() || !contents[1].trim().isEmpty());
+    }
+
+    private void openSwitchLogPage(LogSnapshot snapshot) {
+        logOpen = true;
+        bindingLogControls = true;
+        logScopeToggle.check(logScope == 0 ? R.id.log_scope_home : R.id.log_scope_lock);
+        bindingLogControls = false;
         updateLogOrderButton();
-        bindSwitchLogPage();
-        UiMotion.navigate(this, true, pageLog);
+        submitSwitchLogPage(snapshot);
+        motion.show(pageLog);
+        logAdapter.rebindVisible();
+    }
+
+    private void setLogLoading() {
+        unbindImageTree(logRecycler);
+        logRecycler.setVisibility(View.INVISIBLE);
+        logJumpButton.setVisibility(View.GONE);
+        logToolbar.getMenu().findItem(R.id.action_log_copy).setEnabled(false);
     }
 
     private void bindSwitchLogPage() {
-        if (logAdapter == null) {
-            return;
-        }
-        for (int i = 0; i < logContents.length; i++) {
-            logDisplayed[i] = SwitchLog.stripRefs(
-                    SwitchLog.reorder(logContents[i], logNewestFirst));
-        }
-        logAdapter.setRows(buildLogRows(logDisplayed[logScope], logRefs));
-        // 不管选正序还是倒序，进入、换范围、换排序后都先让最新一条出现在屏上：
-        // 倒序最新在列表头；正序最新在列表尾。
+        if (!logOpen) return;
+        final int request = ++logPageToken;
+        final int scope = logScope;
+        final boolean newestFirst = logNewestFirst;
+        final String[] contents = logContents.clone();
+        final Map<String, List<SwitchLog.EntryRef>> refs = logRefs;
+        final Context app = getApplicationContext();
+        setLogLoading();
+        imageLoader.execute(() -> {
+            LogSnapshot snapshot = prepareLogSnapshot(app, contents, refs, newestFirst);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || !logOpen || request != logPageToken
+                        || scope != logScope || newestFirst != logNewestFirst) return;
+                motion.whenIdle("log-snapshot", () -> {
+                    if (!isFinishing() && !isDestroyed() && logOpen && request == logPageToken
+                            && scope == logScope && newestFirst == logNewestFirst) {
+                        submitSwitchLogPage(snapshot);
+                    }
+                });
+            });
+        });
+    }
+
+    private void submitSwitchLogPage(LogSnapshot snapshot) {
+        System.arraycopy(snapshot.contents, 0, logContents, 0, 2);
+        System.arraycopy(snapshot.displayed, 0, logDisplayed, 0, 2);
+        logRefs = snapshot.refs;
+        logAdapter.setRows(snapshot.rows.get(logScope));
+        logRecycler.setVisibility(View.VISIBLE);
         int latest = logNewestFirst ? 0 : Math.max(0, logAdapter.getItemCount() - 1);
         logRecycler.scrollToPosition(latest);
-        if (logJumpButton != null) {
-            logJumpButton.setVisibility(View.GONE);
-        }
-        boolean hasAny = !logContents[0].trim().isEmpty() || !logContents[1].trim().isEmpty();
+        logJumpButton.setVisibility(View.GONE);
         Menu menu = logToolbar.getMenu();
         menu.findItem(R.id.action_log_copy).setEnabled(!logDisplayed[logScope].trim().isEmpty());
-        menu.findItem(R.id.action_log_clear).setEnabled(hasAny);
+        menu.findItem(R.id.action_log_clear).setEnabled(snapshot.hasAny);
     }
 
     private void closeSwitchLogPage() {
+        logOpen = false;
         logPageToken++;
-        UiMotion.finish(this);
-        if (pageLog != null && pageLog.getVisibility() == View.VISIBLE) {
-            UiMotion.navigate(this, false, pageLog);
-        }
-        if (logJumpButton != null) {
-            logJumpButton.setVisibility(View.GONE);
-        }
+        unbindImageTree(pageLog);
+        motion.hide(pageLog);
+        logJumpButton.setVisibility(View.GONE);
     }
 
-    /** 读两份日志文件并打开独立记录页。纯 IO 放后台线程。 */
+    /** 日志读盘、排序、剥离 refs 和建模都完成后才打开第一页。 */
     void showSwitchLog() {
         final int request = ++logPageToken;
+        if (!logOpen) {
+            logScope = 0;
+            logNewestFirst = SwitchLog.newestFirst(this);
+        } else {
+            setLogLoading();
+        }
+        final int scope = logScope;
+        final boolean newestFirst = logNewestFirst;
+        final Context app = getApplicationContext();
         new Thread(() -> {
-            final Context app = getApplicationContext();
             final String home = SwitchLog.readAllText(app, true);
             final String lock = SwitchLog.readAllText(app, false);
-            // 记录行行尾藏着壁纸/库 id：显示前剥掉，反查时按行原文从这里取
             final Map<String, List<SwitchLog.EntryRef>> refs = SwitchLog.refIndex(home, lock);
+            final LogSnapshot snapshot = prepareLogSnapshot(app, new String[]{home, lock}, refs, newestFirst);
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || request != logPageToken) {
-                    return;
-                }
-                openSwitchLogPage(home, lock, refs);
+                if (isFinishing() || isDestroyed() || request != logPageToken
+                        || scope != logScope || newestFirst != logNewestFirst) return;
+                motion.whenIdle("log-snapshot", () -> {
+                    if (isFinishing() || isDestroyed() || request != logPageToken
+                            || scope != logScope || newestFirst != logNewestFirst) return;
+                    openSwitchLogPage(snapshot);
+                });
             });
         }, "log-read").start();
     }
@@ -4909,14 +5172,14 @@ public class MainActivity extends AppCompatActivity {
                 displayed[i] = SwitchLog.stripRefs(
                         SwitchLog.reorder(contents[i], newestFirst[0]));
             }
-            adapter.setRows(buildLogRows(displayed[shown[0]], refs));
+            adapter.setRows(buildLogRows(getApplicationContext(), displayed[shown[0]], refs));
             list.scrollToPosition(0);
         };
         tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
                 shown[0] = tab.getPosition();
-                adapter.setRows(buildLogRows(displayed[shown[0]], refs));
+                adapter.setRows(buildLogRows(getApplicationContext(), displayed[shown[0]], refs));
                 list.scrollToPosition(0);
             }
 
@@ -4958,13 +5221,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 显示文本 → 卡片模型；只读旧格式，不改变 SwitchLog 的落盘/备份兼容性。 */
-    private List<LogRow> buildLogRows(String content,
-                                      Map<String, List<SwitchLog.EntryRef>> refs) {
+    private static List<LogRow> buildLogRows(Context app, String content,
+                                           Map<String, List<SwitchLog.EntryRef>> refs) {
         List<LogRow> out = new ArrayList<>();
         if (content == null || content.trim().isEmpty()) {
             LogRow row = new LogRow();
             row.type = LogRow.EMPTY;
-            row.title = getString(R.string.log_view_empty);
+            row.title = app.getString(R.string.log_view_empty);
             out.add(row);
             return out;
         }
@@ -4989,7 +5252,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 row.time = text.length() >= 5 ? text.substring(0, 5) : "";
                 String body = text.length() > 5 ? text.substring(5).trim() : text;
-                row.record = SwitchLog.parseRecordLine(this, text);
+                row.record = SwitchLog.parseRecordLine(app, text);
                 if (row.record != null) {
                     row.type = LogRow.ENTRY;
                     row.refs = refs == null ? null : refs.get(row.record.line);
@@ -5150,7 +5413,7 @@ public class MainActivity extends AppCompatActivity {
         badge.setTextColor(getColor(fgRes));
     }
 
-    private final class LogCardAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private final class LogCardAdapter extends ImageAdapter {
         private List<LogRow> rows = new ArrayList<>();
         private AlertDialog logDialog;
 
@@ -5200,7 +5463,7 @@ public class MainActivity extends AppCompatActivity {
             row.setGravity(Gravity.TOP);
             row.setPadding(dp(14), dp(12), dp(14), dp(12));
             // 左列：时间在上，下面一颗小缩略图（该行切到的那张；比点开弹窗的图小得多）。
-            // 复用网格那套 thumbs/<id>.jpg 与 thumbFor 缓存，不另解图
+            // 与网格共用 UiImages 缩略图订阅，不在绑定时读盘。
             LinearLayout left = new LinearLayout(MainActivity.this);
             left.setOrientation(LinearLayout.VERTICAL);
             TextView time = new TextView(MainActivity.this);
@@ -5267,13 +5530,8 @@ public class MainActivity extends AppCompatActivity {
             }
             LogCardHolder h = (LogCardHolder) holder;
             h.time.setText(item.time);
-            Bitmap cardThumb = item.thumbId == null ? null : thumbFor(item.thumbId);
-            if (cardThumb != null) {
-                h.thumb.setImageBitmap(cardThumb);
-                h.thumb.setVisibility(View.VISIBLE);
-            } else {
-                h.thumb.setVisibility(View.GONE);
-            }
+            h.thumb.setVisibility(item.thumbId == null ? View.GONE : View.VISIBLE);
+            images.thumbnail(h.thumb, item.thumbId);
             h.title.setText(item.title);
             h.subtitle.setText(item.subtitle);
             h.subtitle.setVisibility(item.subtitle.isEmpty() ? View.GONE : View.VISIBLE);
@@ -5519,8 +5777,10 @@ public class MainActivity extends AppCompatActivity {
         final Context app = getApplicationContext();
         final int pageToken = logPageToken;
         final int pageScope = logScope;
+        final long epoch = imageEpoch;
         new Thread(() -> {
             List<Bitmap> thumbs = new ArrayList<>();
+            Map<String, Bitmap> decoded = new HashMap<>();
             Set<String> seen = new HashSet<>();
             for (SwitchLog.EntryRef ref : exact == null ? new ArrayList<SwitchLog.EntryRef>() : exact) {
                 if (ref.wallpaperId == null || ref.wallpaperId.isEmpty()
@@ -5538,7 +5798,7 @@ public class MainActivity extends AppCompatActivity {
                     if (thumb == null) {
                         thumb = WallpaperStore.getThumb(app, item.id);
                     } else {
-                        previews.put(key, thumb);
+                        decoded.put(key, thumb);
                     }
                 }
                 if (thumb != null && !containsSameThumb(thumbs, thumb)) {
@@ -5546,13 +5806,15 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
+                if (isFinishing() || isDestroyed() || epoch != imageEpoch) {
                     return;
+                }
+                for (Map.Entry<String, Bitmap> entry : decoded.entrySet()) {
+                    previews.put(entry.getKey(), entry.getValue());
                 }
                 // 旧弹窗或新独立页只要入口还在屏上就允许出缩略图；都关了就不往别处飞图
                 boolean dialogOpen = logDialog != null && logDialog.isShowing();
-                boolean pageOpen = pageLog != null && pageLog.getVisibility() == View.VISIBLE
-                        && pageToken == logPageToken && pageScope == logScope;
+                boolean pageOpen = logOpen && pageToken == logPageToken && pageScope == logScope;
                 if (!dialogOpen && !pageOpen) {
                     return;
                 }
@@ -5785,6 +6047,7 @@ public class MainActivity extends AppCompatActivity {
     void deleteWallpaperEverywhere(WallpaperStore.Item item) {
         final List<String> owners = new ArrayList<>(item.libIds);
         WallpaperStore.delete(this, item.id);
+        evictImages(item.id);
         refreshList();
         new Thread(() -> {
             for (String owner : owners) {

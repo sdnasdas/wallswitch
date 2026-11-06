@@ -9,6 +9,8 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
@@ -30,7 +32,9 @@ import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * 设置页（v3.134，原左侧抽屉里那六张卡片）。
@@ -43,12 +47,36 @@ import java.util.function.Consumer;
 public class SettingsFragment extends PreferenceFragmentCompat {
 
     private static final String ARG_SCREEN = "settings_screen_key";
+    private static final String STATE_SCREEN = "active_settings_screen_key";
     private static final String SYSTEM_SCREEN = "settings_system";
 
     private final List<List<Preference>> visualGroups = new ArrayList<>();
     private final List<PreferenceCategory> groupHeaders = new ArrayList<>();
+    private final Handler refreshHandler = new Handler(Looper.getMainLooper());
+    private final Runnable refreshTask = () -> {
+        if (!canRefresh()) {
+            refreshPending = false;
+            return;
+        }
+        host().publishSettingsRefresh(this, () -> {
+            refreshPending = false;
+            if (canRefresh()) {
+                refreshCurrentScreen();
+                getListView().requestLayout();
+            }
+        });
+    };
+    private final Runnable updateRefresh = () -> {
+        if (canRefresh()) {
+            summary("update", () -> host().updateStatus());
+        }
+    };
     private PreferenceScreen homeScreen;
     private GroupCardDecoration groupDecoration;
+    private String activeScreenKey;
+    private boolean hasScreenRequest;
+    private boolean contentReady;
+    private boolean refreshPending;
 
     static SettingsFragment secondary(String screenKey) {
         SettingsFragment fragment = new SettingsFragment();
@@ -62,17 +90,55 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.preferences, null);
         homeScreen = getPreferenceScreen();
-        Bundle args = getArguments();
-        String key = args == null ? null : args.getString(ARG_SCREEN);
-        if (key == null) {
-            // 「系统与权限」只是那一页的容器：首页进它走顶部「壁纸接管」那一行，不留第二颗门
-            Preference system = homeScreen.findPreference(SYSTEM_SCREEN);
-            if (system != null) {
-                system.setVisible(false);
-            }
+        // 只隐藏首页的入口行；以这个 screen 为根时，仍会正常绑定它的子项。
+        Preference system = homeScreen.findPreference(SYSTEM_SCREEN);
+        if (system != null) {
+            system.setVisible(false);
+        }
+        bindActions();
+        if (savedInstanceState != null && savedInstanceState.containsKey(STATE_SCREEN)) {
+            // 保存的 null 也有效：它表示已经从初始 secondary 切回首页。
+            activeScreenKey = savedInstanceState.getString(STATE_SCREEN);
+        } else if (!hasScreenRequest) {
+            Bundle args = getArguments();
+            activeScreenKey = args == null ? null : args.getString(ARG_SCREEN);
+        }
+        showScreen(activeScreenKey);
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString(STATE_SCREEN, activeScreenKey);
+    }
+
+    /** 复用已加载的整棵树；同页重开只刷新，真正切页才等待 adapter 重新绑定。 */
+    void showScreen(String key) {
+        activeScreenKey = key;
+        hasScreenRequest = true;
+        if (homeScreen == null) {
+            return;
         }
         Preference target = key == null ? null : homeScreen.findPreference(key);
-        applyScreen(target instanceof PreferenceScreen ? (PreferenceScreen) target : homeScreen);
+        PreferenceScreen screen = target instanceof PreferenceScreen
+                ? (PreferenceScreen) target : homeScreen;
+        activeScreenKey = screen == homeScreen ? null : screen.getKey();
+        if (screen == getPreferenceScreen()) {
+            refreshAll();
+            return;
+        }
+        contentReady = false;
+        cancelRefresh();
+        removeGroupDecoration();
+        visualGroups.clear();
+        groupHeaders.clear();
+        setPreferenceScreen(screen);
+        // onBindPreferences 负责当前页的分组、图标与刷新，避免拿新分组装饰旧 adapter。
+    }
+
+    /** 仅表示当前 screen 的 adapter 已绑定；布局完成由调用方的 preDraw 判断。 */
+    boolean isContentReady() {
+        return contentReady && !refreshPending;
     }
 
     private void bindActions() {
@@ -135,13 +201,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         host().openSettingsSecondary(screen.getKey(), screen.getTitle());
     }
 
-    private void applyScreen(PreferenceScreen screen) {
-        setPreferenceScreen(screen);
-        configureGroupedPresentation();
-        bindActions();
-        refreshAll();
-    }
-
     private void configureGroupedPresentation() {
         visualGroups.clear();
         groupHeaders.clear();
@@ -198,9 +257,8 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         RecyclerView list = getListView();
         list.setVerticalScrollBarEnabled(false);
         list.setHorizontalScrollBarEnabled(false);
-        if (groupDecoration != null) {
-            list.removeItemDecoration(groupDecoration);
-        }
+        removeGroupDecoration();
+        configureGroupedPresentation();
         RecyclerView.Adapter<?> adapter = list.getAdapter();
         if (adapter instanceof PreferenceGroup.PreferencePositionCallback) {
             groupDecoration = new GroupCardDecoration(
@@ -208,15 +266,25 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             list.addItemDecoration(groupDecoration);
         }
         tintPreferenceIcons(getPreferenceScreen(), list.getContext().getColor(R.color.icon_neutral));
+        contentReady = adapter != null;
         refreshAll();
+        list.requestLayout();
     }
 
-    @Override
-    public void onDestroyView() {
+    private void removeGroupDecoration() {
         if (groupDecoration != null) {
             getListView().removeItemDecoration(groupDecoration);
             groupDecoration = null;
         }
+    }
+
+    @Override
+    public void onDestroyView() {
+        contentReady = false;
+        cancelRefresh();
+        removeGroupDecoration();
+        visualGroups.clear();
+        groupHeaders.clear();
         super.onDestroyView();
     }
 
@@ -337,7 +405,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     }
 
     private void click(String key, Runnable action) {
-        Preference p = findPreference(key);
+        Preference p = homeScreen.findPreference(key);
         if (p != null) {
             p.setOnPreferenceClickListener(pref -> {
                 action.run();
@@ -347,7 +415,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     }
 
     private void toggle(String key, Consumer<Boolean> action) {
-        Preference p = findPreference(key);
+        Preference p = homeScreen.findPreference(key);
         if (p != null) {
             p.setOnPreferenceChangeListener((pref, value) -> {
                 action.accept((Boolean) value);
@@ -356,82 +424,129 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
     }
 
-    private void summary(String key, CharSequence text) {
-        Preference p = findPreference(key);
+    /** 只查当前页的可见行；子 screen 作为入口行，不穿进去读取它的状态。 */
+    private Preference visiblePreference(String key) {
+        PreferenceScreen screen = getPreferenceScreen();
+        return screen == null ? null : visiblePreference(screen, key);
+    }
+
+    private Preference visiblePreference(PreferenceGroup group, String key) {
+        for (int i = 0; i < group.getPreferenceCount(); i++) {
+            Preference child = group.getPreference(i);
+            if (!child.isVisible()) {
+                continue;
+            }
+            if (key.equals(child.getKey())) {
+                return child;
+            }
+            if (child instanceof PreferenceGroup && !(child instanceof PreferenceScreen)) {
+                Preference found = visiblePreference((PreferenceGroup) child, key);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    // 惰性取值：不能先计算状态再让 findPreference 对隐藏或其他页的行做空操作。
+    private void summary(String key, Supplier<CharSequence> text) {
+        Preference p = visiblePreference(key);
         if (p != null) {
-            p.setSummary(text);
+            p.setSummary(text.get());
         }
     }
 
-    private void checked(String key, boolean on) {
-        Preference p = findPreference(key);
+    private void checked(String key, BooleanSupplier on) {
+        Preference p = visiblePreference(key);
         if (p instanceof SwitchPreferenceCompat) {
-            ((SwitchPreferenceCompat) p).setChecked(on);
+            ((SwitchPreferenceCompat) p).setChecked(on.getAsBoolean());
         }
     }
 
-    /** 每一行的状态现算一遍（回到前台、动作做完、Activity 主动通知时都走这里）。 */
+    private boolean canRefresh() {
+        return contentReady && getView() != null && isAdded()
+                && getActivity() instanceof MainActivity && host().isActiveSettings(this);
+    }
+
+    private void cancelRefresh() {
+        refreshHandler.removeCallbacks(refreshTask);
+        refreshPending = false;
+    }
+
+    /** 合并同一消息周期的请求；执行时只读取当前 screen，不捕获旧页的行或状态。 */
     public void refreshAll() {
-        if (!isAdded() || !(getActivity() instanceof MainActivity)) {
+        if (!canRefresh() || refreshPending) {
             return;
         }
+        refreshPending = true;
+        refreshHandler.post(refreshTask);
+    }
+
+    private void refreshCurrentScreen() {
         Context ctx = requireContext();
-        boolean home = TakeoverManager.isHomeTakenOver(ctx);
-        boolean lock = TakeoverManager.isLockTakenOver(ctx) || TakeoverManager.isLockTakenByEngine(ctx);
-        String takeover = getString(R.string.pref_takeover_sum,
-                getString(home ? R.string.takeover_by_app : R.string.takeover_by_system),
-                getString(lock ? R.string.takeover_by_app : R.string.takeover_by_system));
+        Supplier<CharSequence> takeover = () -> {
+            boolean home = TakeoverManager.isHomeTakenOver(ctx);
+            boolean lock = TakeoverManager.isLockTakenOver(ctx) || TakeoverManager.isLockTakenByEngine(ctx);
+            return getString(R.string.pref_takeover_sum,
+                    getString(home ? R.string.takeover_by_app : R.string.takeover_by_system),
+                    getString(lock ? R.string.takeover_by_app : R.string.takeover_by_system));
+        };
         summary("takeover", takeover);
         summary("takeover_status", takeover);
-        summary("battery", getString(host().isIgnoringBatteryOptimizations()
+        summary("battery", () -> getString(host().isIgnoringBatteryOptimizations()
                 ? R.string.battery_state_on : R.string.battery_state_off));
-        checked("auto_notify", SwitchNotifier.isEnabled(ctx));
-        checked("status_notify", StatusNotifier.isEnabled(ctx));
-        checked("ticking", TimerScheduler.tickingCountdown(ctx));
-        String pin = PinnedWallpaper.label(ctx);
-        summary("pinned", pin == null ? getString(R.string.settings_state_unset) : pin);
-        String transition = transitionLabel();
-        String motion = motionLabel();
-        summary("transition", transition);
-        summary("motion", motion);
-        summary("settings_motion", getString(R.string.settings_design_motion_summary, transition, motion));
-        int threshold = QuickSetSheetDialog.thresholdDp(ctx);
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        summary(QuickSetSheetDialog.KEY_DISMISS_THRESHOLD_DP,
-                getString(R.string.settings_quick_threshold_summary, threshold,
-                        Math.round(threshold * metrics.density * 100f / metrics.heightPixels)));
-        summary("launcher_overlay", getString(LauncherPreviewOverlay.overlayFile(ctx).exists()
+        checked("auto_notify", () -> SwitchNotifier.isEnabled(ctx));
+        checked("status_notify", () -> StatusNotifier.isEnabled(ctx));
+        checked("ticking", () -> TimerScheduler.tickingCountdown(ctx));
+        summary("pinned", () -> {
+            String pin = PinnedWallpaper.label(ctx);
+            return pin == null ? getString(R.string.settings_state_unset) : pin;
+        });
+        summary("transition", this::transitionLabel);
+        summary("motion", this::motionLabel);
+        summary("settings_motion", () -> getString(R.string.settings_design_motion_summary,
+                transitionLabel(), motionLabel()));
+        summary(QuickSetSheetDialog.KEY_DISMISS_THRESHOLD_DP, () -> {
+            int threshold = QuickSetSheetDialog.thresholdDp(ctx);
+            DisplayMetrics metrics = getResources().getDisplayMetrics();
+            return getString(R.string.settings_quick_threshold_summary, threshold,
+                    Math.round(threshold * metrics.density * 100f / metrics.heightPixels));
+        });
+        summary("launcher_overlay", () -> getString(LauncherPreviewOverlay.overlayFile(ctx).exists()
                 ? R.string.launcher_overlay_set : R.string.settings_state_unset));
-        summary("export_dir", WallpaperExporter.isConfigured(ctx)
+        summary("export_dir", () -> WallpaperExporter.isConfigured(ctx)
                 ? getString(R.string.export_dir_set_state, WallpaperExporter.displayName(ctx))
                 : getString(R.string.settings_state_unset));
         // 存相册用的是 MediaStore RELATIVE_PATH（Android 10 起才有），低版本直接灰掉这一行
-        Preference liveConverter = findPreference("live_converter");
+        Preference liveConverter = visiblePreference("live_converter");
         if (liveConverter != null) {
             boolean supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
             liveConverter.setEnabled(supported);
             // 灰掉时那行是「为什么点不动」的状态，留着；能用时不写说明，裁剪页里已有去向与不进库的提示
             liveConverter.setSummary(supported ? null : getString(R.string.live_converter_need_q));
         }
-        SharedPreferences prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE);
-        long at = prefs.getLong("backup_last_at", 0L);
-        String name = prefs.getString("backup_last_name", "");
-        summary("backup", at == 0L || name == null || name.isEmpty()
-                ? null
-                : getString(R.string.backup_last, TimerScheduler.clockText(ctx, at), name));
-        summary("update_source", getString(UpdateChecker.SRC_GITHUB.equals(UpdateChecker.source(ctx))
+        summary("backup", () -> {
+            SharedPreferences prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE);
+            long at = prefs.getLong("backup_last_at", 0L);
+            String name = prefs.getString("backup_last_name", "");
+            return at == 0L || name == null || name.isEmpty()
+                    ? null
+                    : getString(R.string.backup_last, TimerScheduler.clockText(ctx, at), name);
+        });
+        summary("update_source", () -> getString(UpdateChecker.SRC_GITHUB.equals(UpdateChecker.source(ctx))
                 ? R.string.update_source_github : R.string.update_source_gitee));
-        checked("auto_update", UpdateChecker.autoCheck(ctx));
+        checked("auto_update", () -> UpdateChecker.autoCheck(ctx));
         refreshUpdateRow();
-        String version = "v" + UpdateChecker.localVersion(ctx);
+        Supplier<CharSequence> version = () -> "v" + UpdateChecker.localVersion(ctx);
         summary("version", version);
         summary("settings_about", version);
     }
 
     /** 检查更新那一行：下载进度轮询每 300ms 刷它一次，所以单独拎出来，不连带整页重算。 */
     public void refreshUpdateRow() {
-        if (isAdded() && getActivity() instanceof MainActivity) {
-            summary("update", host().updateStatus());
+        if (canRefresh()) {
+            host().publishSettingsRefresh(updateRefresh, updateRefresh);
         }
     }
 
