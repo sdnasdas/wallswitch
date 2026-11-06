@@ -122,7 +122,9 @@ public class TimerScheduler {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         // 暂停的那一面一律撤任务：不撤的话，每次回应用的 scheduleAll 会把刚撤掉的定时又排回来，
         // 暂停等于没生效（比"到点跳过"更省 —— 暂停期间连一次唤醒都没有）
-        if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, forHome)) {
+        // 桌面触发方式是「回桌面」同理：定时格子整个撤掉，切换由引擎可见性回调驱动（v3.152）
+        if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, forHome)
+                || LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
             cancelScope(ctx, forHome);
             return;
         }
@@ -185,18 +187,23 @@ public class TimerScheduler {
             return -1L;
         }
         boolean paused = LibraryStore.slotPaused(ctx, forHome);
+        // 回桌面模式没有「下一轮定时」：手动切一张只把 last_run 推到此刻，不排格子、不承诺下次
+        boolean returnMode = LibraryStore.TRIGGER_RETURN.equals(
+                LibraryStore.scopeTriggerMode(ctx, forHome));
         long now = System.currentTimeMillis();
-        long next = paused ? -1L : now + intervalSeconds(ctx, forHome) * 1000L;
+        long next = (paused || returnMode) ? -1L : now + intervalSeconds(ctx, forHome) * 1000L;
         SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putLong(KEY_LAST_RUN_PREFIX + suffix(forHome), now);
-        if (paused) {
+        if (paused || returnMode) {
             // 暂停中没有「下次」可言：手动切一张只把 last_run 推到此刻，恢复时再从那一刻起算一整轮
             editor.remove(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome));
         } else {
             editor.putLong(KEY_NEXT_TRIGGER_PREFIX + suffix(forHome), next);
         }
         editor.apply();
-        scheduleInternal(ctx, forHome, true);
+        if (!returnMode) {
+            scheduleInternal(ctx, forHome, true);
+        }
         if (logTag != null) {
             String currentId = Switcher.getCurrent(ctx, libId, forHome);
             SwitchLog.recordManual(ctx, forHome, switchDetail(ctx, libId, forHome),
@@ -312,6 +319,10 @@ public class TimerScheduler {
             // 暂停中不切、不记账、不记日志：正常情况下任务早被撤掉了，这里只给排队中的那一次兜底
             return false;
         }
+        // 回桌面模式下桌面的定时任务已撤，这里只兜「撤之前已排队的那一次」
+        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
+            return false;
+        }
         // 「开启接管」关着 = 本 App 不接管系统壁纸：定时任务完全不动系统（不发通知、不记日志），
         // 但仍按间隔推进记账，免得每个周期都白跑一次、状态行还停在上次的旧结果
         if (!TakeoverManager.isEnabled(ctx)) {
@@ -332,9 +343,12 @@ public class TimerScheduler {
         boolean ok = !nothingToDo && Switcher.next(ctx, lib.id, forHome);
         long now = System.currentTimeMillis();
         String result = nothingToDo ? "engine_inactive" : (ok ? RESULT_OK : Switcher.lastError());
+        // 夜间过滤把候选全滤掉不算失败：不弹失败横幅（不然夜里每轮一条噪音），
+        // 只记一行「本轮跳过」，账照常推进到下一轮（v3.152）
+        boolean nightSkipped = "night_filtered".equals(result);
         // 自动切换提示：用户通常不在场，统一发系统通知（成功静音留痕、失败弹横幅），
         // 手动切换/小组件点击仍由界面侧用 Toast 即时反馈，不走这里
-        if (!nothingToDo) {
+        if (!nothingToDo && !nightSkipped) {
             SwitchNotifier.notifyResult(ctx, forHome, lib, ok, result);
             // 日志只记真的把新图上屏的那一次
             if (ok) {
@@ -342,6 +356,8 @@ public class TimerScheduler {
                 SwitchLog.recordAuto(ctx, forHome,
                         switchDetail(ctx, lib.id, forHome), planned, currentId, lib.id);
             }
+        } else if (nightSkipped) {
+            SwitchLog.recordNightSkipped(ctx, forHome);
         }
         // 无论成败都把下次触发时间前移到 当前+间隔：成功即进入下一轮，失败也避免每次刷新都重试
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -404,6 +420,10 @@ public class TimerScheduler {
         }
         boolean did = false;
         for (boolean forHome : new boolean[]{true, false}) {
+            // 回桌面模式没有「定时那一轮」可补：它由引擎可见性驱动，跳过
+            if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
+                continue;
+            }
             if (LibraryStore.slotLibId(ctx, forHome) != null && isDue(ctx, forHome)) {
                 did |= runNow(ctx, forHome);
             }

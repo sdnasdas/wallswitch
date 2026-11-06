@@ -36,6 +36,22 @@ public class Switcher {
     private static final String PREFS_NAME = "settings";
     // 「上一张」链路上限：超出从头丢弃（先进先出）
     private static final int MAX_HISTORY = 20;
+
+    // ==================== 夜间过滤与回桌面切换（v3.152） ====================
+
+    // 夜间过滤开关：开着才有时段判定，关掉 = 全天候不区分亮暗
+    private static final String KEY_NIGHT_ENABLED = "night_filter_enabled";
+    // 夜间时段起止（一天内的分钟数，0~1439；跨午夜合法，如 22:00~07:00）
+    private static final String KEY_NIGHT_START = "night_start_minutes";
+    private static final String KEY_NIGHT_END = "night_end_minutes";
+    private static final int DEFAULT_NIGHT_START = 22 * 60;
+    private static final int DEFAULT_NIGHT_END = 7 * 60;
+    // 亮/暗分界（平均亮度 0~255）：经验值，亮色系壁纸普遍在 140 以上，暗色系多在 110 以下
+    private static final int NIGHT_BRIGHT_THRESHOLD = 128;
+    // 回桌面切换的节流：上次回桌面切换时刻与最小间隔（分钟，默认 2）
+    private static final String KEY_LAST_RETURN_SWITCH = "last_return_switch";
+    private static final String KEY_RETURN_MIN_GAP = "return_min_gap_minutes";
+    private static final int DEFAULT_RETURN_MIN_GAP = 2;
     // 最近一次解码结果缓存：小图库高频切换时避免反复解码同一张图（上限 1 张，控制内存）
     private static String cachedName;
     private static Bitmap cachedBitmap;
@@ -76,6 +92,15 @@ public class Switcher {
         List<WallpaperStore.Item> candidates = WallpaperStore.loadByLib(ctx, libId);
         if (candidates.isEmpty()) {
             return false;
+        }
+        // 夜间过滤：时段内只放暗色图（手动标了「夜间禁用」的一律跳过）；
+        // 全被滤掉就本轮不切，错误码留给调用方区分「没有图」与「图都在禁切名单里」
+        if (isNightNow(ctx)) {
+            candidates = nightFilter(ctx, candidates);
+            if (candidates.isEmpty()) {
+                lastError = "night_filtered";
+                return false;
+            }
         }
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String base = progressBase(libId, forHome);
@@ -548,6 +573,9 @@ public class Switcher {
         if ("takeover_off".equals(code)) {
             return ctx.getString(R.string.status_takeover_off);
         }
+        if ("night_filtered".equals(code)) {
+            return ctx.getString(R.string.status_night_filtered);
+        }
         // 异常类名等原始信息直接透出，便于定位
         return code;
     }
@@ -564,5 +592,134 @@ public class Switcher {
             cachedBitmap = bitmap;
         }
         return bitmap;
+    }
+
+    // ==================== 夜间过滤（v3.152） ====================
+
+    /** 夜间过滤开关（默认关）。 */
+    public static boolean nightFilterEnabled(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_NIGHT_ENABLED, false);
+    }
+
+    public static void setNightFilterEnabled(Context ctx, boolean enabled) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_NIGHT_ENABLED, enabled).apply();
+    }
+
+    /** 夜间时段起点（一天内分钟数，默认 22:00）。 */
+    public static int nightStartMinutes(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_NIGHT_START, DEFAULT_NIGHT_START);
+    }
+
+    /** 夜间时段终点（一天内分钟数，默认 07:00）。 */
+    public static int nightEndMinutes(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_NIGHT_END, DEFAULT_NIGHT_END);
+    }
+
+    public static void setNightPeriod(Context ctx, int startMinutes, int endMinutes) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_NIGHT_START, startMinutes)
+                .putInt(KEY_NIGHT_END, endMinutes)
+                .apply();
+    }
+
+    /** 现在是否处于夜间过滤时段（开关关着恒为 false；起=止视为关闭，免得误配成全天过滤）。 */
+    public static boolean isNightNow(Context ctx) {
+        if (!nightFilterEnabled(ctx)) {
+            return false;
+        }
+        int start = nightStartMinutes(ctx);
+        int end = nightEndMinutes(ctx);
+        if (start == end) {
+            return false;
+        }
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        int now = c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE);
+        // 起 < 止：白天内的区间（如 12:00~14:00）；起 > 止：跨午夜（如 22:00~07:00）
+        return start < end ? (now >= start && now < end) : (now >= start || now < end);
+    }
+
+    /**
+     * 夜间候选过滤：手动「夜间禁用」的一律跳过；亮度未知的现场补算（解缩略图，只在第一次发生），
+     * 补出来是亮图（≥阈值）的跳过，未知的放行（宁可显示一张偏亮的，也不能因为缺缩略图整库停摆）。
+     */
+    private static List<WallpaperStore.Item> nightFilter(Context ctx,
+                                                         List<WallpaperStore.Item> candidates) {
+        boolean probed = false;
+        List<WallpaperStore.Item> kept = new ArrayList<>();
+        for (WallpaperStore.Item item : candidates) {
+            if (item.nightOff) {
+                continue;
+            }
+            if (item.bright < 0) {
+                WallpaperStore.probeBrightness(ctx, item);
+                probed = true;
+            }
+            if (item.bright >= NIGHT_BRIGHT_THRESHOLD) {
+                continue;
+            }
+            kept.add(item);
+        }
+        if (probed) {
+            WallpaperStore.persistBrightness(ctx);
+        }
+        return kept;
+    }
+
+    // ==================== 回桌面切换（v3.152） ====================
+
+    /** 回桌面切换的最小间隔（分钟，默认 2）：防连着进出桌面狂切。 */
+    public static int returnMinGapMinutes(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_RETURN_MIN_GAP, DEFAULT_RETURN_MIN_GAP);
+    }
+
+    public static void setReturnMinGapMinutes(Context ctx, int minutes) {
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_RETURN_MIN_GAP, Math.max(0, minutes)).apply();
+    }
+
+    /** 上次回桌面切换的时刻（状态行显示用），没有过返回 0。 */
+    public static long lastReturnSwitch(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_LAST_RETURN_SWITCH, 0L);
+    }
+
+    /**
+     * 「回桌面时切换」的唯一入口（引擎 onVisibilityChanged(true) 调来，后台线程）。
+     * 节流两道：最小间隔（默认 2 分钟）+ 进程起来后的第一次可见只落账不切
+     * （激活壁纸/进程重建后的那次可见不该当场换图，之后每次回桌面才算数）。
+     * 夜间过滤在 {@link #next} 内部同样生效；被滤空时静默不切、不记日志（回桌面太频繁，记了是噪音）。
+     */
+    public static boolean switchOnHomeReturn(Context ctx) {
+        String libId = LibraryStore.slotLibId(ctx, true);
+        if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, true)
+                || !TakeoverManager.isEnabled(ctx)) {
+            return false;
+        }
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        long last = prefs.getLong(KEY_LAST_RETURN_SWITCH, 0L);
+        if (last == 0L) {
+            prefs.edit().putLong(KEY_LAST_RETURN_SWITCH, now).apply();
+            return false;
+        }
+        if (now - last < returnMinGapMinutes(ctx) * 60_000L) {
+            return false;
+        }
+        // 先落账再切：引擎可见回调可能连着来，挡住并发的第二次
+        prefs.edit().putLong(KEY_LAST_RETURN_SWITCH, now).apply();
+        boolean ok = next(ctx, libId, true);
+        if (ok) {
+            // 与定时切换同一口径记日志（无承诺触发时刻，传 -1 只写「距上张走了多少分」）
+            LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+            String detail = ctx.getString(R.string.log_detail_scope,
+                    ctx.getString(R.string.scope_home), lib == null || lib.name == null ? "" : lib.name);
+            SwitchLog.recordAuto(ctx, true, detail, -1L, getCurrent(ctx, libId, true), libId);
+        }
+        return ok;
     }
 }

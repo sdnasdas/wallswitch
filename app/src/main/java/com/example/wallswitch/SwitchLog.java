@@ -146,11 +146,17 @@ public final class SwitchLog {
         EXECUTOR.execute(() -> {
             String gapPart = firstEntry(app, forHome)
                     ? "" : app.getString(R.string.log_gap_part, minutesBetween(anchor(app, forHome), now));
-            String parens = nextTriggerMillis > 0L
-                    ? app.getString(R.string.log_suffix_manual,
-                            gapPart, tag, TimerScheduler.clockText(app, nextTriggerMillis))
-                    // 暂停中手动切一张：没有「下次」可承诺（任务已撤），只标这一张停在这儿
-                    : app.getString(R.string.log_suffix_manual_paused, gapPart, tag);
+            String parens;
+            if (nextTriggerMillis > 0L) {
+                parens = app.getString(R.string.log_suffix_manual,
+                        gapPart, tag, TimerScheduler.clockText(app, nextTriggerMillis));
+            } else if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(app, forHome))) {
+                // 回桌面模式：没有「下次约几点」，只有「下次回桌面时」
+                parens = app.getString(R.string.log_suffix_manual_return, gapPart, tag);
+            } else {
+                // 暂停中手动切一张：没有「下次」可承诺（任务已撤），只标这一张停在这儿
+                parens = app.getString(R.string.log_suffix_manual_paused, gapPart, tag);
+            }
             write(app, forHome, now, entryLine(app, now, detail, parens), true, wallpaperId, libId);
         });
     }
@@ -171,6 +177,18 @@ public final class SwitchLog {
                         ? c.getString(R.string.log_config_mode, modeText,
                                 TimerScheduler.clockText(c, nextTriggerMillis))
                         : c.getString(R.string.log_config_mode_no_next, modeText));
+    }
+
+    /** 记一行「改了桌面触发方式」（定时/回桌面，v3.152）。异步写。 */
+    public static void recordTriggerChange(Context ctx, boolean forHome, String modeText) {
+        recordConfig(ctx, forHome, false, (c, prevTime, now) ->
+                c.getString(R.string.log_config_trigger, modeText));
+    }
+
+    /** 记一行「夜间无可切，本轮跳过」：不算失败、不挪起算点（下一轮照原节奏来）。异步写。 */
+    public static void recordNightSkipped(Context ctx, boolean forHome) {
+        recordConfig(ctx, forHome, false, (c, prevTime, now) ->
+                c.getString(R.string.log_config_night_skipped));
     }
 
     /**

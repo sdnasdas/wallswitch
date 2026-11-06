@@ -41,6 +41,9 @@ public class LibraryStore {
     // 切换模式取值
     public static final String MODE_ORDER = "order";
     public static final String MODE_RANDOM = "random";
+    // 桌面触发方式取值（v3.152）：定时 / 回桌面。锁屏没有回桌面一说，恒为定时
+    public static final String TRIGGER_TIMER = "timer";
+    public static final String TRIGGER_RETURN = "return";
     // 默认切换间隔（秒）
     public static final int DEFAULT_INTERVAL_SECONDS = 1800;
     // 最短切换间隔（秒）：WorkManager 省电方案的系统下限为 15 分钟
@@ -297,6 +300,45 @@ public class LibraryStore {
     public static String scopeMode(Context ctx, boolean forHome) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(slotKey(forHome) + "_mode", MODE_ORDER);
+    }
+
+    /**
+     * 桌面的触发方式（{@link #TRIGGER_TIMER} 默认 / {@link #TRIGGER_RETURN}）。
+     * 锁屏没有「回桌面」事件，无论存什么都按定时处理。
+     */
+    public static String scopeTriggerMode(Context ctx, boolean forHome) {
+        if (!forHome) {
+            return TRIGGER_TIMER;
+        }
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(slotKey(true) + "_trigger", TRIGGER_TIMER);
+    }
+
+    /**
+     * 改桌面触发方式（二选一）：回桌面 = 撤掉桌面这条定时任务（周期唤醒归零，由引擎可见性回调驱动）；
+     * 定时 = 从这一刻重新起算一整轮（restartScope 口径，不写日志正文行）。
+     * 槽位没库时只记偏好，不动调度。
+     */
+    public static void setScopeTriggerMode(Context ctx, String mode) {
+        String normalized = TRIGGER_RETURN.equals(mode) ? TRIGGER_RETURN : TRIGGER_TIMER;
+        if (normalized.equals(scopeTriggerMode(ctx, true))) {
+            return;
+        }
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString(slotKey(true) + "_trigger", normalized)
+                .apply();
+        if (slotLibId(ctx, true) != null) {
+            if (TRIGGER_RETURN.equals(normalized)) {
+                TimerScheduler.cancelScope(ctx, true);
+            } else {
+                TimerScheduler.restartScope(ctx, true, null);
+            }
+        }
+        SwitchLog.recordTriggerChange(ctx, true,
+                ctx.getString(TRIGGER_RETURN.equals(normalized)
+                        ? R.string.trigger_mode_return : R.string.trigger_mode_timer));
+        WidgetProvider.updateWidget(ctx);
+        StatusNotifier.update(ctx);
     }
 
     /** 改该范围的切换模式（顺序/随机）。模式不在重排指纹里，所以格子不动、下次触发时刻不变。 */

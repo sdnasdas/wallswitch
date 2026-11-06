@@ -2049,7 +2049,9 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.sel_move).setEnabled(selected);
         findViewById(R.id.sel_copy).setEnabled(selected);
         findViewById(R.id.sel_remove).setEnabled(selected);
+        findViewById(R.id.sel_night).setEnabled(selected);
         bindCoverButton();
+        bindNightButton();
         Menu menu = libraryToolbar.getMenu();
         menu.setGroupVisible(R.id.group_library_normal, !organize);
         menu.setGroupVisible(R.id.group_library_select, organize);
@@ -2073,6 +2075,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.sel_remove).setOnClickListener(
                 v -> confirmRemoveSelected(wallpaperAdapter.selectedIdsInOrder()));
         findViewById(R.id.sel_cover).setOnClickListener(v -> toggleCoverForSelection());
+        findViewById(R.id.sel_night).setOnClickListener(v -> toggleNightForSelection());
     }
 
     /** 恰好勾一张时「设为封面」可点；勾的那张已经是本库封面时文案换成「取消封面」。 */
@@ -2083,6 +2086,55 @@ public class MainActivity extends AppCompatActivity {
         boolean isCover = single && wallpaperAdapter.selectedIdsInOrder().get(0)
                 .equals(LibraryStore.coverId(this, currentLibId()));
         cover.setText(isCover ? R.string.sel_uncover : R.string.sel_cover);
+    }
+
+    /** 「夜间禁用」按勾选集合的整体状态显示：勾的全都禁用了，文案换成「解除禁用」（点了就是解除）。 */
+    private void bindNightButton() {
+        Button night = findViewById(R.id.sel_night);
+        List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        boolean allOff = !ids.isEmpty();
+        for (String id : ids) {
+            WallpaperStore.Item item = WallpaperStore.get(this, id);
+            if (item == null || !item.nightOff) {
+                allOff = false;
+                break;
+            }
+        }
+        night.setText(allOff ? R.string.sel_night_off : R.string.sel_night);
+    }
+
+    /**
+     * 批量打/摘「夜间禁用」标（v3.152）：勾选集合里还有没禁用的就一律禁用，全都禁用了就一律解除。
+     * 只改 library.json 的 night_off 字段，不动文件、不动指针 —— 屏上那张被禁用了也不当场换，
+     * 下一轮切换（或白天切回）自然修正。
+     */
+    private void toggleNightForSelection() {
+        List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            return;
+        }
+        List<WallpaperStore.Item> items = WallpaperStore.load(this);
+        boolean targetOff = false;
+        for (WallpaperStore.Item item : items) {
+            if (ids.contains(item.id) && !item.nightOff) {
+                targetOff = true;
+                break;
+            }
+        }
+        for (WallpaperStore.Item item : items) {
+            if (ids.contains(item.id)) {
+                item.nightOff = targetOff;
+            }
+        }
+        try {
+            WallpaperStore.saveItems(this, items);
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.organize_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, getString(targetOff ? R.string.night_mark_done
+                : R.string.night_unmark_done, ids.size()), Toast.LENGTH_SHORT).show();
+        exitOrganizeMode();
     }
 
     /**
@@ -3849,11 +3901,14 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 该范围的设置摘要行：模式 · 每 X（卡片与弹窗共用）。 */
+    /** 该范围的设置摘要行：模式 · 每 X（卡片与弹窗共用）；回桌面模式的桌面显示触发方式而非间隔。 */
     String slotIntervalDisplay(boolean forHome) {
         boolean random = LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(this, forHome));
-        return getString(random ? R.string.mode_random : R.string.mode_order)
-                + " · " + getString(R.string.slot_every_prefix)
+        String modeText = getString(random ? R.string.mode_random : R.string.mode_order);
+        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(this, forHome))) {
+            return modeText + " · " + getString(R.string.trigger_mode_return);
+        }
+        return modeText + " · " + getString(R.string.slot_every_prefix)
                 + formatInterval(LibraryStore.scopeIntervalSeconds(this, forHome));
     }
 
@@ -3970,6 +4025,13 @@ public class MainActivity extends AppCompatActivity {
         if (LibraryStore.slotPaused(this, forHome)) {
             // 暂停的那一面没有「下次」：任务已撤，倒计时留着只会骗人
             return getString(R.string.slot_paused_label);
+        }
+        // 回桌面模式没有定时格子：显示触发方式与上次切换时刻（v3.152）
+        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(this, forHome))) {
+            long lastReturn = Switcher.lastReturnSwitch(this);
+            return lastReturn > 0
+                    ? getString(R.string.timer_status_return, formatClock(lastReturn))
+                    : getString(R.string.timer_status_return_never);
         }
         long next = TimerScheduler.scopeTrigger(this, forHome);
         long now = System.currentTimeMillis();

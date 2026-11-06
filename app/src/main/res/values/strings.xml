@@ -595,4 +595,26 @@
     <string name="export_dir_cancel">取消导出目录</string>
     <string name="update_downloading_tap">下载中 %1$d%% · 点按取消</string>
     <string name="edit_preview_toggle">桌面图标预览</string>
+    <!-- v3.152：触发方式（定时/回桌面）+ 夜间亮度过滤 -->
+    <string name="trigger_mode_title">桌面触发方式</string>
+    <string name="trigger_mode_timer">定时切换</string>
+    <string name="trigger_mode_return">回桌面时切换</string>
+    <string name="return_gap_title">回桌面切换最小间隔</string>
+    <string name="return_gap_summary">回桌面至少间隔 %1$d 分钟才换一张</string>
+    <string name="return_gap_unit">分钟</string>
+    <string name="night_filter_title">夜间只切暗色壁纸</string>
+    <string name="night_period_title">夜间时段</string>
+    <string name="night_period_summary">%1$s ~ %2$s</string>
+    <string name="night_period_start">开始</string>
+    <string name="night_period_end">结束</string>
+    <string name="status_night_filtered">夜间无可切的暗色壁纸</string>
+    <string name="log_config_night_skipped">夜间无可切的暗色壁纸，本轮跳过</string>
+    <string name="log_suffix_manual_return">" （%1$s%2$s · 回桌面时再切）"</string>
+    <string name="log_config_trigger">触发方式改为%1$s</string>
+    <string name="sel_night">夜间禁用</string>
+    <string name="sel_night_off">解除禁用</string>
+    <string name="night_mark_done">已对 %1$d 张开启夜间禁用</string>
+    <string name="night_unmark_done">已对 %1$d 张解除夜间禁用</string>
+    <string name="timer_status_return">回桌面时切换 · 上次 %1$s</string>
+    <string name="timer_status_return_never">回桌面时切换 · 尚未切换过</string>
 </resources>

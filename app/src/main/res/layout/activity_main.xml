@@ -77,7 +77,8 @@
         android:visibility="gone" />
 
     <!-- 库内多选动作条浮在覆盖层上；出现时顶替底部导航。
-         「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」 -->
+         「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」
+         「夜间禁用」按勾选集合的整体状态取反：全都禁用了点它就是「解除禁用」 -->
     <LinearLayout
         android:id="@+id/selection_bar"
         android:layout_width="match_parent"
@@ -117,6 +118,16 @@
             android:layout_weight="1"
             android:text="@string/sel_cover"
             app:icon="@drawable/ic_cover"
+            app:iconGravity="top" />
+
+        <Button
+            android:id="@+id/sel_night"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sel_night"
+            app:icon="@drawable/ic_night"
             app:iconGravity="top" />
 
         <Button

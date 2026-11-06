@@ -141,6 +141,13 @@ public class WallpaperStore {
         public float cropTop;
         public float cropRight;
         public float cropBottom;
+        /**
+         * 成品图的平均亮度（0~255，由缩略图算）：夜间过滤分档用（v3.152）。
+         * -1 = 还没算过（存量老条目），过滤时按缩略图现场补算（{@link #probeBrightness}）。
+         */
+        public int bright = -1;
+        /** 用户手动标的「夜间禁用」：夜间时段永不切到这张（与亮度分档无关，v3.152）。 */
+        public boolean nightOff;
 
         /** 有没有可复原的构图参数（尺寸有效 + 矩形不退化）。 */
         public boolean hasCropRect() {
@@ -280,6 +287,9 @@ public class WallpaperStore {
                 item.cropTop = (float) obj.optDouble("crop_t", 0d);
                 item.cropRight = (float) obj.optDouble("crop_r", 0d);
                 item.cropBottom = (float) obj.optDouble("crop_b", 0d);
+                // 亮度分档与夜间禁用：老文件读不到就取默认（-1 待补算 / 未禁用）
+                item.bright = obj.optInt("bright", -1);
+                item.nightOff = obj.optBoolean("night_off", false);
                 result.add(item);
             }
         } catch (Exception ignored) {
@@ -608,13 +618,16 @@ public class WallpaperStore {
         }
         String id = inboxId;
         writeFull(context, id, bitmap);
-        // 保存缩略图（中心正方形，边长按屏幕上的方格宽度取）
-        writeThumb(context, id, bitmap);
+        // 保存缩略图（中心正方形，边长按屏幕上的方格宽度取），亮度随缩略图一并算出
+        int bright = writeThumb(context, id, bitmap);
         // 追加元数据（归属指定壁纸库）
         List<Item> items = load(context);
         Item item = new Item();
         item.id = id;
         item.joinLib(libId);
+        if (bright >= 0) {
+            item.bright = bright;
+        }
         items.add(item);
         saveLibrary(context, items);
         // 这里以前会「顺手导出一份到导出目录」，v3.89 起删掉：导出目录改成只有两个手动入口
@@ -663,7 +676,7 @@ public class WallpaperStore {
         }
         String newId = UUID.randomUUID().toString();
         writeFull(context, newId, result);
-        writeThumb(context, newId, result);
+        int bright = writeThumb(context, newId, result);
         File srcOriginal = getOriginalFile(context, srcId);
         if (srcOriginal.isFile() && srcOriginal.length() > 0L) {
             File freshOriginal = getOriginalFile(context, newId);
@@ -685,6 +698,9 @@ public class WallpaperStore {
         Item fresh = new Item();
         fresh.id = newId;
         fresh.joinLib(libId);
+        if (bright >= 0) {
+            fresh.bright = bright;
+        }
         items.add(fresh);
         for (Item item : items) {
             if (item.id.equals(srcId)) {
@@ -704,7 +720,21 @@ public class WallpaperStore {
             throw new IOException("没有可保存的图像");
         }
         writeFull(context, id, bitmap);
-        writeThumb(context, id, bitmap);
+        int bright = writeThumb(context, id, bitmap);
+        // 覆盖等于换了张图：亮度跟着重算落盘（失败不拦覆盖本身，下回切换还会补算）
+        if (bright >= 0) {
+            List<Item> items = load(context);
+            for (Item item : items) {
+                if (item.id.equals(id)) {
+                    item.bright = bright;
+                    break;
+                }
+            }
+            try {
+                saveLibrary(context, items);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** 取消导入：删除收件箱中的待编辑文件与其中的标题记录。 */
@@ -1060,28 +1090,34 @@ public class WallpaperStore {
     }
 
     /**
-     * 生成并写入某张壁纸的缩略图（中心正方形 + 按屏幕取的边长）。
+     * 生成并写入某张壁纸的缩略图（中心正方形 + 按屏幕取的边长），顺手算出它的平均亮度
+     * （夜间过滤的分档依据，几百 px 的小图成本可忽略）。
      * 只回收自己新建的中间位图，入参位图归调用方管（scaleToFit 没缩时返回的就是入参本身）。
-     * 只有压缩成功且输出流正常关闭才返回 true；不能把尝试写入当作成功重建。
+     *
+     * @return 平均亮度（0~255）；只有压缩成功且输出流正常关闭才算成功，失败一律返回 -1。
+     *         亮度由调用方落到条目上 —— 这里不写表：confirmImport/forkIntoLib 调用时新条目还没进表。
      */
-    private static boolean writeThumb(Context context, String id, Bitmap bitmap) throws IOException {
+    private static int writeThumb(Context context, String id, Bitmap bitmap) throws IOException {
         if (bitmap == null) {
-            return false;
+            return -1;
         }
         File dir = new File(context.getFilesDir(), DIR_THUMB);
         if (!dir.exists() && !dir.mkdirs()) {
-            return false;
+            return -1;
         }
         Bitmap square = centerSquare(bitmap);
         Bitmap thumb = null;
         try {
             thumb = scaleToFit(square, thumbSide(context));
             if (thumb == null) {
-                return false;
+                return -1;
             }
+            int bright = averageLuminance(thumb);
+            boolean written;
             try (FileOutputStream out = new FileOutputStream(getThumbFile(context, id))) {
-                return thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
+                written = thumb.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
             }
+            return written ? bright : -1;
         } finally {
             if (square != null && square != bitmap) {
                 square.recycle();
@@ -1089,6 +1125,50 @@ public class WallpaperStore {
             if (thumb != null && thumb != square && thumb != bitmap) {
                 thumb.recycle();
             }
+        }
+    }
+
+    /** 平均亮度（0~255，Rec.601 加权）：整图一次性读像素求均值，小图专用。 */
+    private static int averageLuminance(Bitmap bmp) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[] px = new int[w * h];
+        bmp.getPixels(px, 0, w, 0, 0, w, h);
+        long sum = 0;
+        for (int c : px) {
+            sum += 299 * ((c >>> 16) & 0xFF) + 587 * ((c >>> 8) & 0xFF) + 114 * (c & 0xFF);
+        }
+        return (int) (sum / (1000L * px.length));
+    }
+
+    /**
+     * 现场补算存量条目的亮度（只写内存，不落盘）：条目 bright < 0 时解它的缩略图算一次。
+     * 缩略图缺失/解不动就保持 -1（过滤按「未知不放行也不拦」处理——见 Switcher 的夜间过滤）。
+     * 补算过的条目由调用方攒一批后走 {@link #persistBrightness} 统一落盘，避免逐张写文件。
+     */
+    public static void probeBrightness(Context context, Item item) {
+        if (item.bright >= 0) {
+            return;
+        }
+        Bitmap bmp = null;
+        try {
+            bmp = decodeBounded(getThumbFile(context, item.id), 64);
+            if (bmp != null) {
+                item.bright = averageLuminance(bmp);
+            }
+        } catch (Exception | OutOfMemoryError ignored) {
+        } finally {
+            if (bmp != null && !bmp.isRecycled()) {
+                bmp.recycle();
+            }
+        }
+    }
+
+    /** 把 {@link #probeBrightness} 补算进内存的亮度整表落盘一次；写失败静默（下次切换还会再补）。 */
+    public static void persistBrightness(Context context) {
+        try {
+            saveLibrary(context, load(context));
+        } catch (Exception | OutOfMemoryError ignored) {
         }
     }
 
@@ -1108,7 +1188,9 @@ public class WallpaperStore {
         }
         List<String> changedIds = new ArrayList<>();
         int side = thumbSide(context);
-        for (Item item : load(context)) {
+        List<Item> items = load(context);
+        boolean brightDirty = false;
+        for (Item item : items) {
             File thumbFile = getThumbFile(context, item.id);
             if (!needsThumbRegen(thumbFile, side)) {
                 continue;
@@ -1120,14 +1202,24 @@ public class WallpaperStore {
             Bitmap src = null;
             try {
                 src = decodeBounded(full, side * 2);
-                if (writeThumb(context, item.id, src)) {
+                int bright = writeThumb(context, item.id, src);
+                if (bright >= 0) {
                     changedIds.add(item.id);
+                    item.bright = bright;
+                    brightDirty = true;
                 }
             } catch (Exception | OutOfMemoryError ignored) {
             } finally {
                 if (src != null && !src.isRecycled()) {
                     src.recycle();
                 }
+            }
+        }
+        // 重做过的缩略图亮度一并落盘（同一份表，一次写）
+        if (brightDirty) {
+            try {
+                saveLibrary(context, items);
+            } catch (Exception ignored) {
             }
         }
         prefs.edit().putBoolean(THUMB_REGEN_KEY, true).apply();
@@ -1448,6 +1540,13 @@ public class WallpaperStore {
                 obj.put("crop_t", round2(item.cropTop));
                 obj.put("crop_r", round2(item.cropRight));
                 obj.put("crop_b", round2(item.cropBottom));
+            }
+            // 与 lib_ids 同一原则：只在非默认时写，单张老文件一个字节不多；旧版本读到不认识的键直接忽略
+            if (item.bright >= 0) {
+                obj.put("bright", item.bright);
+            }
+            if (item.nightOff) {
+                obj.put("night_off", true);
             }
             arr.put(obj);
         }

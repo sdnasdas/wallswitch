@@ -713,6 +713,12 @@ public class WallSwitchService extends GLWallpaperService {
             }
             if (visible) {
                 scheduleDraw(false);
+                // 「回桌面时切换」（v3.152）：预览引擎不切（选择器里翻一下也换图就乱了）；
+                // 节流与是否该切由 Switcher 收口，后台线程执行
+                if (!isPreview() && LibraryStore.TRIGGER_RETURN.equals(
+                        LibraryStore.scopeTriggerMode(WallSwitchService.this, true))) {
+                    DRAW_EXECUTOR.execute(() -> Switcher.switchOnHomeReturn(WallSwitchService.this));
+                }
             } else {
                 // 不可见 = 人不在桌面（进 App / 灭屏）。实况必须立刻停：
                 // 这是「循环播放」那档不把发热变成常驻负载的关键一道
