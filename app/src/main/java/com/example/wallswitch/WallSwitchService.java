@@ -171,6 +171,66 @@ public class WallSwitchService extends GLWallpaperService {
     public static final AtomicLong perfTouchCancelled = new AtomicLong();
     /** 最近一次实况失败的具体原因（随性能自记落盘；null = 没出过问题）。 */
     public static volatile String lastMotionDiag;
+
+    // ---- 壁纸配色上报（桌面据此决定图标文字/状态栏深浅）-----------------------------------
+
+    /** 现算配色时解码的小图长边：fromBitmap 内部本来就缩到约 112×112，再大没意义。 */
+    private static final int COLORS_SAMPLE_DIM = 256;
+    /**
+     * 进程共享的配色缓存（及它对应的壁纸 id）。放进程级而不是引擎实例上：
+     * 预览引擎、正式引擎、引擎重建都能直接拿到，系统任何时候来问都不必等解码。
+     */
+    private static volatile WallpaperColors sharedColors;
+    private static volatile String sharedColorsId;
+    /** 系统来问配色（onComputeColors）的次数 —— 一直是 0 说明系统根本没来问。 */
+    public static final AtomicLong perfColorQueries = new AtomicLong();
+    /** 我们主动通知「配色变了」的次数。 */
+    public static final AtomicLong perfColorNotifies = new AtomicLong();
+    /** 最近一次算出的配色摘要 / 出错原因（随性能自记落盘）。 */
+    private static volatile String colorsDiag;
+
+    /** 写入共享缓存并记一行摘要（任意线程）。 */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O_MR1)
+    private static void storeColors(String id, WallpaperColors colors, String source) {
+        sharedColors = colors;
+        sharedColorsId = id;
+        colorsDiag = source + "（" + PERF_TIME.format(new Date()) + "，壁纸 " + id + "）: "
+                + describeColors(colors);
+    }
+
+    /**
+     * 配色摘要：「适合深色文字」是不是开着就是桌面文字该黑该白的唯一依据。
+     * getColorHints 到 API 31 才公开，更低版本只能退回 toString（里头也带 hints 数值）。
+     */
+    private static String describeColors(WallpaperColors colors) {
+        if (colors == null) {
+            return "null（系统没拿到/没存配色）";
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                int hints = colors.getColorHints();
+                return "适合深色文字=" + ((hints & WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0 ? "是" : "否")
+                        + "，深色主题=" + ((hints & WallpaperColors.HINT_SUPPORTS_DARK_THEME) != 0 ? "是" : "否")
+                        + "，主色=#" + Integer.toHexString(colors.getPrimaryColor().toArgb());
+            }
+            return colors.toString();
+        } catch (Throwable t) {
+            return "读取失败: " + t;
+        }
+    }
+
+    /** 系统那边现在存着的桌面配色（读回来核对我们报的值到底有没有被收下）。 */
+    private static String systemColorsDiag(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+            return "系统版本低于 8.1，无此接口";
+        }
+        try {
+            return describeColors(WallpaperManager.getInstance(ctx)
+                    .getWallpaperColors(WallpaperManager.FLAG_SYSTEM));
+        } catch (Throwable t) {
+            return "读取失败: " + t;
+        }
+    }
     private static long perfCacheHits = 0;
     private static long perfDecodes = 0;
     private static long perfDecodeMs = 0;
@@ -469,21 +529,18 @@ public class WallSwitchService extends GLWallpaperService {
             startMotionForCurrent(false);
         };
         /**
-         * 上报给系统的壁纸配色：桌面靠它里头的「适合深色文字」提示决定图标文字黑还是白。
-         *
-         * <p>为什么要有：静态壁纸（setBitmap / setStream）系统拿得到整张图，会自己分析明暗；
-         * 动态壁纸的画面是我们画的，系统只能来问 {@link #onComputeColors}。v3.152 及之前没实现它，
-         * 系统一直拿到 null，桌面就永远按默认白字 —— 亮色壁纸上文字看不清就是这么来的。
-         *
-         * <p>每次真解码出新的成品图（≈ 壁纸内容变化）在 DRAW_EXECUTOR 上算一次，主线程只读结果。
+         * 通知系统「配色变了」：必须在主线程调（Engine 回调线程），引擎销毁时撤掉。
+         * 通知完 2 秒再落一次性能自记，好让「系统读回的配色」那一行反映这次通知之后的状态。
          */
-        private volatile WallpaperColors reportedColors;
-        /** 通知系统「配色变了」：必须在主线程调（Engine 回调线程），引擎销毁时撤掉。 */
         private final Runnable notifyColors = () -> {
             try {
                 notifyColorsChanged();
-            } catch (Throwable ignored) {
+                perfColorNotifies.incrementAndGet();
+            } catch (Throwable t) {
+                colorsDiag = "notifyColorsChanged 抛错: " + t;
             }
+            final Context app = getApplicationContext();
+            mainHandler.postDelayed(() -> DRAW_EXECUTOR.execute(() -> flushPerfStats(app)), 2000);
         };
         /** 循环档排下来的「下一轮」。任何停播动作都必须先把它从队列里撤掉。 */
         private final Runnable loopTick = () -> startMotionForCurrent(true);
@@ -795,6 +852,7 @@ public class WallSwitchService extends GLWallpaperService {
             LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
             String key = null;
             Bitmap fresh = null;
+            String freshId = null;
             if (lib != null) {
                 String id = Switcher.getCurrent(ctx, lib.id, true);
                 File file = currentFile(ctx, lib.id);
@@ -856,6 +914,7 @@ public class WallSwitchService extends GLWallpaperService {
                     int maxDim = Math.min(Math.max(w, h), WallpaperStore.maxWallpaperDim(ctx));
                     long t0 = SystemClock.elapsedRealtime();
                     fresh = WallpaperStore.decodeBounded(file, maxDim);
+                    freshId = id;
                     long decodeMs = SystemClock.elapsedRealtime() - t0;
                     perfDecodes++;
                     perfDecodeMs += decodeMs;
@@ -889,20 +948,52 @@ public class WallSwitchService extends GLWallpaperService {
             }
             uploadToRenderer(fromBlur, animate, key);
             // 换了内容就重算配色并通知系统，桌面图标文字才会跟着亮暗切黑白
-            reportColors(fresh);
+            reportColors(freshId, fresh);
             // 正常解码后落盘：纹理上传次数 ≈ 切换次数是 GL 引擎健康的核心判据
             flushPerfStats(ctx);
         }
 
         /**
-         * 系统来问「当前壁纸是什么颜色」（附着时、以及我们 notifyColorsChanged 之后）。
-         * 主线程调用，只返回 DRAW_EXECUTOR 已算好的结果；还没解码出第一张时返回 null，
-         * 等解码完 {@link #reportColors} 会再通知一次。
+         * 系统来问「当前壁纸是什么颜色」（引擎附着时、以及我们 notifyColorsChanged 之后）。主线程调用。
+         *
+         * <p>绝不能回 null：v3.153 只回「本引擎解码后算好的」，可引擎刚附着时第一张还没解码完，
+         * 系统那一问拿到的是 null。桌面若只在壁纸设置/桌面启动时读一次，就永远停在默认白字。
+         * 所以这里三级取值：进程共享缓存（id 对得上）→ 当场按成品图小尺寸解一份算 → 退而求其次用旧缓存。
          */
         @androidx.annotation.RequiresApi(Build.VERSION_CODES.O_MR1)
         @Override
         public WallpaperColors onComputeColors() {
-            return reportedColors;
+            perfColorQueries.incrementAndGet();
+            Context ctx = WallSwitchService.this;
+            WallpaperColors cached = sharedColors;
+            String id = null;
+            try {
+                LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
+                id = lib != null ? Switcher.getCurrent(ctx, lib.id, true) : null;
+            } catch (Throwable ignored) {
+            }
+            if (cached != null && (id == null || id.equals(sharedColorsId))) {
+                return cached;
+            }
+            if (id != null) {
+                // 缓存没有或对不上当前这张：当场解一份小图算。按 2 的幂采样解码，长边 256，十几毫秒级，
+                // 且只发生在缓存缺失时（基本就是进程刚起来的那一问）
+                try {
+                    File file = WallpaperStore.getFullFile(ctx, id);
+                    if (file != null && file.exists()) {
+                        Bitmap small = WallpaperStore.decodeBounded(file, COLORS_SAMPLE_DIM);
+                        if (small != null) {
+                            WallpaperColors colors = WallpaperColors.fromBitmap(small);
+                            small.recycle();
+                            storeColors(id, colors, "引擎附着时现算");
+                            return colors;
+                        }
+                    }
+                } catch (Throwable t) {
+                    colorsDiag = "现算配色失败: " + t;
+                }
+            }
+            return cached;
         }
 
         /**
@@ -911,15 +1002,16 @@ public class WallSwitchService extends GLWallpaperService {
          * 内部先缩到约 112×112 再取色，毫秒级，且只在壁纸内容变化时跑一次。
          * 算出「适合深色文字」等提示后丢回主线程通知；系统对通知自带 1 秒限频，连切也不会刷屏。
          */
-        private void reportColors(Bitmap bmp) {
+        private void reportColors(String id, Bitmap bmp) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1
-                    || bmp == null || bmp.isRecycled()) {
+                    || id == null || bmp == null || bmp.isRecycled()) {
                 return;
             }
             try {
-                reportedColors = WallpaperColors.fromBitmap(bmp);
+                storeColors(id, WallpaperColors.fromBitmap(bmp), "切换后解码");
             } catch (Throwable t) {
                 // 算不出就保留上一次的配色，不影响画面
+                colorsDiag = "解码后算配色失败: " + t;
                 return;
             }
             mainHandler.removeCallbacks(notifyColors);
@@ -1113,6 +1205,12 @@ public class WallSwitchService extends GLWallpaperService {
                     + "实况诊断: " + (lastMotionDiag != null ? lastMotionDiag : "无") + "\n"
                     + "热退避跳过起播: " + perfThermalSkips.get() + " 次"
                     + "（温度闸门生效期间循环档不再自动续播，长按播放不受影响）\n"
+                    // 桌面文字深浅的诊断：系统来问过没有 / 我们算出什么 / 系统最后存下的是什么。
+                    // 「系统读回」也是「适合深色文字=是」而桌面仍是白字 = 桌面不认动态壁纸配色
+                    + "系统询问配色: " + perfColorQueries.get() + " 次, 主动通知: "
+                    + perfColorNotifies.get() + " 次\n"
+                    + "本引擎算出的配色: " + (colorsDiag != null ? colorsDiag : "还没算过") + "\n"
+                    + "系统读回的桌面配色: " + systemColorsDiag(ctx) + "\n"
                     // 攒真实量级用的探针（进程内累计，随进程重启归零）：判「要不要把 library.json 换成
                     // SQLite」靠的是这两个数，不是猜 —— 缓存命中多、单次解析只有几毫秒，就说明瓶颈不在解析
                     + "元数据表 library.json: 真解析 " + WallpaperStore.metaParses.get()
