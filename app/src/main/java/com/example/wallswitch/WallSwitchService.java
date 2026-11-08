@@ -1,6 +1,7 @@
 package com.example.wallswitch;
 
 import android.app.Activity;
+import android.app.WallpaperColors;
 import android.app.WallpaperInfo;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
@@ -467,6 +468,23 @@ public class WallSwitchService extends GLWallpaperService {
             holdPlaying = true;
             startMotionForCurrent(false);
         };
+        /**
+         * 上报给系统的壁纸配色：桌面靠它里头的「适合深色文字」提示决定图标文字黑还是白。
+         *
+         * <p>为什么要有：静态壁纸（setBitmap / setStream）系统拿得到整张图，会自己分析明暗；
+         * 动态壁纸的画面是我们画的，系统只能来问 {@link #onComputeColors}。v3.152 及之前没实现它，
+         * 系统一直拿到 null，桌面就永远按默认白字 —— 亮色壁纸上文字看不清就是这么来的。
+         *
+         * <p>每次真解码出新的成品图（≈ 壁纸内容变化）在 DRAW_EXECUTOR 上算一次，主线程只读结果。
+         */
+        private volatile WallpaperColors reportedColors;
+        /** 通知系统「配色变了」：必须在主线程调（Engine 回调线程），引擎销毁时撤掉。 */
+        private final Runnable notifyColors = () -> {
+            try {
+                notifyColorsChanged();
+            } catch (Throwable ignored) {
+            }
+        };
         /** 循环档排下来的「下一轮」。任何停播动作都必须先把它从队列里撤掉。 */
         private final Runnable loopTick = () -> startMotionForCurrent(true);
         /**
@@ -673,6 +691,7 @@ public class WallSwitchService extends GLWallpaperService {
             mainHandler.removeCallbacks(holdFired);
             mainHandler.removeCallbacks(loopTick);
             mainHandler.removeCallbacks(gateTick);
+            mainHandler.removeCallbacks(notifyColors);
             if (renderer != null) {
                 queueEvent(renderer::release);
             }
@@ -869,8 +888,42 @@ public class WallSwitchService extends GLWallpaperService {
                 old.recycle();
             }
             uploadToRenderer(fromBlur, animate, key);
+            // 换了内容就重算配色并通知系统，桌面图标文字才会跟着亮暗切黑白
+            reportColors(fresh);
             // 正常解码后落盘：纹理上传次数 ≈ 切换次数是 GL 引擎健康的核心判据
             flushPerfStats(ctx);
+        }
+
+        /**
+         * 系统来问「当前壁纸是什么颜色」（附着时、以及我们 notifyColorsChanged 之后）。
+         * 主线程调用，只返回 DRAW_EXECUTOR 已算好的结果；还没解码出第一张时返回 null，
+         * 等解码完 {@link #reportColors} 会再通知一次。
+         */
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.O_MR1)
+        @Override
+        public WallpaperColors onComputeColors() {
+            return reportedColors;
+        }
+
+        /**
+         * 按刚解码出的成品图算配色（DRAW_EXECUTOR 线程）。
+         * 用的是系统给静态壁纸用的同一套分析 {@link WallpaperColors#fromBitmap}：
+         * 内部先缩到约 112×112 再取色，毫秒级，且只在壁纸内容变化时跑一次。
+         * 算出「适合深色文字」等提示后丢回主线程通知；系统对通知自带 1 秒限频，连切也不会刷屏。
+         */
+        private void reportColors(Bitmap bmp) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1
+                    || bmp == null || bmp.isRecycled()) {
+                return;
+            }
+            try {
+                reportedColors = WallpaperColors.fromBitmap(bmp);
+            } catch (Throwable t) {
+                // 算不出就保留上一次的配色，不影响画面
+                return;
+            }
+            mainHandler.removeCallbacks(notifyColors);
+            mainHandler.post(notifyColors);
         }
 
         /** 经 queueEvent 在 GL 线程上传纹理（过渡动画由渲染器驱动，引擎不再 sleep 逐帧）。 */
