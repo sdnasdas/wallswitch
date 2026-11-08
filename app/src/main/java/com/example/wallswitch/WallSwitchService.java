@@ -108,6 +108,16 @@ public class WallSwitchService extends GLWallpaperService {
     public static final String KEY_MOTION_LOOP_GAP = "motion_loop_gap_ms";
     /** 默认间隔 1 秒。 */
     public static final long MOTION_LOOP_GAP_DEFAULT_MS = 1000L;
+    /**
+     * 「亮色壁纸压暗」的档位（压暗百分比，0 = 关闭，默认关闭）。
+     *
+     * <p>为什么要有：荣耀 MagicOS 桌面不认动态壁纸上报的配色（v3.154 实测：系统已存下
+     * 「适合深色文字=是」，桌面文字仍是白的），亮色壁纸上白字看不清。桌面那边我们改不动，
+     * 只能把这类壁纸整体压暗一点让白字显出来。只对「系统判定适合深色文字」的那些壁纸生效。
+     */
+    public static final String KEY_BRIGHT_DIM = "bright_dim_pct";
+    /** 设置页可选的档位：关闭 / 轻 / 中 / 强。 */
+    public static final int[] BRIGHT_DIM_LEVELS = {0, 20, 30, 40};
 
     // ---- 温度闸门：循环档的自动续播在设备发热时停一停（长按播放不受影响）----------------
 
@@ -188,6 +198,8 @@ public class WallSwitchService extends GLWallpaperService {
     public static final AtomicLong perfColorNotifies = new AtomicLong();
     /** 最近一次算出的配色摘要 / 出错原因（随性能自记落盘）。 */
     private static volatile String colorsDiag;
+    /** 最近一次解码的那张是否判定为亮色（适合深色文字），随性能自记落盘。 */
+    private static volatile boolean lastDarkText;
 
     /** 写入共享缓存并记一行摘要（任意线程）。 */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.O_MR1)
@@ -304,6 +316,20 @@ public class WallSwitchService extends GLWallpaperService {
         long gap = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getLong(KEY_MOTION_LOOP_GAP, MOTION_LOOP_GAP_DEFAULT_MS);
         return gap < 0 ? 0 : gap;
+    }
+
+    /** 读「亮色壁纸压暗」档位（百分比，夹在 0~60，缺省 0 = 关闭）。 */
+    public static int brightDimPercent(Context ctx) {
+        int pct = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_BRIGHT_DIM, 0);
+        return Math.max(0, Math.min(60, pct));
+    }
+
+    /** 设置页改完压暗档后调用：活引擎立刻按新档重画当前这张，不用等下一次切换。 */
+    public static void notifyBrightDimChanged() {
+        for (WallEngine engine : ENGINES) {
+            engine.applyBrightDim();
+        }
     }
 
     /**
@@ -493,6 +519,8 @@ public class WallSwitchService extends GLWallpaperService {
         /** 解码结果缓存：key = 壁纸id#宽x高，命中即免解码。只在 DRAW_EXECUTOR 线程读写。 */
         private Bitmap cachedBitmap;
         private String cachedKey;
+        /** 缓存那张是否被判定为亮色（适合深色文字），决定「亮色壁纸压暗」压不压。只在 DRAW_EXECUTOR 线程读写。 */
+        private boolean cachedDarkText;
         /** 已成功上传到 GPU 的缓存 key；GL 线程（纹理失效重放）与 DRAW_EXECUTOR 读写，故 volatile。 */
         private volatile String uploadedKey;
         /** 引擎自动推进指针却仍读不到文件的连续次数（防打转，成功解析到文件即清零）。 */
@@ -940,17 +968,35 @@ public class WallSwitchService extends GLWallpaperService {
             if (animate && TRANSITION_BLUR.equals(effect)) {
                 fromBlur = makeBlurred(cachedBitmap);
             }
+            // 换了内容就重算配色并通知系统（桌面认不认是它的事）；算出的「适合深色文字」
+            // 同时决定这张要不要「亮色壁纸压暗」—— 必须在上传前算好，新图第一帧就带上系数
+            boolean darkText = reportColors(freshId, fresh);
             Bitmap old = cachedBitmap;
             cachedBitmap = fresh;
             cachedKey = key;
+            cachedDarkText = darkText;
             if (old != null && !old.isRecycled()) {
                 old.recycle();
             }
             uploadToRenderer(fromBlur, animate, key);
-            // 换了内容就重算配色并通知系统，桌面图标文字才会跟着亮暗切黑白
-            reportColors(freshId, fresh);
             // 正常解码后落盘：纹理上传次数 ≈ 切换次数是 GL 引擎健康的核心判据
             flushPerfStats(ctx);
+        }
+
+        /** 当前这张该压暗多少（0 = 不压）：判定为亮色壁纸且设置里开了档才压。DRAW_EXECUTOR 线程调用。 */
+        private float currentDim() {
+            return cachedDarkText ? brightDimPercent(WallSwitchService.this) / 100f : 0f;
+        }
+
+        /** 设置页改了压暗档：按当前这张重算系数交给 GL，不重解码、不重传纹理。 */
+        void applyBrightDim() {
+            DRAW_EXECUTOR.execute(() -> {
+                float dim = currentDim();
+                WallpaperRenderer r = renderer;
+                if (r != null) {
+                    queueEvent(() -> r.setCurrentDim(dim));
+                }
+            });
         }
 
         /**
@@ -1001,28 +1047,38 @@ public class WallSwitchService extends GLWallpaperService {
          * 用的是系统给静态壁纸用的同一套分析 {@link WallpaperColors#fromBitmap}：
          * 内部先缩到约 112×112 再取色，毫秒级，且只在壁纸内容变化时跑一次。
          * 算出「适合深色文字」等提示后丢回主线程通知；系统对通知自带 1 秒限频，连切也不会刷屏。
+         *
+         * @return 这张是否「适合深色文字」（= 亮色壁纸）。提示位到 API 31 才公开，更低版本一律 false，
+         *         即「亮色壁纸压暗」在 Android 12 以下不生效
          */
-        private void reportColors(String id, Bitmap bmp) {
+        private boolean reportColors(String id, Bitmap bmp) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1
                     || id == null || bmp == null || bmp.isRecycled()) {
-                return;
+                return false;
             }
+            WallpaperColors colors;
             try {
-                storeColors(id, WallpaperColors.fromBitmap(bmp), "切换后解码");
+                colors = WallpaperColors.fromBitmap(bmp);
+                storeColors(id, colors, "切换后解码");
             } catch (Throwable t) {
                 // 算不出就保留上一次的配色，不影响画面
                 colorsDiag = "解码后算配色失败: " + t;
-                return;
+                return false;
             }
             mainHandler.removeCallbacks(notifyColors);
             mainHandler.post(notifyColors);
+            boolean dark = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    && (colors.getColorHints() & WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0;
+            lastDarkText = dark;
+            return dark;
         }
 
         /** 经 queueEvent 在 GL 线程上传纹理（过渡动画由渲染器驱动，引擎不再 sleep 逐帧）。 */
         private void uploadToRenderer(Bitmap blurred, boolean animate, String key) {
             Bitmap bmp = cachedBitmap;
+            float dim = currentDim();
             queueEvent(() -> {
-                boolean shown = renderer.setImage(bmp, blurred, animate);
+                boolean shown = renderer.setImage(bmp, blurred, animate, dim);
                 // blurred 是一次性素材：上传完成（或因不可见被跳过）后即可回收
                 if (blurred != null && !blurred.isRecycled()) {
                     blurred.recycle();
@@ -1211,6 +1267,9 @@ public class WallSwitchService extends GLWallpaperService {
                     + perfColorNotifies.get() + " 次\n"
                     + "本引擎算出的配色: " + (colorsDiag != null ? colorsDiag : "还没算过") + "\n"
                     + "系统读回的桌面配色: " + systemColorsDiag(ctx) + "\n"
+                    + "亮色壁纸压暗: 档位 " + brightDimPercent(ctx) + "%，当前这张"
+                    + (lastDarkText ? "判定为亮色" : "不是亮色") + " → "
+                    + (lastDarkText && brightDimPercent(ctx) > 0 ? "已压暗" : "原样显示") + "\n"
                     // 攒真实量级用的探针（进程内累计，随进程重启归零）：判「要不要把 library.json 换成
                     // SQLite」靠的是这两个数，不是猜 —— 缓存命中多、单次解析只有几毫秒，就说明瓶颈不在解析
                     + "元数据表 library.json: 真解析 " + WallpaperStore.metaParses.get()

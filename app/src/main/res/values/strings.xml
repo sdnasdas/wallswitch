@@ -458,6 +458,13 @@
     <string name="transition_blur">模糊过渡</string>
     <string name="transition_off">无动画</string>
 
+    <!-- 亮色壁纸压暗：桌面不认动态壁纸配色、亮色壁纸上白字看不清时，把这类壁纸整体压暗一档 -->
+    <string name="bright_dim_title">亮色壁纸压暗</string>
+    <string name="bright_dim_off">关闭</string>
+    <string name="bright_dim_light">轻</string>
+    <string name="bright_dim_medium">中</string>
+    <string name="bright_dim_strong">强</string>
+
     <!-- 实况（动态照片）：桌面壁纸怎么个动法。只有两档，默认按住播放 -->
     <string name="motion_mode_title">实况播放方式</string>
     <string name="motion_hold">按住播放</string>
