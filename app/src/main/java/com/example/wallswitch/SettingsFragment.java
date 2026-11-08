@@ -178,7 +178,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         click("night_period", this::pickNightPeriod);
         click("transition", this::pickTransition);
         click("motion", this::pickMotion);
-        click("bright_dim", this::pickBrightDim);
         click(QuickSetSheetDialog.KEY_DISMISS_THRESHOLD_DP, this::pickQuickSheetThreshold);
         click("launcher_overlay", () -> {
             if (LauncherPreviewOverlay.overlayFile(requireContext()).exists()) {
@@ -518,7 +517,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 hourText(Switcher.nightStartMinutes(ctx)), hourText(Switcher.nightEndMinutes(ctx))));
         summary("transition", this::transitionLabel);
         summary("motion", this::motionLabel);
-        summary("bright_dim", this::brightDimLabel);
         summary("settings_motion", () -> getString(R.string.settings_design_motion_summary,
                 transitionLabel(), motionLabel()));
         summary(QuickSetSheetDialog.KEY_DISMISS_THRESHOLD_DP, () -> {
@@ -725,45 +723,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 .setSingleChoiceItems(transitionLabels(), checked, (d, which) -> {
                     settings().edit().putString(WallSwitchService.KEY_TRANSITION,
                             TRANSITION_VALUES[which]).apply();
-                    refreshAll();
-                    d.dismiss();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    // ==================== 亮色壁纸压暗 ====================
-
-    private String[] brightDimLabels() {
-        return new String[]{getString(R.string.bright_dim_off), getString(R.string.bright_dim_light),
-                getString(R.string.bright_dim_medium), getString(R.string.bright_dim_strong)};
-    }
-
-    /** 当前档位在 {@link WallSwitchService#BRIGHT_DIM_LEVELS} 里的下标（对不上的旧值按最接近的档算）。 */
-    private int brightDimIndex() {
-        int pct = WallSwitchService.brightDimPercent(requireContext());
-        int best = 0;
-        for (int i = 1; i < WallSwitchService.BRIGHT_DIM_LEVELS.length; i++) {
-            if (Math.abs(WallSwitchService.BRIGHT_DIM_LEVELS[i] - pct)
-                    < Math.abs(WallSwitchService.BRIGHT_DIM_LEVELS[best] - pct)) {
-                best = i;
-            }
-        }
-        return best;
-    }
-
-    private String brightDimLabel() {
-        return brightDimLabels()[brightDimIndex()];
-    }
-
-    /** 关闭 / 轻 / 中 / 强 四档单选，值存 settings（与引擎共用 KEY_BRIGHT_DIM），选完引擎立刻重画。 */
-    private void pickBrightDim() {
-        new AppAlertDialogBuilder(requireContext())
-                .setTitle(R.string.bright_dim_title)
-                .setSingleChoiceItems(brightDimLabels(), brightDimIndex(), (d, which) -> {
-                    settings().edit().putInt(WallSwitchService.KEY_BRIGHT_DIM,
-                            WallSwitchService.BRIGHT_DIM_LEVELS[which]).apply();
-                    WallSwitchService.notifyBrightDimChanged();
                     refreshAll();
                     d.dismiss();
                 })

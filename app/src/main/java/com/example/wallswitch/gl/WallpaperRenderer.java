@@ -68,12 +68,9 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             "precision mediump float;\n"
             + "uniform sampler2D uTexture;\n"
             + "uniform float uAlpha;\n"
-            // 亮度系数（1 = 原样）：「亮色壁纸压暗」只乘 rgb，不动 alpha，过渡混合照旧
-            + "uniform float uBright;\n"
             + "varying vec2 vTexCoord;\n"
             + "void main() {\n"
-            + "  vec4 c = texture2D(uTexture, vTexCoord);\n"
-            + "  gl_FragColor = vec4(c.rgb * uBright, c.a) * uAlpha;\n"
+            + "  gl_FragColor = texture2D(uTexture, vTexCoord) * uAlpha;\n"
             + "}\n";
 
     /**
@@ -98,12 +95,9 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             "#extension GL_OES_EGL_image_external : require\n"
             + "precision mediump float;\n"
             + "uniform samplerExternalOES uTexture;\n"
-            // 实况属于当前这张壁纸，压暗系数跟静态图一致，否则一播实况画面会突然变亮
-            + "uniform float uBright;\n"
             + "varying vec2 vTexCoord;\n"
             + "void main() {\n"
-            + "  vec4 c = texture2D(uTexture, vTexCoord);\n"
-            + "  gl_FragColor = vec4(c.rgb * uBright, c.a);\n"
+            + "  gl_FragColor = texture2D(uTexture, vTexCoord);\n"
             + "}\n";
 
     /** 实况纹理单独占一个纹理单元，避免和静态纹理（单元 0）互相顶掉绑定。 */
@@ -126,7 +120,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     private int uTexSpanLoc;
     private int uAlphaLoc;
     private int uTextureLoc;
-    private int uBrightLoc;
     private final FloatBuffer quadBuf;
 
     private int currentTex;
@@ -135,13 +128,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     private float currentAspect = 1f;
     private float nextAspect = 1f;
     private float blurAspect = 1f;
-    /**
-     * 每张纹理各自的压暗量（0 = 原样，0.3 = 亮度乘 0.7）。按纹理分开记：
-     * 过渡是「旧图 → 新图」两张叠着淡，一张该压一张不该压时，各画各的才不会在切换那一下跳亮度。
-     * 模糊图是旧图做的，跟旧图走 currentDim。只在 GL 线程读写。
-     */
-    private float currentDim;
-    private float nextDim;
     private int viewportW;
     private int viewportH;
     private volatile boolean visible;
@@ -172,7 +158,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     private int motionUTexCenterLoc;
     private int motionUTexSpanLoc;
     private int motionUTexLoc;
-    private int motionUBrightLoc;
     /** 归一化取景框 {left, top, right, bottom}（v 从顶部起算，与原图裁剪矩形同一套），null = 整帧。 */
     private float[] motionRect;
     private final float[] motionMatrix = new float[16];
@@ -206,10 +191,8 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
     /**
      * 上传新图并按需启动过渡。返回 false 表示当前不可见、已跳过
      * （引擎会在恢复可见时经 replayHook 重放，调用方据此决定 blurred 图的回收责任）。
-     *
-     * @param dim 这张图的压暗量（0 = 原样），见「亮色壁纸压暗」
      */
-    public boolean setImage(Bitmap bmp, Bitmap blurred, boolean animate, float dim) {
+    public boolean setImage(Bitmap bmp, Bitmap blurred, boolean animate) {
         // 静态画面一旦被设置，实况就让位：两套画面抢同一帧缓冲没有意义
         stopMotion();
         if (!visible || bmp == null || bmp.isRecycled()) {
@@ -220,7 +203,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             deleteTex(nextTex);
             nextTex = upload(bmp);
             nextAspect = aspectOf(bmp);
-            nextDim = dim;
             if (blurred != null && !blurred.isRecycled()) {
                 deleteTex(blurTex);
                 blurTex = upload(blurred);
@@ -241,26 +223,10 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             deleteTex(currentTex);
             currentTex = upload(bmp);
             currentAspect = aspectOf(bmp);
-            currentDim = dim;
             mode = MODE_NONE;
         }
         requestRenderHook.run();
         return true;
-    }
-
-    /**
-     * 设置页改了压暗档（**GL 线程**）：改的是「最新那张」—— 过渡中就是正在淡入的新图，否则是当前图。
-     * 不重传纹理，只改系数重画一帧。
-     */
-    public void setCurrentDim(float dim) {
-        if (mode != MODE_NONE && nextTex != 0) {
-            nextDim = dim;
-        } else {
-            currentDim = dim;
-        }
-        if (visible) {
-            requestRenderHook.run();
-        }
     }
 
     /** 任意线程可调：不可见期间 GLThread 本就暂停，这里只挡住恢复可见后的多余请求。 */
@@ -414,7 +380,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             motionUTexCenterLoc = GLES20.glGetUniformLocation(program, "uTexCenter");
             motionUTexSpanLoc = GLES20.glGetUniformLocation(program, "uTexSpan");
             motionUTexLoc = GLES20.glGetUniformLocation(program, "uTexture");
-            motionUBrightLoc = GLES20.glGetUniformLocation(program, "uBright");
             return true;
         } catch (Throwable t) {
             // compileShader 编译失败是抛异常来的；实况这条链坏掉不该把 GL 线程带崩
@@ -566,7 +531,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform2f(motionUTexCenterLoc, cs[0], cs[1]);
         GLES20.glUniform2f(motionUTexSpanLoc, cs[2], cs[3]);
         GLES20.glUniform1i(motionUTexLoc, MOTION_TEXTURE_UNIT);
-        GLES20.glUniform1f(motionUBrightLoc, 1f - currentDim);
         // 实况是 opaque 的一帧，不参与混合：Blend 开着会把底色混进来
         GLES20.glDisable(GLES20.GL_BLEND);
         GLES20.glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, 4);
@@ -624,33 +588,32 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
                 currentTex = nextTex;
                 nextTex = 0;
                 currentAspect = nextAspect;
-                currentDim = nextDim;
                 mode = MODE_NONE;
-                drawTex(currentTex, currentAspect, 1f, currentDim);
+                drawTex(currentTex, currentAspect, 1f);
                 return;
             }
             if (mode == MODE_BLUR) {
                 if (t < BLUR_PHASE_SPLIT) {
-                    drawTex(currentTex, currentAspect, 1f, currentDim);
-                    drawTex(blurTex, blurAspect, t / BLUR_PHASE_SPLIT, currentDim);
+                    drawTex(currentTex, currentAspect, 1f);
+                    drawTex(blurTex, blurAspect, t / BLUR_PHASE_SPLIT);
                 } else {
-                    drawTex(blurTex, blurAspect, 1f, currentDim);
+                    drawTex(blurTex, blurAspect, 1f);
                     float tail = (t - BLUR_PHASE_SPLIT) / (1f - BLUR_PHASE_SPLIT);
-                    drawTex(nextTex, nextAspect, tail, nextDim);
+                    drawTex(nextTex, nextAspect, tail);
                 }
             } else {
-                drawTex(currentTex, currentAspect, 1f, currentDim);
-                drawTex(nextTex, nextAspect, t, nextDim);
+                drawTex(currentTex, currentAspect, 1f);
+                drawTex(nextTex, nextAspect, t);
             }
             // 过渡未结束：持续请求下一帧（进度由时间戳算出，不 sleep）
             requestRenderHook.run();
             return;
         }
-        drawTex(currentTex, currentAspect, 1f, currentDim);
+        drawTex(currentTex, currentAspect, 1f);
     }
 
-    /** 画一张纹理铺满视口（centerCrop：按宽高比裁掉超出部分，alpha 混合；dim = 压暗量）。 */
-    private void drawTex(int tex, float imageAspect, float alpha, float dim) {
+    /** 画一张纹理铺满视口（centerCrop：按宽高比裁掉超出部分，alpha 混合）。 */
+    private void drawTex(int tex, float imageAspect, float alpha) {
         if (tex == 0 || viewportW <= 0 || viewportH <= 0) {
             return;
         }
@@ -659,7 +622,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         float vSpan = Math.min(1f, imageAspect / vpAspect);
         GLES20.glUniform2f(uTexSpanLoc, uSpan, vSpan);
         GLES20.glUniform1f(uAlphaLoc, alpha);
-        GLES20.glUniform1f(uBrightLoc, 1f - dim);
         GLES20.glBindTexture(GL10.GL_TEXTURE_2D, tex);
         GLES20.glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -706,7 +668,6 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         uTexSpanLoc = GLES20.glGetUniformLocation(program, "uTexSpan");
         uAlphaLoc = GLES20.glGetUniformLocation(program, "uAlpha");
         uTextureLoc = GLES20.glGetUniformLocation(program, "uTexture");
-        uBrightLoc = GLES20.glGetUniformLocation(program, "uBright");
     }
 
     private static int compileShader(int type, String src) {

@@ -43,13 +43,6 @@
                     app:key="motion"
                     app:persistent="false"
                     app:title="@string/motion_mode_title" />
-
-                <Preference
-                    app:iconSpaceReserved="false"
-                    app:icon="@drawable/ic_contrast"
-                    app:key="bright_dim"
-                    app:persistent="false"
-                    app:title="@string/bright_dim_title" />
             </PreferenceCategory>
         </PreferenceScreen>
 
