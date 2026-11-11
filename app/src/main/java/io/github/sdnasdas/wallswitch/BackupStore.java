@@ -622,11 +622,14 @@ public final class BackupStore {
         public final Uri uri;
         public final String name;
         public final long size;
+        /** 是否在默认目录（下载/wallswitch）里，用于置顶排序。 */
+        public final boolean inDefaultDir;
 
-        BackupCandidate(Uri uri, String name, long size) {
+        BackupCandidate(Uri uri, String name, long size, boolean inDefaultDir) {
             this.uri = uri;
             this.name = name;
             this.size = size;
+            this.inDefaultDir = inDefaultDir;
         }
     }
 
@@ -636,35 +639,48 @@ public final class BackupStore {
      */
     public static java.util.List<BackupCandidate> scanDefaultBackups(Context context) {
         java.util.List<BackupCandidate> out = new java.util.ArrayList<>();
+        lastScanSummary = "默认目录不可用（Android 10 以下）";
         if (!WallpaperExporter.supportsDefaultDir()) {
             return out;
         }
-        // 注意不在 WHERE 里筛 RELATIVE_PATH：荣耀/小米这类定制 MediaProvider 对
-        // Downloads 集合的 RELATIVE_PATH 过滤支持不可靠，实测会把结果滤空。
-        // 只按文件名粗筛，RELATIVE_PATH 取回来在 Java 里自己比对。
+        // 只按文件名粗筛、不筛 RELATIVE_PATH：定制 MediaProvider（荣耀实测）对 Downloads 集合的
+        // RELATIVE_PATH 条件支持不可靠。路径取回来只做「置顶默认目录里的包」用，
+        // 名字命中就列出来 —— 用户把包挪到下载根目录也该能找到。
         Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL);
+        int hit = 0;
+        StringBuilder relSamples = new StringBuilder();
         try (Cursor c = context.getContentResolver().query(collection,
                 new String[]{MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
                         MediaStore.Downloads.SIZE, MediaStore.Downloads.RELATIVE_PATH},
                 MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
                 new String[]{"wallswitch-backup-%.zip"}, null)) {
-            if (c == null) {
-                return out;
-            }
-            while (c.moveToNext()) {
-                if (!WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(c.getString(3))) {
-                    continue;
+            if (c != null) {
+                while (c.moveToNext()) {
+                    hit++;
+                    String rel = c.getString(3);
+                    if (relSamples.length() < 120) {
+                        if (relSamples.length() > 0) relSamples.append(" | ");
+                        relSamples.append(rel == null ? "null" : rel);
+                    }
+                    out.add(new BackupCandidate(
+                            ContentUris.withAppendedId(collection, c.getLong(0)),
+                            c.getString(1), c.getLong(2),
+                            WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(rel)));
                 }
-                out.add(new BackupCandidate(
-                        ContentUris.withAppendedId(collection, c.getLong(0)),
-                        c.getString(1), c.getLong(2)));
             }
-        } catch (Exception ignored) {
+            lastScanSummary = "文件名粗筛命中 " + hit + " 个；RELATIVE_PATH 样本："
+                    + (relSamples.length() == 0 ? "（无）" : relSamples);
+        } catch (Exception e) {
+            lastScanSummary = "查询抛异常：" + e;
         }
-        // 文件名自带时间戳，按名倒序即新的在前（不依赖厂商的 DATE_MODIFIED 排序支持）
-        out.sort((a, b) -> b.name.compareTo(a.name));
+        // 默认目录里的排前面，其余按文件名（自带时间戳）倒序 —— 不依赖厂商的排序支持
+        out.sort((a, b) -> a.inDefaultDir != b.inDefaultDir
+                ? (a.inDefaultDir ? -1 : 1) : b.name.compareTo(a.name));
         return out;
     }
+
+    /** 最近一次扫描的诊断信息，「没找到」弹窗附带给用户看（排查厂商 MediaProvider 差异用）。 */
+    public static volatile String lastScanSummary = "";
 
     private static java.util.List<File> listFiles(File dir) {
         java.util.List<File> out = new java.util.ArrayList<>();

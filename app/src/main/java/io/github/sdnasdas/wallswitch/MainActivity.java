@@ -3455,9 +3455,11 @@ public class MainActivity extends AppCompatActivity {
     /** 首次引导弹窗：扫到备份包就列出来（点哪条还原哪条），否则只给手动选包与跳过。 */
     void showRestoreOnboarding(final java.util.List<BackupStore.BackupCandidate> found) {
         if (found.isEmpty()) {
+            // 附带扫描诊断：厂商 MediaProvider 差异导致扫不到时，用户截图即可反馈原因
             new AppAlertDialogBuilder(this)
                     .setTitle(R.string.restore_ask_title)
-                    .setMessage(R.string.restore_ask_msg)
+                    .setMessage(getString(R.string.restore_ask_msg)
+                            + "\n\n扫描诊断：" + BackupStore.lastScanSummary)
                     .setPositiveButton(R.string.restore_ask_go, (dialog, which) ->
                             restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
                     .setNegativeButton(R.string.restore_ask_no, null)
