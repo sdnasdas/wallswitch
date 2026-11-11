@@ -65,7 +65,7 @@ wallswitch/
     ├── build.gradle                 App模块构建脚本
     └── src/main/
         ├── AndroidManifest.xml      组件注册 + 权限声明
-        ├── java/com/example/wallswitch/
+        ├── java/io/github/sdnasdas/wallswitch/
         │   ├── MainActivity.java    主页：壁纸库 + 设置
         │   ├── EditActivity.java    编辑器页面
         │   ├── CropView.java        缩放/拖动手势View

@@ -1,0 +1,382 @@
+package io.github.sdnasdas.wallswitch;
+
+import android.content.ContentResolver;
+import android.content.ContentUris;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.DocumentsContract;
+import android.provider.MediaStore;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 把壁纸导出到导出目录。两个去向，按优先级：
+ *
+ * <ol>
+ * <li><b>用户自己选的目录</b>（SAF，ACTION_OPEN_DOCUMENT_TREE）：Android 10 起分区存储，
+ *     直接写 /sdcard 已不可行，SAF 让用户指定任意文件夹并给 App 持久化读写授权。</li>
+ * <li><b>默认目录 下载/wallswitch</b>（{@link #DEFAULT_RELATIVE_PATH}）：用户没选时落到这。
+ *     走 MediaStore 写自己创建的文件，免权限、卸载不丢、同包名重装后自动恢复读写权 ——
+ *     备份包落这里，重装后的首次引导才能扫到它。需要 Android 10+（RELATIVE_PATH），
+ *     更低的版本没有默认目录，行为同 v3.157 之前：必须手动选 SAF 目录。</li>
+ * </ol>
+ *
+ * 注意三点：
+ * 1) 导出的是**已入库的成品图文件的原始字节**，不解码不重压，所以不会引入任何画质损失；
+ * 2) SAF 自定义目录在卸载重装后持久化授权会失效（需要重新点一次选目录），但已导出的文件仍然在；
+ *    默认目录的文件连授权都不依赖，只认包名；
+ * 3) v3.89 起**图片**只剩两个手动入口：设置页「立即导出全部壁纸」与「备份整库」（zip 也写这个
+ *    目录）。以前 {@code confirmImport} 每导入一张会自动复制一份出去，已按要求删掉 ——
+ *    它会在用户没动手的情况下往目录里塞图，且重编过的壁纸不会更新那一份，只会叠副本。
+ *    目录里还住着切换日志的两份 txt（{@link SwitchLog} 每次记日志同步一份过来），
+ *    那是文本镜像不是图片出口，用户明确要求保留。
+ */
+public final class WallpaperExporter {
+
+    private static final String PREFS_NAME = "settings";
+    private static final String KEY_TREE_URI = "export_tree_uri";
+    private static final String KEY_DOC_URI = "export_text_doc_uri";
+
+    /** 默认导出目录（系统「下载」下的子目录，MediaStore RELATIVE_PATH，末尾必须带斜杠）。 */
+    public static final String DEFAULT_RELATIVE_PATH = "Download/wallswitch/";
+
+    private WallpaperExporter() {
+    }
+
+    private static SharedPreferences prefs(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    /** 用户选定的导出目录；未设置返回 null。 */
+    public static Uri treeUri(Context context) {
+        String value = prefs(context).getString(KEY_TREE_URI, null);
+        return value == null || value.isEmpty() ? null : Uri.parse(value);
+    }
+
+    /** 是否已设置导出目录（指 SAF 自定义目录；默认目录不算「设置过」）。 */
+    public static boolean isConfigured(Context context) {
+        return treeUri(context) != null;
+    }
+
+    /** 默认目录是否可用：依赖 MediaStore RELATIVE_PATH（Android 10+）。 */
+    public static boolean supportsDefaultDir() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+    }
+
+    /** 是否有可写的导出去向（自定义目录或默认目录任一）。 */
+    public static boolean canExport(Context context) {
+        return treeUri(context) != null || supportsDefaultDir();
+    }
+
+    /** 记住导出目录，并申请持久化授权（个别 ROM 可能拒绝持久化，此时本次进程内仍可用）。 */
+    public static void setTreeUri(Context context, Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        try {
+            context.getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+        prefs(context).edit().putString(KEY_TREE_URI, uri.toString()).apply();
+        clearDocCache(context);
+    }
+
+    /** 取消导出目录（不清除已经导出的文件；取消后写口回落到默认目录）。 */
+    public static void clear(Context context) {
+        prefs(context).edit().remove(KEY_TREE_URI).apply();
+        clearDocCache(context);
+    }
+
+    /**
+     * 在导出目录里拿到一个可写文档的 URI：同名已存在就直接返回它（调用方 "wt" 截断覆盖），
+     * 否则新建。自定义 SAF 目录与默认目录都走这里；默认目录不可用时返回 null。
+     */
+    public static Uri openDocForWrite(Context context, String name, String mime) {
+        ContentResolver cr = context.getContentResolver();
+        Uri tree = treeUri(context);
+        if (tree != null) {
+            Uri doc = listDocs(cr, tree).get(name);
+            if (doc != null) {
+                return doc;
+            }
+            try {
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(
+                        tree, DocumentsContract.getTreeDocumentId(tree));
+                return DocumentsContract.createDocument(cr, parent, mime, name);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (!supportsDefaultDir()) {
+            return null;
+        }
+        Uri existing = queryDefaultDoc(cr, name);
+        if (existing != null) {
+            return existing;
+        }
+        ContentValues v = new ContentValues();
+        v.put(MediaStore.Downloads.DISPLAY_NAME, name);
+        v.put(MediaStore.Downloads.MIME_TYPE, mime);
+        v.put(MediaStore.Downloads.RELATIVE_PATH, DEFAULT_RELATIVE_PATH);
+        try {
+            return cr.insert(MediaStore.Downloads.getContentUri(
+                    MediaStore.VOLUME_EXTERNAL_PRIMARY), v);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 在默认目录里按显示名查文档（同名覆盖用）；没查到返回 null。 */
+    private static Uri queryDefaultDoc(ContentResolver cr, String name) {
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        try (Cursor c = cr.query(collection, new String[]{MediaStore.Downloads._ID},
+                MediaStore.Downloads.RELATIVE_PATH + "=? AND "
+                        + MediaStore.Downloads.DISPLAY_NAME + "=?",
+                new String[]{DEFAULT_RELATIVE_PATH, name}, null)) {
+            if (c != null && c.moveToFirst()) {
+                return ContentUris.withAppendedId(collection, c.getLong(0));
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** 换/清目录后，按文件名缓存的文档 URI 全部失效（指向旧目录），清掉让下次重建。 */
+    private static void clearDocCache(Context context) {
+        SharedPreferences p = prefs(context);
+        SharedPreferences.Editor e = p.edit();
+        for (String key : p.getAll().keySet()) {
+            if (key.startsWith(KEY_DOC_URI)) {
+                e.remove(key);
+            }
+        }
+        e.apply();
+    }
+
+    /** 目录显示名（路径最后一段），仅用于界面回显。 */
+    public static String displayName(Context context) {
+        Uri tree = treeUri(context);
+        if (tree == null) {
+            return "";
+        }
+        try {
+            String id = DocumentsContract.getTreeDocumentId(tree);
+            int colon = id.indexOf(':');
+            String path = colon >= 0 ? id.substring(colon + 1) : id;
+            int slash = path.lastIndexOf('/');
+            return slash >= 0 ? path.substring(slash + 1) : path;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 把一张已入库的成品图按原始字节复制到导出目录（不解码、不重压，零画质损失）。
+     *
+     * <p><b>同名是覆盖而不是叠副本</b>：SAF 的 {@code createDocument} 遇到同名不会覆盖，
+     * 会自动改名成「名字_ab12cd(1).png」，所以必须先按显示名在目录里找出已有那份、
+     * 拿它的 URI 重写。不这么做的话，每按一次「立即导出全部」目录里就多一整副本堆，
+     * 而且改过构图的壁纸永远更新不到。
+     *
+     * <p>纯 IO，调用方放在后台线程。
+     */
+    public static boolean exportFile(Context context, File source, String id) {
+        return exportFile(context, source, id, null);
+    }
+
+    /**
+     * @param index 「显示名 → 文档 URI」索引；传 null 表示自己列一次目录。
+     *              批量导出由 {@link #exportAll} 建一份复用，免得每张都整表扫一遍。
+     */
+    private static boolean exportFile(Context context, File source, String id,
+                                      Map<String, Uri> index) {
+        if (source == null || !source.exists()) {
+            return false;
+        }
+        Uri tree = treeUri(context);
+        if (tree == null && !supportsDefaultDir()) {
+            return false;
+        }
+        String name = exportName(id, source);
+        String mime = source.getName().endsWith(FULL_EXT_PNG) ? "image/png" : "image/jpeg";
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Uri doc;
+            if (tree != null) {
+                // SAF 自定义目录：批量导出复用一份整表索引（每张都扫一遍目录太贵）
+                if (index == null) {
+                    index = listDocs(cr, tree);
+                }
+                doc = index.get(name);
+                if (doc == null) {
+                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(
+                            tree, DocumentsContract.getTreeDocumentId(tree));
+                    doc = DocumentsContract.createDocument(cr, parent, mime, name);
+                    if (doc == null) {
+                        return false;
+                    }
+                }
+            } else {
+                // 默认目录（MediaStore）：按名单条查，量小不需要索引
+                doc = openDocForWrite(context, name, mime);
+                if (doc == null) {
+                    return false;
+                }
+            }
+            in = new FileInputStream(source);
+            // 带 "wt"：截断重写。不传 mode 时个别 provider 会在旧内容上续写，留下半截旧尾巴
+            out = cr.openOutputStream(doc, "wt");
+            if (out == null) {
+                return false;
+            }
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            closeQuietly(in);
+            closeQuietly(out);
+        }
+    }
+
+    /**
+     * 列一遍导出目录，返回「显示名 → 文档 URI」。
+     *
+     * <p>SAF 的 query 不保证支持按 DISPLAY_NAME 过滤（各家 provider 行为不一，有的直接忽略
+     * selection），所以整表扫回来在内存里比。目录里通常就几十上百个文件，一次扫完复用。
+     */
+    private static Map<String, Uri> listDocs(ContentResolver cr, Uri tree) {
+        Map<String, Uri> map = new HashMap<>();
+        try (Cursor c = cr.query(
+                DocumentsContract.buildChildDocumentsUriUsingTree(
+                        tree, DocumentsContract.getTreeDocumentId(tree)),
+                new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME},
+                null, null, null)) {
+            if (c == null) {
+                return map;
+            }
+            while (c.moveToNext()) {
+                String docId = c.getString(0);
+                String displayName = c.getString(1);
+                if (docId == null || displayName == null || map.containsKey(displayName)) {
+                    continue;   // 目录里已有重名（用户自己放的，SAF 允许）：只认第一个
+                }
+                map.put(displayName, DocumentsContract.buildDocumentUriUsingTree(tree, docId));
+            }
+        } catch (Exception ignored) {
+        }
+        return map;
+    }
+
+    /**
+     * 把一段文本写到导出目录（同名覆盖）。用于同步切换日志。
+     * 首次创建文档并记下 URI，之后用 "wt" 截断重写；文档被删/移动时清掉记录，下次重建。
+     *
+     * <p>URI 按<b>文件名</b>分开存：这里同时背着桌面日志、锁屏日志两个名字（清空时还有个历史
+     * 名），以前共用一个键，等于第二个名字写进来时拿到的还是第一份文档的 URI —— 于是导出目录里
+     * 只有一份文件，内容还是后写的那份。私有目录里两份都全，所以只有导出副本会串。
+     */
+    public static boolean writeTextFile(Context context, String displayName, String mime,
+                                        String content) {
+        if (content == null || !canExport(context)) {
+            return false;
+        }
+        OutputStream out = null;
+        try {
+            Uri doc = existingDocUri(context, displayName);
+            if (doc == null) {
+                doc = openDocForWrite(context, displayName, mime);
+                if (doc == null) {
+                    return false;
+                }
+                putDocUri(context, displayName, doc);
+            }
+            out = context.getContentResolver().openOutputStream(doc, "wt");
+            if (out == null) {
+                return false;
+            }
+            out.write(content.getBytes(StandardCharsets.UTF_8));
+            return true;
+        } catch (Exception e) {
+            prefs(context).edit().remove(docKey(displayName)).apply();
+            return false;
+        } finally {
+            closeQuietly(out);
+        }
+    }
+
+    /** 每个文件名一个键；老的那个单键（v3.89 前共用）不再读，留着无害。 */
+    private static String docKey(String displayName) {
+        return KEY_DOC_URI + "#" + displayName;
+    }
+
+    private static Uri existingDocUri(Context context, String displayName) {
+        String value = prefs(context).getString(docKey(displayName), null);
+        return value == null || value.isEmpty() ? null : Uri.parse(value);
+    }
+
+    private static void putDocUri(Context context, String displayName, Uri doc) {
+        prefs(context).edit().putString(docKey(displayName), doc.toString()).apply();
+    }
+
+    /**
+     * 把库内全部壁纸导出到目录，返回成功张数。
+     * 纯 IO，调用方放在后台线程。
+     */
+    public static int exportAll(Context context) {
+        if (!canExport(context)) {
+            return 0;
+        }
+        int ok = 0;
+        // 自定义 SAF 目录只列一次，整批复用（每张都扫一遍的话，库大一点就是几十次整表查询）；
+        // 默认目录（MediaStore）按名单条查，不需要索引
+        Uri tree = treeUri(context);
+        Map<String, Uri> index = tree == null ? null : listDocs(context.getContentResolver(), tree);
+        List<WallpaperStore.Item> items = WallpaperStore.load(context);
+        for (WallpaperStore.Item item : items) {
+            File file = WallpaperStore.getFullFile(context, item.id);
+            if (exportFile(context, file, item.id, index)) {
+                ok++;
+            }
+        }
+        return ok;
+    }
+
+    /** 导出文件名：wp_ + id 前 6 位（id 唯一，撞名只发生在同一张的重复导出，本来就该覆盖）。 */
+    private static String exportName(String id, File source) {
+        String suffix = id == null || id.isEmpty() ? "0" : id.substring(0, Math.min(6, id.length()));
+        return "wp_" + suffix + (source.getName().endsWith(FULL_EXT_PNG) ? ".png" : ".jpg");
+    }
+
+    private static void closeQuietly(java.io.Closeable closeable) {
+        if (closeable != null) {
+            try {
+                closeable.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 与 WallpaperStore 保持一致：全图的新格式扩展名。 */
+    private static final String FULL_EXT_PNG = ".png";
+}

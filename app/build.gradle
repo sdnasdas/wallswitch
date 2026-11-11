@@ -8,11 +8,11 @@ def signStorePath = System.getenv("WALLSWITCH_KEYSTORE_PATH")
 def hasFixedSigning = signStorePath != null && !signStorePath.isEmpty()
 
 android {
-    namespace 'com.example.wallswitch'
+    namespace 'io.github.sdnasdas.wallswitch'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.example.wallswitch"
+        applicationId "io.github.sdnasdas.wallswitch"
         minSdk 26
         targetSdk 35
         // 版本约定：每次提交都递增（versionCode +1，versionName 次版本 +1，如 1.0 -> 1.1 -> 1.2）
@@ -44,8 +44,12 @@ android {
         // 160/3.153 ~ 162/3.155：引擎上报壁纸配色（onComputeColors）+ 配色诊断 +「亮色壁纸压暗」——
         // 荣耀桌面实测不认动态壁纸配色，系统已存下「适合深色文字=是」桌面仍是白字，压暗观感也不可用，已整体还原；号不回收
         // 163/3.156：还原上述三版，代码回到 3.152
-        versionCode 163
-        versionName "3.156"
+        // 164/3.157：包名从 com.example 换成 io.github.sdnasdas（源码包 + applicationId，准备上架），
+        // CI 改打 release 包 —— applicationId 即应用身份，换名后旧包无法覆盖安装，需备份后卸载重装
+        // 165/3.158：导出目录加默认去向 下载/wallswitch（MediaStore，免权限、卸载不丢），
+        // 首次启动引导改为扫默认目录列出备份包供选择，没有则手动选包或跳过
+        versionCode 165
+        versionName "3.158"
     }
 
     signingConfigs {

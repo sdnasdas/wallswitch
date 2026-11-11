@@ -28,7 +28,7 @@
 
     <!-- 桌面图标预览浮层（与裁剪页同一个控件、同一张全局底图）：单击画面开关。
          开着时顶栏、底栏与系统栏都收起，整屏就是「这张上桌面后的样子」；不拦截触摸，照样能左右翻 -->
-    <com.example.wallswitch.LauncherPreviewOverlay
+    <io.github.sdnasdas.wallswitch.LauncherPreviewOverlay
         android:id="@+id/detail_launcher_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

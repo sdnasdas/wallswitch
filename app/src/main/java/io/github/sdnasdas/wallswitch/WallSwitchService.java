@@ -1,0 +1,1113 @@
+package io.github.sdnasdas.wallswitch;
+
+import android.app.Activity;
+import android.app.WallpaperInfo;
+import android.app.WallpaperManager;
+import android.content.ComponentName;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.Rect;
+import android.net.Uri;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.os.SystemClock;
+import android.provider.MediaStore;
+import android.view.MotionEvent;
+import android.view.SurfaceHolder;
+import android.view.ViewConfiguration;
+
+import io.github.sdnasdas.wallswitch.gl.MotionSource;
+import io.github.sdnasdas.wallswitch.gl.WallpaperRenderer;
+
+import net.rbgrn.android.glwallpaperservice.GLWallpaperService;
+
+import java.io.File;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 动态壁纸引擎（Muzei 的 OpenGL 渲染路径，vendor 其 gl-wallpaper 模块；Canvas 软件画布已废弃）。
+ *
+ * 为什么需要它：静态方案 WallpaperManager.setBitmap 只保证"系统服务存好了图"，
+ * 最终显示依赖 Launcher/渲染层二次加载——荣耀 MagicOS 上 Launcher 不在前台时
+ * 偶发加载失败并回落到内置兜底图（"幽灵图"），且无任何回调（见 Switcher 第四道校验）。
+ * 引擎模式下系统只提供一块 Surface，解码与绘制全在本进程内闭环：
+ * 解码失败就保持旧画面，不存在"系统给的第三张图"，幽灵图从架构上消失。
+ *
+ * 为什么必须是 OpenGL：v3.37 及之前用 lockCanvas 软件画布，每次切换的过渡动画
+ * ≈31 帧全屏 CPU 绘制（约 800MB 内存搬运），真机实测挂上就温、频繁手动切换发热明显；
+ * v3.28 曾试 lockHardwareCanvas（Skia GPU 档位）→ MagicOS 上黑屏 + 系统侧持续空转剧热
+ * 且不抛任何异常，该 API 已永久拉黑；Muzei（GL，EGL 自管表面 + GPU 逐帧混合）
+ * 在同一台设备上怎么切都不热。故 v3.38 起照抄 Muzei 的 GL 路径。
+ *
+ * 工作方式：
+ * - 用户把本 App 设为动态壁纸后，桌面（及未单独设置静态锁屏时的锁屏）由本引擎绘制；
+ * - Switcher.next 检测到引擎激活时不再调 setBitmap，改为推进壁纸指针后调
+ *   notifyWallpaperChanged()，引擎在后台线程解码、经 queueEvent 上传纹理并由 GL 画帧；
+ * - onSurfaceCreated / onVisibilityChanged(true) 也会按当前指针重放上传，
+ *   覆盖灭屏亮屏、Surface 重建、进程重建后的恢复（等价 Muzei 的 queuedImageLoader 重放）。
+ *
+ * 性能模型（对标 Muzei 的"纹理常驻"）：
+ * - 解码结果常驻内存缓存（key = 壁纸 id + Surface 尺寸），亮屏/回桌面等触发的重放
+ *   直接复用缓存、零磁盘解码；只有壁纸内容或尺寸变化才真正解码一次。
+ * - 绘制走 GLES20：一张纹理铺满视口（centerCrop），RENDERMODE_WHEN_DIRTY 下只在
+ *   脏时画帧，静止时零渲染；切换过渡（淡入/模糊）由 GPU 逐帧混合，无 CPU 全屏搬运。
+ *
+ * 性能自记：每次真正解码（≈ 每次壁纸内容变化）后把累计统计重写到
+ * 公共 Download/WallSwitch/engine_stats.txt，无需 adb 即可直观核对
+ * 「纹理上传次数 ≈ 切换次数」与 GL 帧数是否异常。
+ *
+ * 已知风险：用户/主题商店若把壁纸换成别的，引擎被停用，Switcher 自动回退到
+ * 静态 setBitmap 链路（功能不中断，但幽灵图风险回来）；主界面会提示引擎未激活。
+ * GL 初始化/绘制异常无回退开关，全部写 engine_crash.txt 与 engine_stats.txt 取证。
+ */
+public class WallSwitchService extends GLWallpaperService {
+
+    // 与其它组件共用的设置存储
+    public static final String PREFS_NAME = "settings";
+    /** 切换动画效果的设置 key：{@link #TRANSITION_FADE} / {@link #TRANSITION_BLUR} / {@link #TRANSITION_OFF} */
+    public static final String KEY_TRANSITION = "transition_effect";
+    /** 切换动画：交叉淡入（默认） */
+    public static final String TRANSITION_FADE = "fade";
+    /** 切换动画：旧图渐糊、新图浮现 */
+    public static final String TRANSITION_BLUR = "blur";
+    /** 切换动画：无，立即切换 */
+    public static final String TRANSITION_OFF = "off";
+    /**
+     * 实况（动态照片）的触发方式设置 key：{@link #MOTION_HOLD} / {@link #MOTION_LOOP}。
+     * 只有两档、没有「关闭」档：默认按住播放，不主动按就等于不播，
+     * 再开一个关闭开关只会让设置页多一行没人点的东西。
+     */
+    public static final String KEY_MOTION_MODE = "motion_mode";
+    /** 按住桌面才播（默认）：只在按住那几秒抽帧，发热属于「用户动作」那一级。 */
+    public static final String MOTION_HOLD = "hold";
+    /** 桌面可见期间循环播：代价是可见时 60 帧/秒常驻 + 硬解常驻，用户显式选才给。 */
+    public static final String MOTION_LOOP = "loop";
+    /**
+     * 循环档每轮之间的间隔（毫秒），默认 {@link #MOTION_LOOP_GAP_DEFAULT_MS}。
+     * 间隔期间屏幕上画的是静态封面帧，不占解码器也不抽帧 —— 所以这一档的发热基本就是
+     * 「间隔越短越接近连续播放」。
+     */
+    public static final String KEY_MOTION_LOOP_GAP = "motion_loop_gap_ms";
+    /** 默认间隔 1 秒。 */
+    public static final long MOTION_LOOP_GAP_DEFAULT_MS = 1000L;
+
+    // ---- 温度闸门：循环档的自动续播在设备发热时停一停（长按播放不受影响）----------------
+
+    /** 闸门生效期间重查温度的间隔：期间画面停在静态封面帧，零渲染。 */
+    private static final long GATE_RECHECK_MS = 30_000L;
+    /** 电池温度闸门阈值（0.1℃ 单位）：41℃ 触发、39℃ 解除，留 2℃ 迟滞防来回抖。 */
+    private static final int GATE_BATTERY_TEMP_ON = 410;
+    private static final int GATE_BATTERY_TEMP_OFF = 390;
+    /**
+     * PowerManager.THERMAL_STATUS_SEVERE 的字面量。只当兜底：芯片热到严重档时哪怕电池还没到 41℃ 也停。
+     * <p>为什么不再用 MODERATE（2 档）：那一档由最热的热区（通常就是 CPU）决定，芯片一忙就到，
+     * 手摸着还是凉的——真机反馈「36℃ 就暂停、38℃ 反而恢复」就是两个信号不同步。
+     * 现在以电池温度为准（贴着背板，最接近手感），档位只在严重档兜底（见 {@link #isMotionGated}）。
+     */
+    private static final int THERMAL_STATUS_SEVERE_LEVEL = 3;
+    /** API 29+ 的热档位缓存：-1 = 尚未取到。由监听器与首次读取共同维护。 */
+    private static volatile int thermalStatus = -1;
+    private static boolean thermalListenerRegistered;
+    /** 电池温度广播是否已挂上（进程内一次，见 {@link #setupBatteryTempListener}）。 */
+    private static boolean batteryListenerRegistered;
+    /** API 26~28 电池温度闸门的迟滞状态（BATTERY_GATE_LOCK 内读写；与 API 版本无关，全版本共用）。 */
+    private static boolean batteryGateOn;
+    private static final Object BATTERY_GATE_LOCK = new Object();
+
+    /** 活着的引擎实例（系统可能同时存在预览引擎与正式引擎，通知时全部刷新）。 */
+    private static final List<WallEngine> ENGINES = new CopyOnWriteArrayList<>();
+
+    /**
+     * 上一次看到的深浅色档（进程内共享，多个 Engine 也只刷一次）。
+     * 用途见 {@link WallEngine#onConfigurationChanged}：深浅色翻档时重发小组件与常驻通知。
+     */
+    private static int lastNightMode = -1;
+    /** 解码 + 纹理上传调度共用的后台线程，避免阻塞系统壁纸回调线程。 */
+    private static final ExecutorService DRAW_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "engine-draw");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    // 性能自记累计值：帧数/上传次数在 GL 线程递增（原子类），其余只在 DRAW_EXECUTOR 单线程读写
+    /** GL 帧数（RENDERMODE_WHEN_DIRTY：仅画面变化时计帧，静止时不涨是正常）。 */
+    public static final AtomicLong perfFrames = new AtomicLong();
+    /** 纹理上传次数（应 ≈ 切换次数 + 灭屏亮屏/回桌面/Surface 重建的恢复次数）。 */
+    public static final AtomicLong perfUploads = new AtomicLong();
+    /** 实况起播次数（一次按住 = 一次起播；循环档每次进桌面一次）。 */
+    public static final AtomicLong perfMotionStarts = new AtomicLong();
+    /** 实况绘制帧数：除以起播次数≈每次播了多少帧，用来看播放是否卡或抽风。 */
+    public static final AtomicLong perfMotionFrames = new AtomicLong();
+    /** 热退避跳过的循环起播次数：温度闸门生效期间循环档不再自动续播的累计次数。 */
+    public static final AtomicLong perfThermalSkips = new AtomicLong();
+    /**
+     * 引擎收到过多少次壁纸触摸事件 —— 这是判断「荣耀桌面到不到底把触摸转给壁纸引擎」的唯一手段
+     * （用户不用 adb）。一直是 0 就说明「按住播放」这条路在这台机器上走不通。
+     */
+    public static final AtomicLong perfTouchEvents = new AtomicLong();
+    /**
+     * 被「手指移出长按判定范围」取消掉的次数。
+     * 用途是判别一件事：滑动翻页时到底有没有 MOVE 事件送到壁纸引擎。
+     * 起播次数随滑动一直涨、这一项却是 0，说明 MOVE 根本没送到，那 slop 判定就无从生效。
+     */
+    public static final AtomicLong perfTouchCancelled = new AtomicLong();
+    /** 最近一次实况失败的具体原因（随性能自记落盘；null = 没出过问题）。 */
+    public static volatile String lastMotionDiag;
+    private static long perfCacheHits = 0;
+    private static long perfDecodes = 0;
+    private static long perfDecodeMs = 0;
+    private static final SimpleDateFormat PERF_TIME =
+            new SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault());
+
+    /**
+     * 当前桌面是否由本引擎渲染（用户已把本 App 设为动态壁纸）。
+     * 按**包名**比对（Muzei 同款做法，见其 WallpaperAnalytics.kt）：比精确组件名更稳 ——
+     * 部分 ROM（如 MagicOS）上报的壁纸组件可能带别名/包装，精确比较会误判成"未接管"，
+     * 那正是"壁纸是活的、App 却显示未启用"这类假状态的来源。
+     */
+    public static boolean isActive(Context ctx) {
+        WallpaperInfo info = WallpaperManager.getInstance(ctx).getWallpaperInfo();
+        return info != null && ctx.getPackageName().equals(info.getPackageName());
+    }
+
+    /** 壁纸内容变化（Switcher.next 已推进指针）后调用，通知所有活引擎带过渡动画重绘。 */
+    public static void notifyWallpaperChanged() {
+        for (WallEngine engine : ENGINES) {
+            engine.scheduleDraw(true);
+        }
+    }
+
+    /**
+     * 设置页改完「实况播放」这一档后调用，让活引擎立刻按新档接上或断开。
+     *
+     * <p>为什么要有这一钩：这一档原本只在「重绘」和「按下」两个时机才被读，光改设置
+     * 引擎不会有任何反应 —— 用户切成循环档会看到「没动静，进别的 App 再回来才播一下」，
+     * 等于设置页在骗人。
+     */
+    public static void notifyMotionModeChanged() {
+        for (WallEngine engine : ENGINES) {
+            engine.applyMotionMode();
+        }
+    }
+
+    /**
+     * 电池温度回落、闸门刚放开时调用（{@link ThermalNotifier}）：让活引擎立刻按当前档接上，
+     * 不用干等闸门那 30 秒一次的重查。闸门还合着时调也无害（applyMotionMode 会再排一次重查）。
+     */
+    static void notifyThermalGateLifted() {
+        for (WallEngine engine : ENGINES) {
+            engine.applyMotionMode();
+        }
+    }
+
+    /** 打开系统动态壁纸选择器并预选本引擎，引导用户激活引擎模式。 */
+    public static void openActivator(Activity activity) {
+        Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
+        // 等价 WallpaperManager.EXTRA_CHANGING_LIVE_WALLPAPER（本地类型检查的 android.jar 缺该常量，用字面量）
+        intent.putExtra("android.service.wallpaper.extra.LIVE_WALLPAPER_COMPONENT",
+                new ComponentName(activity, WallSwitchService.class));
+        activity.startActivity(intent);
+    }
+
+    /** 读切换动画设置（缺省淡入）。 */
+    public static String transitionEffect(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_TRANSITION, TRANSITION_FADE);
+    }
+
+    /** 读实况触发方式设置（缺省按住播放）。 */
+    public static String motionMode(Context ctx) {
+        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_MOTION_MODE, MOTION_HOLD);
+    }
+
+    /** 读循环档的每轮间隔（负数按 0 处理，缺省 1 秒）。 */
+    public static long motionLoopGapMs(Context ctx) {
+        long gap = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_MOTION_LOOP_GAP, MOTION_LOOP_GAP_DEFAULT_MS);
+        return gap < 0 ? 0 : gap;
+    }
+
+    /**
+     * Service 起来时取一次热档位并挂上监听（API 29+，进程内一次、随进程生命周期）。
+     * 档位由厂商温控引擎（Thermal HAL 2.0）聚合各热区后报上来；闸门只在严重档（≥3）用它兜底，
+     * 正常限制以电池温度为准（见 {@link #isMotionGated}）。
+     * 任何一步失败都静默降级：闸门常开不拦截，只少一层保护，绝不能因此弄坏引擎。
+     */
+    private static void setupThermalListener(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return;
+        }
+        try {
+            PowerManager pm = ctx.getSystemService(PowerManager.class);
+            if (pm == null) {
+                return;
+            }
+            thermalStatus = pm.getCurrentThermalStatus();
+            if (!thermalListenerRegistered) {
+                thermalListenerRegistered = true;
+                pm.addThermalStatusListener(level -> {
+                    thermalStatus = level;
+                    // 档位变了：常驻通知那枚「温控 N」胶囊要跟上；再顺带看闸门是不是刚合/放
+                    StatusNotifier.update(ctx);
+                    ThermalNotifier.onGateInputChanged(ctx);
+                });
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 电池温度监听（全版本，进程内一次、随进程生命周期，与热档位监听同一个寿命模型）。
+     * 两个用途：常驻通知那行温度跟着刷新（{@link ThermalNotifier} 只在整度变化时重发）；
+     * API 26~28 的闸门本来就靠电池温度，在这里顺手判一次合/放。
+     * ACTION_BATTERY_CHANGED 是受保护的系统广播，只能动态注册；用 ContextCompat 带上
+     * NOT_EXPORTED，targetSdk 34 起不带导出标志会抛异常（系统广播照样收得到）。
+     */
+    private static void setupBatteryTempListener(Context ctx) {
+        if (batteryListenerRegistered) {
+            return;
+        }
+        try {
+            batteryListenerRegistered = true;
+            androidx.core.content.ContextCompat.registerReceiver(ctx, new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context c, Intent intent) {
+                    ThermalNotifier.onBatteryTemp(ctx,
+                            intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1));
+                }
+            }, new IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 温度闸门现在是否生效（循环档的自动起播要等一等，长按那级「用户动作」不受限）。
+     * 主判据是<b>电池温度</b>：≥41℃ 触发、≤39℃ 解除（中间地带保持上一状态，2℃ 迟滞防抖）。
+     * 电池贴着背板，读数最接近「手摸到有多热」，通知上显示的数就是这里用来判的那个数。
+     * API 29+ 另有一道兜底：系统温控到严重档（≥3）时直接关闸，哪怕电池还没到 41℃。
+     * 不用中度档（2）——那一档只看最热的芯片，经常先于手感触发，两个数会互相打架。
+     */
+    static boolean isMotionGated(Context ctx) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            int level = thermalStatus;
+            if (level < 0) {
+                // onCreate 没来得及初始化（理论到不去）：现场补读一次，失败按 0（不拦）
+                try {
+                    PowerManager pm = ctx.getSystemService(PowerManager.class);
+                    level = pm != null ? pm.getCurrentThermalStatus() : 0;
+                    thermalStatus = level;
+                } catch (Throwable ignored) {
+                    level = 0;
+                }
+            }
+            if (level >= THERMAL_STATUS_SEVERE_LEVEL) {
+                return true;
+            }
+        }
+        synchronized (BATTERY_GATE_LOCK) {
+            int tenths = readBatteryTempTenths(ctx);
+            if (tenths >= GATE_BATTERY_TEMP_ON) {
+                batteryGateOn = true;
+            } else if (tenths >= 0 && tenths <= GATE_BATTERY_TEMP_OFF) {
+                batteryGateOn = false;
+            }
+            // 中间地带（39~41℃）或读不到（-1）：保持上一个状态，不抖
+            return batteryGateOn;
+        }
+    }
+
+    /**
+     * 当前系统温控档位（0 NONE … 6 SHUTDOWN）；Android 10 以下没有这个接口、读不到都返回 -1。
+     * <b>纯展示用</b>（常驻通知那枚「温控 N」胶囊）。闸门是否生效仍以 {@link #isMotionGated} 为准，
+     * 两者不是一回事：闸门看电池温度，档位看芯片等热区。
+     */
+    static int currentThermalStatus(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return -1;
+        }
+        int level = thermalStatus;
+        if (level < 0) {
+            try {
+                PowerManager pm = ctx.getSystemService(PowerManager.class);
+                level = pm != null ? pm.getCurrentThermalStatus() : -1;
+                if (level >= 0) {
+                    thermalStatus = level;
+                }
+            } catch (Throwable ignored) {
+                return -1;
+            }
+        }
+        return level;
+    }
+
+    /** 读电池温度（0.1℃ 单位）；读不到返回 -1。粘性广播同步取，不注册常驻 receiver。 */
+    static int readBatteryTempTenths(Context ctx) {
+        try {
+            Intent sticky = ctx.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            return sticky == null ? -1
+                    : sticky.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        // 热档位监听（API 29+）：闸门要读的那档温度信号，随引擎进程常驻
+        setupThermalListener(getApplicationContext());
+        // 电池温度：常驻通知那行温度的刷新源，也是低版本闸门的信号
+        setupBatteryTempListener(getApplicationContext());
+        // 记下当前深浅色档：之后只有真的翻档才重发小组件与通知（见 WallEngine#onConfigurationChanged）
+        lastNightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"
+        // 没有取证就无法定位（用户不用 adb）
+        try {
+            final Context app = getApplicationContext();
+            final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+            Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+                recordEngineCrash(app, e);
+                if (prev != null) {
+                    prev.uncaughtException(t, e);
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 深浅色翻档时把小组件与常驻通知重发一次。
+     *
+     * <p>为什么要有这一钩：两档颜色都是我们在自己进程里算好递过去的（见 WidgetConsoleProvider#isNight），
+     * 不重发就会一直停在旧档；而"桌面在深浅色切换时会不会自己重画已摆着的小组件"各家不保证。
+     * 挂在 Service 上（Engine 没有 onConfigurationChanged，只有 Service 那份 ComponentCallbacks 有）
+     * 是因为本服务作为动态壁纸常驻，翻档必然收到这个回调，比等用户打开 App 才纠正要主动。
+     *
+     * <p>发热账：只在 uiMode 的深浅色位真的变了时才跑，一次是"两回小 JPEG 解码 + 两次递交"，
+     * 属于用户动作那一级（和手动切一张同量级），不是持续负载。
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        int night = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        if (night == lastNightMode) {
+            return;
+        }
+        lastNightMode = night;
+        WidgetProvider.updateWidget(this);
+        StatusNotifier.update(this);
+    }
+
+    @Override
+    public Engine onCreateEngine() {
+        return new WallEngine();
+    }
+
+    /** 引擎：把"当前壁纸"居中裁剪画到 GL 表面（解码缓存常驻，纹理按 key 复用/重放）。 */
+    class WallEngine extends GLEngine {
+
+        private WallpaperRenderer renderer;
+        /** Surface 是否可用（onSurfaceCreated ~ onSurfaceDestroyed 之间）。 */
+        private volatile boolean surfaceReady;
+        /** 解码结果缓存：key = 壁纸id#宽x高，命中即免解码。只在 DRAW_EXECUTOR 线程读写。 */
+        private Bitmap cachedBitmap;
+        private String cachedKey;
+        /** 已成功上传到 GPU 的缓存 key；GL 线程（纹理失效重放）与 DRAW_EXECUTOR 读写，故 volatile。 */
+        private volatile String uploadedKey;
+        /** 引擎自动推进指针却仍读不到文件的连续次数（防打转，成功解析到文件即清零）。 */
+        private int autoAdvanceFails;
+        /** 当前实况区间对应哪张壁纸 id。 */
+        private String motionRangeId;
+        /** 上次给这张壁纸算出的实况段区间（null = 已知没有）。 */
+        private long[] motionRange;
+        /** 上面那个区间是对着文件的哪个版本算的（长度:修改时间）—— 覆盖重导后要重算。 */
+        private String motionRangeStamp;
+        private File motionFile;
+        /** 归一化取景框（v 从顶部起算），null = 整帧。 */
+        private float[] motionRect;
+        /**
+         * 「按住」判定的现场。触摸回调与 Handler 都在主线程，所以只有 `holdPlaying` 标了
+         * volatile（离开桌面/改设置那两路的停播不在主线程，也要抹它）。
+         *
+         * <p>为什么要判定：v3.87 是「按下就播」，于是桌面左右滑动翻页也会被当成按住 ——
+         * 手指都移出去了大半屏，壁纸照样动起来。现在改成跟系统长按一致：
+         * 按下后等 {@code holdTimeoutMs}，期间手指移出 {@code touchSlopPx} 或提前松手就取消。
+         */
+        private final Handler mainHandler = new Handler(Looper.getMainLooper());
+        private final float[] downPoint = new float[2];
+        private boolean holdPending;
+        /** 这个要跨线程：离开桌面、改设置那两路的 `stopMotion()` 不在主线程，也得把它抹掉。 */
+        private volatile boolean holdPlaying;
+        /** 长按判定时长与滑动容差：都取系统值（500ms / 8~12dp），不自造数字。 */
+        private long holdTimeoutMs;
+        private float touchSlopPx;
+        /** 长按到点：到这一步才真起播。 */
+        private final Runnable holdFired = () -> {
+            holdPending = false;
+            holdPlaying = true;
+            startMotionForCurrent(false);
+        };
+        /** 循环档排下来的「下一轮」。任何停播动作都必须先把它从队列里撤掉。 */
+        private final Runnable loopTick = () -> startMotionForCurrent(true);
+        /**
+         * 温度闸门生效期间排的「定期重查」：温度降下来就恢复循环。
+         * 与 loopTick 同级——任何停播动作都必须把它一并从队列里撤掉。
+         */
+        private final Runnable gateTick = new Runnable() {
+            @Override
+            public void run() {
+                if (!MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
+                    return;
+                }
+                if (isMotionGated(WallSwitchService.this)) {
+                    mainHandler.postDelayed(this, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
+            }
+        };
+
+        @Override
+        public void onCreate(SurfaceHolder surfaceHolder) {
+            super.onCreate(surfaceHolder);
+            ENGINES.add(this);
+            // EGL 配置照抄 Muzei：alpha=0（不透明表面）是它不发热的关键，务必勿改；
+            // RENDERMODE_WHEN_DIRTY 只在脏时画帧，静止时零渲染
+            renderer = new WallpaperRenderer(getApplicationContext(),
+                    this::requestRender, this::replayCurrentImage, this::onMotionCycleEnded);
+            setEGLContextClientVersion(2);
+            setEGLConfigChooser(8, 8, 8, 0, 0, 0);
+            setRenderer(renderer);
+            setRenderMode(RENDERMODE_WHEN_DIRTY);
+            requestRender();
+            // 「按住播放」需要桌面上的按下事件。壁纸引擎默认收不到触摸，必须显式开；
+            // 开了之后事件走公开的 onTouchEvent（框架内部那个 onSurfaceEvent 不是可覆写的钩子，
+            // 本地 android.jar 里查过：Engine 只暴露 onTouchEvent / onOffsetsChanged）
+            setTouchEventsEnabled(true);
+            ViewConfiguration vc = ViewConfiguration.get(getApplicationContext());
+            holdTimeoutMs = ViewConfiguration.getLongPressTimeout();
+            touchSlopPx = vc.getScaledTouchSlop();
+        }
+
+        /**
+         * 桌面触摸：按住到点才起播、松手或滑动超容差就停。
+         *
+         * <p>计数无条件先加 —— 万一「按住播放」在这台机器上没反应，
+         * {@code engine_stats.txt} 里这一项是不是 0 就是唯一能区分
+         * 「桌面没转发触摸」与「我们收到了但没播开」的证据。
+         */
+        @Override
+        public void onTouchEvent(MotionEvent event) {
+            perfTouchEvents.incrementAndGet();
+            if (!MOTION_HOLD.equals(motionMode(WallSwitchService.this))) {
+                return;
+            }
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                downPoint[0] = event.getX();
+                downPoint[1] = event.getY();
+                holdPending = true;
+                mainHandler.removeCallbacks(holdFired);
+                mainHandler.postDelayed(holdFired, holdTimeoutMs);
+                return;
+            }
+            boolean movedAway = false;
+            if (action == MotionEvent.ACTION_MOVE
+                    || action == MotionEvent.ACTION_POINTER_DOWN
+                    || action == MotionEvent.ACTION_POINTER_UP) {
+                // getX/getY 取的是主指针，多指时也按它比，够判「手有没有挪开」
+                float dx = event.getX() - downPoint[0];
+                float dy = event.getY() - downPoint[1];
+                movedAway = dx * dx + dy * dy > touchSlopPx * touchSlopPx;
+                if (movedAway) {
+                    perfTouchCancelled.incrementAndGet();
+                }
+            }
+            if (movedAway || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                // 既没排队等长按、也没在播，就别去碰 GL 线程：一次滑动几十个 MOVE，
+                // 每个都 queueEvent 等于白让 GL 线程空跑几十趟
+                if (holdPending) {
+                    holdPending = false;
+                    mainHandler.removeCallbacks(holdFired);
+                }
+                if (holdPlaying) {
+                    holdPlaying = false;
+                    stopMotion();
+                }
+            }
+        }
+
+        /** 一轮实况自然播完（GL 线程调过来）：循环档按设置的间隔排下一轮。 */
+        void onMotionCycleEnded() {
+            mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
+            if (isMotionGated(WallSwitchService.this)) {
+                // 发热闸门：这轮播完不再自动续播，画面停静态封面帧，30 秒后重查温度
+                perfThermalSkips.incrementAndGet();
+                mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                return;
+            }
+            mainHandler.postDelayed(loopTick, motionLoopGapMs(WallSwitchService.this));
+        }
+
+        /** 查「这张壁纸有没有实况段、取景框多大」，查到就丢给 GL 起播（后台线程做 IO）。 */
+        private void startMotionForCurrent(boolean loop) {
+            DRAW_EXECUTOR.execute(() -> prepareAndStartMotion(loop));
+        }
+
+        /** 按当前这一档接上或断开实况（设置页改完立刻调，不用等下一次重绘）。 */
+        void applyMotionMode() {
+            mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
+            if (MOTION_LOOP.equals(motionMode(WallSwitchService.this))) {
+                if (isMotionGated(WallSwitchService.this)) {
+                    perfThermalSkips.incrementAndGet();
+                    mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
+            } else {
+                stopMotion();
+            }
+        }
+
+        private void prepareAndStartMotion(boolean loop) {
+            Context ctx = WallSwitchService.this;
+            try {
+                LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
+                if (lib == null) {
+                    return;
+                }
+                String id = Switcher.getCurrent(ctx, lib.id, true);
+                if (id == null) {
+                    return;
+                }
+                File original = WallpaperStore.getOriginalFile(ctx, id);
+                String stamp = original.isFile()
+                        ? original.length() + ":" + original.lastModified() : "";
+                if (!id.equals(motionRangeId) || !stamp.equals(motionRangeStamp)) {
+                    motionRangeId = id;
+                    motionRangeStamp = stamp;
+                    motionRange = MotionSource.locate(original);
+                    motionFile = motionRange != null ? original : null;
+                    motionRect = motionRange != null ? cropRectOf(ctx, lib.id, id) : null;
+                }
+                if (motionRange == null || motionFile == null) {
+                    return;
+                }
+                final File f = motionFile;
+                final long offset = motionRange[0];
+                final long length = motionRange[1];
+                final float[] rect = motionRect;
+                // 引擎可能在这一步的 IO 期间被销毁：renderer 为空就别往 GL 线程丢闭包，
+                // 那里没人兜 NPE，会把 GLThread 带崩
+                final WallpaperRenderer r = renderer;
+                if (r != null) {
+                    queueEvent(() -> r.startMotion(f, offset, length, rect, loop));
+                }
+            } catch (Throwable t) {
+                recordEngineCrash(ctx, t);
+            }
+        }
+
+        /**
+         * 取景框：原图像素坐标 → 归一化比例。
+         *
+         * <p>项目里裁剪矩形一律存原图像素坐标，只有这一处例外：实况帧的分辨率和封面帧
+         * 不是一个数（真样本 1080x1440 vs 1440x1920），像素矩形直接搬过去会错位。
+         */
+        private static float[] cropRectOf(Context ctx, String libId, String id) {
+            try {
+                for (WallpaperStore.Item item : WallpaperStore.loadByLib(ctx, libId)) {
+                    if (!id.equals(item.id)) {
+                        continue;
+                    }
+                    // 没有构图参数 = 当初整帧导出的，实况也整帧
+                    if (!item.hasCropRect()) {
+                        return null;
+                    }
+                    return MotionSource.normalizedRect(new float[]{
+                            item.cropLeft, item.cropTop, item.cropRight, item.cropBottom},
+                            item.srcWidth, item.srcHeight);
+                }
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
+
+        /** 停播（任意线程可调，真正的释放由 GL 线程在下一帧里做）。 */
+        private void stopMotion() {
+            // 排着却没到的那一轮也必须撤掉，否则「已经离开桌面了，2 秒后又自己播起来」
+            mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
+            holdPlaying = false;
+            WallpaperRenderer r = renderer;
+            if (r != null) {
+                queueEvent(r::stopMotion);
+            }
+        }
+
+        @Override
+        public void onDestroy() {
+            ENGINES.remove(this);
+            mainHandler.removeCallbacks(holdFired);
+            mainHandler.removeCallbacks(loopTick);
+            mainHandler.removeCallbacks(gateTick);
+            if (renderer != null) {
+                queueEvent(renderer::release);
+            }
+            // 缓存释放走引擎线程：主线程直接 recycle 会与正在进行的解码/上传竞态
+            DRAW_EXECUTOR.execute(this::releaseCache);
+            super.onDestroy();
+        }
+
+        @Override
+        public void onSurfaceCreated(SurfaceHolder holder) {
+            super.onSurfaceCreated(holder);
+            surfaceReady = true;
+            scheduleDraw(false);
+        }
+
+        @Override
+        public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            super.onSurfaceChanged(holder, format, width, height);
+            surfaceReady = true;
+            scheduleDraw(false);
+        }
+
+        @Override
+        public void onSurfaceDestroyed(SurfaceHolder holder) {
+            surfaceReady = false;
+            // 表面没了，实况的解码器留着也没人画：先停，释放等 GL 线程收尾
+            stopMotion();
+            super.onSurfaceDestroyed(holder);
+        }
+
+        @Override
+        public void onVisibilityChanged(boolean visible) {
+            super.onVisibilityChanged(visible);
+            // 等价 Muzei 的 ReloadWhenVisible：亮屏回到可见时按最新指针重放，
+            // 灭屏期间错过的切换在这一刻补上；有缓存时这是一次零解码的纹理重放
+            if (renderer != null) {
+                renderer.setVisible(visible);
+            }
+            if (visible) {
+                scheduleDraw(false);
+                // 「回桌面时切换」（v3.152）：预览引擎不切（选择器里翻一下也换图就乱了）；
+                // 节流与是否该切由 Switcher 收口，后台线程执行
+                if (!isPreview() && LibraryStore.TRIGGER_RETURN.equals(
+                        LibraryStore.scopeTriggerMode(WallSwitchService.this, true))) {
+                    DRAW_EXECUTOR.execute(() -> Switcher.switchOnHomeReturn(WallSwitchService.this));
+                }
+            } else {
+                // 不可见 = 人不在桌面（进 App / 灭屏）。实况必须立刻停：
+                // 这是「循环播放」那档不把发热变成常驻负载的关键一道
+                stopMotion();
+            }
+        }
+
+        /** GL 线程回调：纹理全部失效后按当前 key 重放上传（等价 Muzei 的 queuedImageLoader 重放）。 */
+        private void replayCurrentImage() {
+            uploadedKey = null;
+            scheduleDraw(false);
+        }
+
+        /**
+         * 后台线程解码并上传纹理；异常吞掉前先取证，等下一次重放机会。
+         * afterSwitch = 本次由「壁纸内容切换」触发，允许播过渡动画；
+         * 亮屏/回桌面等恢复场景传 false，只做快速重放。
+         */
+        void scheduleDraw(boolean afterSwitch) {
+            DRAW_EXECUTOR.execute(() -> drawCurrentSafely(afterSwitch));
+        }
+
+        private void drawCurrentSafely(boolean afterSwitch) {
+            try {
+                drawCurrent(afterSwitch);
+            } catch (Throwable t) {
+                recordEngineCrash(WallSwitchService.this, t);
+            }
+            // 循环档：每次重绘（进桌面 / 切完图 / Surface 重建）都确认一遍该不该在播。
+            // renderer.startMotion 对「同一区间且还在播」直接返回，所以这样反复调不会重开解码器
+            if (MOTION_LOOP.equals(motionMode(WallSwitchService.this)) && lastFaultDiag == null) {
+                if (isMotionGated(WallSwitchService.this)) {
+                    perfThermalSkips.incrementAndGet();
+                    mainHandler.removeCallbacks(gateTick);
+                    mainHandler.postDelayed(gateTick, GATE_RECHECK_MS);
+                } else {
+                    startMotionForCurrent(true);
+                }
+            }
+        }
+
+        private void drawCurrent(boolean afterSwitch) {
+            if (!surfaceReady) {
+                return;
+            }
+            SurfaceHolder holder = getSurfaceHolder();
+            Rect frame = holder.getSurfaceFrame();
+            int w = frame.width();
+            int h = frame.height();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+
+            Context ctx = WallSwitchService.this;
+            LibraryStore.Library lib = LibraryStore.slotLib(ctx, true);
+            String key = null;
+            Bitmap fresh = null;
+            if (lib != null) {
+                String id = Switcher.getCurrent(ctx, lib.id, true);
+                File file = currentFile(ctx, lib.id);
+                boolean fromFallback = false;
+                if (id == null || file == null) {
+                    // 指针空/文件丢。两条处置，职责分开：
+                    // ① 正常推进（含接管校验、历史链、随机池）—— 有副作用（写指针/刷通知），
+                    //    连续失败 3 次就停手，避免「推进→仍缺失→通知→再推进」空转（v3.28 教训）；
+                    // ② 推进被拦（v3.31 真机：接管开关关着，next 直接拒绝）或失败时，
+                    //    直接显示库里第一张 —— 不动指针、不算切换、不刷通知，纯「有图先亮」：
+                    //    引擎的任务就是显示壁纸，黑屏本身就是故障，不该被开关状态陪葬
+                    List<WallpaperStore.Item> items = WallpaperStore.loadByLib(ctx, lib.id);
+                    if (!items.isEmpty()) {
+                        if (autoAdvanceFails < 3) {
+                            // 引擎自愈也真的换了一张上图：按「换了就顺延」的一刀切口径重起算这一轮
+                            // （传 null 不写「手动」正文行，它不是用户动作）
+                            if (Switcher.next(ctx, lib.id, true)) {
+                                TimerScheduler.restartScope(ctx, true, null);
+                            }
+                            id = Switcher.getCurrent(ctx, lib.id, true);
+                            file = currentFile(ctx, lib.id);
+                            if (id == null || file == null) {
+                                autoAdvanceFails++;
+                            }
+                        }
+                        if (id == null || file == null) {
+                            WallpaperStore.Item first = items.get(0);
+                            File f = WallpaperStore.getFullFile(ctx, first.id);
+                            if (f != null && f.exists()) {
+                                id = first.id;
+                                file = f;
+                                fromFallback = true;
+                            }
+                        }
+                    }
+                }
+                if (id != null && file != null) {
+                    // 兜底命中不算「推进成功」：不清零，免得每帧都再试一次带副作用的推进
+                    if (!fromFallback) {
+                        autoAdvanceFails = 0;
+                    }
+                    // 缓存 key：壁纸内容 + 目标尺寸（尺寸变化即重新解码）
+                    key = id + "#" + w + "x" + h;
+                    if (key.equals(cachedKey) && cachedBitmap != null && !cachedBitmap.isRecycled()) {
+                        perfCacheHits++;
+                        // 正常重放也按 5 分钟限频落盘：GL 帧数/上传次数随时间怎么涨，
+                        // 是判断显示是否异常的依据
+                        flushPerfStatsRateLimited(ctx, NORMAL_FLUSH_INTERVAL_MS);
+                        if (!key.equals(uploadedKey)) {
+                            // 纹理不在了（Surface 重建/恢复可见后的重放）：从缓存直接上传，零解码
+                            uploadToRenderer(null, false, key);
+                        } else {
+                            // 内容与纹理都已就位：RENDERMODE_WHEN_DIRTY 下只需标脏，零成本
+                            requestRender();
+                        }
+                        return;
+                    }
+                    // 按 Surface 实际尺寸解码，但不超过统一的壁纸分辨率上限（防 OOM）
+                    int maxDim = Math.min(Math.max(w, h), WallpaperStore.maxWallpaperDim(ctx));
+                    long t0 = SystemClock.elapsedRealtime();
+                    fresh = WallpaperStore.decodeBounded(file, maxDim);
+                    long decodeMs = SystemClock.elapsedRealtime() - t0;
+                    perfDecodes++;
+                    perfDecodeMs += decodeMs;
+                }
+            }
+
+            if (fresh == null) {
+                // 空库/解码失败：保持纯底色而非系统兜底图（缓存保留，等库恢复后可复用）。
+                // 故障态也要 30 秒限频落盘计数与诊断 —— v3.28 的教训：只在解码时落盘，
+                // 引擎一旦坏掉反而一个数字都看不到
+                lastFaultDiag = faultDiag(ctx, lib);
+                drawFaultColor();
+                flushPerfStatsRateLimited(ctx, FAULT_FLUSH_INTERVAL_MS);
+                return;
+            }
+            lastFaultDiag = null;
+
+            // 准备过渡素材：旧画面在过渡期间由 currentTex（GPU）承载，CPU 侧只需模糊版
+            String effect = transitionEffect(ctx);
+            boolean animate = afterSwitch && !TRANSITION_OFF.equals(effect)
+                    && cachedBitmap != null && !cachedBitmap.isRecycled();
+            Bitmap fromBlur = null;
+            if (animate && TRANSITION_BLUR.equals(effect)) {
+                fromBlur = makeBlurred(cachedBitmap);
+            }
+            Bitmap old = cachedBitmap;
+            cachedBitmap = fresh;
+            cachedKey = key;
+            if (old != null && !old.isRecycled()) {
+                old.recycle();
+            }
+            uploadToRenderer(fromBlur, animate, key);
+            // 正常解码后落盘：纹理上传次数 ≈ 切换次数是 GL 引擎健康的核心判据
+            flushPerfStats(ctx);
+        }
+
+        /** 经 queueEvent 在 GL 线程上传纹理（过渡动画由渲染器驱动，引擎不再 sleep 逐帧）。 */
+        private void uploadToRenderer(Bitmap blurred, boolean animate, String key) {
+            Bitmap bmp = cachedBitmap;
+            queueEvent(() -> {
+                boolean shown = renderer.setImage(bmp, blurred, animate);
+                // blurred 是一次性素材：上传完成（或因不可见被跳过）后即可回收
+                if (blurred != null && !blurred.isRecycled()) {
+                    blurred.recycle();
+                }
+                uploadedKey = shown ? key : null;
+            });
+        }
+
+        /** 故障画面：清成纯底色（与 App 背景一致），丢弃旧纹理防止"过期图"残留。 */
+        private void drawFaultColor() {
+            queueEvent(() -> {
+                renderer.clearToBackground();
+                uploadedKey = null;
+            });
+        }
+
+        /** 当前指针指向的壁纸文件；无指针或文件已丢失返回 null。 */
+        private File currentFile(Context ctx, String libId) {
+            String id = Switcher.getCurrent(ctx, libId, true);
+            if (id == null) {
+                return null;
+            }
+            File file = WallpaperStore.getFullFile(ctx, id);
+            return file != null && file.exists() ? file : null;
+        }
+
+        /** 释放缓存（引擎销毁时调用；Surface 销毁不释放，亮屏回来还能用）。 */
+        private void releaseCache() {
+            if (cachedBitmap != null) {
+                cachedBitmap.recycle();
+                cachedBitmap = null;
+            }
+            cachedKey = null;
+        }
+    }
+
+    /**
+     * 一次性预模糊：把旧图缩小到约 1/8（~300px 级），纯 Java 盒式模糊三轮，
+     * 结果作为模糊纹理上传，GPU 放大回屏即得柔焦效果。总耗时毫秒级，避免逐帧高斯。
+     */
+    private static Bitmap makeBlurred(Bitmap src) {
+        try {
+            int bw = Math.max(1, src.getWidth() / 8);
+            int bh = Math.max(1, src.getHeight() / 8);
+            Bitmap small = Bitmap.createScaledBitmap(src, bw, bh, true);
+            if (small == src) {
+                // 缩放结果是同一实例（尺寸恰好相等）时拷贝一份，避免模糊污染缓存原图
+                small = src.copy(src.getConfig(), false);
+                if (small == null) {
+                    return null;
+                }
+            }
+            boxBlur(small, 4, 3);
+            return small;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 盒式模糊：水平 + 垂直两个方向的滑动窗口均值，重复 passes 轮近似高斯。 */
+    private static void boxBlur(Bitmap bmp, int radius, int passes) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[] px = new int[w * h];
+        int[] tmp = new int[px.length];
+        bmp.getPixels(px, 0, w, 0, 0, w, h);
+        for (int p = 0; p < passes; p++) {
+            blurPass(px, tmp, w, h, radius, true);
+            blurPass(tmp, px, w, h, radius, false);
+        }
+        bmp.setPixels(px, 0, w, 0, 0, w, h);
+    }
+
+    /** 一趟盒式模糊：horizontal=true 沿 x 方向均值，结果写入 out。 */
+    private static void blurPass(int[] in, int[] out, int w, int h, int radius, boolean horizontal) {
+        int span = radius * 2 + 1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+                for (int k = -radius; k <= radius; k++) {
+                    int xx = horizontal ? Math.min(w - 1, Math.max(0, x + k)) : x;
+                    int yy = horizontal ? y : Math.min(h - 1, Math.max(0, y + k));
+                    int c = in[yy * w + xx];
+                    sumA += (c >>> 24) & 0xFF;
+                    sumR += (c >>> 16) & 0xFF;
+                    sumG += (c >>> 8) & 0xFF;
+                    sumB += c & 0xFF;
+                }
+                out[y * w + x] = (sumA / span) << 24 | (sumR / span) << 16
+                        | (sumG / span) << 8 | (sumB / span);
+            }
+        }
+    }
+
+    /** 引擎线程/进程崩溃取证：堆栈写公共目录，5 秒限频防崩溃循环刷爆存储。 */
+    private static synchronized void recordEngineCrash(Context ctx, Throwable t) {
+        try {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastCrashWriteMs < 5_000) {
+                return;
+            }
+            lastCrashWriteMs = now;
+            writePublicText(ctx, "engine_crash.txt",
+                    PERF_TIME.format(new Date()) + "\n"
+                            + android.util.Log.getStackTraceString(t) + "\n");
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static long lastCrashWriteMs;
+
+    /**
+     * 渲染器 GL 线程异常（EGL 初始化失败/着色器编译失败/绘制抛错）：没有 Canvas 回退路径，
+     * 失败必须可见——崩溃取证（5 秒限频）+ 故障诊断行 + 30 秒限频落盘。
+     */
+    public static void onRendererFailure(Context ctx, Throwable t) {
+        lastFaultDiag = "GL 渲染异常: " + t;
+        recordEngineCrash(ctx, t);
+        flushPerfStatsRateLimited(ctx, FAULT_FLUSH_INTERVAL_MS);
+    }
+
+    /** 故障态限频落盘间隔（30 秒）：故障时计数几乎不涨，也要留下现场。 */
+    private static final long FAULT_FLUSH_INTERVAL_MS = 30_000L;
+    /** 正常态限频落盘间隔（5 分钟）：够密到能算出重绘频率，又不给存储添负担。 */
+    private static final long NORMAL_FLUSH_INTERVAL_MS = 5 * 60_000L;
+
+    /** 限频落盘：距上次写文件不足 intervalMs 就跳过（MediaStore 重写有成本）。 */
+    private static synchronized void flushPerfStatsRateLimited(Context ctx, long intervalMs) {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastStateFlushMs < intervalMs) {
+            return;
+        }
+        lastStateFlushMs = now;
+        flushPerfStats(ctx);
+    }
+
+    private static long lastStateFlushMs;
+    /** 最近一次「读不到壁纸」的具体原因（绘制现场捕获，随性能自记落盘）。 */
+    private static volatile String lastFaultDiag;
+
+    /** 「引擎读不到当前壁纸」的具体原因：无启用库 / 指针空 / 指针指向的文件丢失 / 库空。 */
+    private static String faultDiag(Context ctx, LibraryStore.Library lib) {
+        try {
+            if (lib == null) {
+                int total = LibraryStore.load(ctx).size();
+                return "无启用的桌面库（共 " + total + " 个库，均未启用或不覆盖桌面）";
+            }
+            String current = Switcher.getCurrent(ctx, lib.id, true);
+            if (current == null) {
+                return "库「" + lib.name + "」无当前指针（条目 "
+                        + WallpaperStore.loadByLib(ctx, lib.id).size() + " 张）";
+            }
+            File file = WallpaperStore.getFullFile(ctx, current);
+            return "库「" + lib.name + "」指针指向 " + current + "，文件 "
+                    + (file != null && file.exists() ? "存在" : "丢失") + "（条目 "
+                    + WallpaperStore.loadByLib(ctx, lib.id).size() + " 张）";
+        } catch (Exception e) {
+            return "诊断失败: " + e;
+        }
+    }
+
+    /** 解码（≈壁纸内容变化）后重写性能自记文件：纹理上传次数应≈切换次数。 */
+    private static void flushPerfStats(Context ctx) {
+        try {
+            String content = "WallSwitch 引擎性能自记（正常=每次壁纸内容变化后重写；故障态=每 30 秒重写）\n"
+                    + "更新时间: " + PERF_TIME.format(new Date()) + "\n"
+                    + "累计GL帧: " + perfFrames.get() + " 帧"
+                    + "（RENDERMODE_WHEN_DIRTY：仅画面变化时计帧，静止时不涨是正常）\n"
+                    + "纹理上传: " + perfUploads.get() + " 次"
+                    + "（应≈切换次数 + 灭屏亮屏/回桌面/Surface 重建的恢复次数）\n"
+                    + "缓存命中(零解码): " + perfCacheHits + " 次\n"
+                    + "真实解码: " + perfDecodes + " 次, 共 " + perfDecodeMs + " ms\n"
+                    + "壁纸触摸事件: " + perfTouchEvents.get() + " 次"
+                    + "（一直是 0 = 桌面没把触摸转给壁纸引擎，「按住播放」在这台机器上走不通）\n"
+                    + "滑动取消长按: " + perfTouchCancelled.get() + " 次"
+                    + "（起播次数随滑动一直涨而这项是 0 = 滑动时 MOVE 没送到引擎，容差判定无从生效）\n"
+                    + "实况起播: " + perfMotionStarts.get() + " 次, 实况绘制帧: "
+                    + perfMotionFrames.get() + " 帧"
+                    + "（每次约 162 帧 = 完整播完一条 2.7 秒的实况）\n"
+                    + "实况诊断: " + (lastMotionDiag != null ? lastMotionDiag : "无") + "\n"
+                    + "热退避跳过起播: " + perfThermalSkips.get() + " 次"
+                    + "（温度闸门生效期间循环档不再自动续播，长按播放不受影响）\n"
+                    // 攒真实量级用的探针（进程内累计，随进程重启归零）：判「要不要把 library.json 换成
+                    // SQLite」靠的是这两个数，不是猜 —— 缓存命中多、单次解析只有几毫秒，就说明瓶颈不在解析
+                    + "元数据表 library.json: 真解析 " + WallpaperStore.metaParses.get()
+                    + " 次 / 缓存命中 " + WallpaperStore.metaCacheHits.get() + " 次 / 解析累计 "
+                    + WallpaperStore.metaParseMs.get() + " ms（最近一次 "
+                    + WallpaperStore.metaItems + " 条、" + WallpaperStore.metaBytes + " 字节）\n"
+                    + "故障诊断: " + (lastFaultDiag != null ? lastFaultDiag : "无（当前正常显示中）") + "\n"
+                    + (lastFaultDiag != null
+                    ? "判读: 引擎读不到当前壁纸或 GL 渲染异常（异常态）\n"
+                    : "判读: 正常（解码次数应≈切换次数，纹理上传应略多于解码）\n");
+            writePublicText(ctx, "engine_stats.txt", content);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 把文本写到公共 Download/WallSwitch（低版本写内部存储），尽力而为。 */
+    private static void writePublicText(Context ctx, String name, String content) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                String dir = "Download/WallSwitch";
+                ContentResolver cr = ctx.getContentResolver();
+                Uri existing = TakeoverManager.findEntry(ctx,
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, name, dir);
+                if (existing != null) {
+                    cr.delete(existing, null, null);
+                }
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, dir);
+                Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    return;
+                }
+                try (OutputStream out = cr.openOutputStream(uri)) {
+                    if (out != null) {
+                        out.write(content.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            } else {
+                File dir = new File(ctx.getFilesDir(), "WallSwitch");
+                if (dir.exists() || dir.mkdirs()) {
+                    try (OutputStream out = new java.io.FileOutputStream(new File(dir, name))) {
+                        out.write(content.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+}

@@ -7,13 +7,13 @@
     android:layout_height="match_parent"
     android:background="@color/viewer_bg">
 
-    <com.example.wallswitch.CropView
+    <io.github.sdnasdas.wallswitch.CropView
         android:id="@+id/crop_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
     <!-- 轻点画面或预览按钮开关；不拦截取景手势。 -->
-    <com.example.wallswitch.LauncherPreviewOverlay
+    <io.github.sdnasdas.wallswitch.LauncherPreviewOverlay
         android:id="@+id/launcher_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

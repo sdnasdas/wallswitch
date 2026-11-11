@@ -22,10 +22,10 @@ foreach ($candidate in $javacCandidates) {
 $androidJar = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platforms\android-35\android.jar'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $root '..\app\src\main\java'
-$wallSrc = Join-Path $src 'com\example\wallswitch'
+$wallSrc = Join-Path $src 'io\github\sdnasdas\wallswitch'
 $stubs = Join-Path $root 'stubs'
 $work = Join-Path $root 'work'
-New-Item -ItemType Directory -Force (Join-Path $work 'stubs\com\example\wallswitch') | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $work 'stubs\io\github\sdnasdas\wallswitch') | Out-Null
 
 if (-not (Test-Path $javac)) {
     Write-Host "未找到 javac: $javac" -ForegroundColor Red
@@ -39,10 +39,10 @@ if (-not (Test-Path $androidJar)) {
 # 1) 从源码收集 R.* 引用，生成 R 桩（真实 R 由构建工具生成，本地用桩代替）
 $types = 'id', 'string', 'layout', 'style', 'drawable', 'array', 'color', 'dimen', 'bool'
 $sb = New-Object System.Text.StringBuilder
-[void]$sb.AppendLine('package com.example.wallswitch;')
+[void]$sb.AppendLine('package io.github.sdnasdas.wallswitch;')
 [void]$sb.AppendLine('public final class R {')
 $counter = 0
-# R.* 引用只可能来自我们自己的包，扫描时限定 com\example\wallswitch 子目录
+# R.* 引用只可能来自我们自己的包，扫描时限定 io\github\sdnasdas\wallswitch 子目录
 $wallFiles = @(Get-ChildItem $wallSrc -Recurse -Filter '*.java' | ForEach-Object { $_.FullName })
 foreach ($type in $types) {
     $names = Select-String -Path $wallFiles -Pattern "\bR\.$type\.(\w+)" -AllMatches |
@@ -58,7 +58,7 @@ foreach ($type in $types) {
     [void]$sb.AppendLine('  }')
 }
 [void]$sb.AppendLine('}')
-Set-Content -Path (Join-Path $work 'stubs\com\example\wallswitch\R.java') -Value $sb.ToString() -Encoding ASCII
+Set-Content -Path (Join-Path $work 'stubs\io\github\sdnasdas\wallswitch\R.java') -Value $sb.ToString() -Encoding ASCII
 
 # 2) javac 类型检查（sourcepath 挂上桩目录，androidx 引用由桩解析）
 #    用参数数组传递，避免 PowerShell 5.1 对 native 参数的解析问题

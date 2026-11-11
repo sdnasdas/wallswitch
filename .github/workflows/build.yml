@@ -39,8 +39,8 @@ jobs:
           fi
           echo "${{ secrets.WALLSWITCH_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/wallswitch.keystore"
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+      - name: Build release APK
+        run: gradle assembleRelease --no-daemon
         env:
           WALLSWITCH_KEYSTORE_PATH: ${{ runner.temp }}/wallswitch.keystore
           WALLSWITCH_KEYSTORE_PASSWORD: ${{ secrets.WALLSWITCH_KEYSTORE_PASSWORD }}
@@ -50,13 +50,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wallswitch-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Publish APK to rolling release
         # artifact 存的是 zip（下载后要手动解压）；Release 的 asset 是裸文件，
-        # 手机点 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk
+        # 手机点 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-release.apk
         # 就是 apk 本身，不用解压。
-        # asset 名固定成 app-debug.apk，--clobber 每次覆盖同一个 asset，直链才始终指向最新构建；
+        # asset 名固定成 app-release.apk，--clobber 每次覆盖同一个 asset，直链才始终指向最新构建；
         # 版本信息放 Release 标题/说明里（文件名带日期会让 --clobber 覆盖不到、直链失效）。
         # gh 在 ubuntu-latest runner 上预装，不引入新的第三方 action。
         env:
@@ -68,7 +68,7 @@ jobs:
           if ! gh release view latest >/dev/null 2>&1; then
             gh release create latest --title "latest" --notes "滚动构建" --target "$GITHUB_SHA"
           fi
-          gh release upload latest app/build/outputs/apk/debug/app-debug.apk --clobber
+          gh release upload latest app/build/outputs/apk/release/app-release.apk --clobber
           gh release edit latest \
             --title "latest（v$VERSION · build ${{ github.run_number }}）" \
-            --notes "自动覆盖的调试包（固定签名，可直接覆盖安装）· 当前 v$VERSION · commit $SHORT · 构建号 ${{ github.run_number }} · 直链 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-debug.apk"
+            --notes "自动覆盖的正式包（固定签名，可直接覆盖安装）· 当前 v$VERSION · commit $SHORT · 构建号 ${{ github.run_number }} · 直链 https://github.com/sdnasdas/wallswitch/releases/download/latest/app-release.apk"
