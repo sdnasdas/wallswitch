@@ -64,8 +64,10 @@ android {
         // 三个按钮改竖排胶囊；删掉调试期的扫描诊断与媒体扫描重建代码
         // 173/3.166：数据与文件页加「清理冗余文件」—— 按 library.json 对账三个内部目录，
         // 删孤儿文件；同 id 双格式并存留 JPEG 删 PNG
-        versionCode 173
-        versionName "3.166"
+        // 174/3.167：修还原回显计数翻倍 —— manifest.json 是 zip 第 0 号条目，
+        // inspect 循环里预填清单计数后扫描又累加一遍，成品图/原图显示翻倍；改为循环结束再填
+        versionCode 174
+        versionName "3.167"
     }
 
     signingConfigs {

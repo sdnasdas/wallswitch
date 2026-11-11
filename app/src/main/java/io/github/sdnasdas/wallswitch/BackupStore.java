@@ -172,6 +172,7 @@ public final class BackupStore {
             Manifest m = new Manifest();
             java.util.Enumeration<? extends ZipEntry> es = zip.entries();
             long total = 0;
+            byte[] manifestRaw = null;
             while (es.hasMoreElements()) {
                 ZipEntry e = es.nextElement();
                 if (e.isDirectory()) {
@@ -190,8 +191,14 @@ public final class BackupStore {
                 } else if (n.equals("libraries.json")) {
                     m.libraries = readJsonLength(zip, e);
                 } else if (n.equals("manifest.json")) {
-                    fillFromManifest(m, readAll(zip, e));
+                    // 只存字节，循环结束再填 —— manifest.json 是打包时第一个写入的条目，
+                    // 循环里就调 fillFromManifest 会把清单计数预填进去，后面扫描再累加一遍，
+                    // 成品图/原图在回显里翻倍（缩略图不预填所以一直是对的）
+                    manifestRaw = readAll(zip, e);
                 }
+            }
+            if (manifestRaw != null) {
+                fillFromManifest(m, manifestRaw);
             }
             m.bytes = total;
             return m;
