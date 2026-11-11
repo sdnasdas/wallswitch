@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.util.Xml;
@@ -643,40 +644,68 @@ public final class BackupStore {
         if (!WallpaperExporter.supportsDefaultDir()) {
             return out;
         }
-        // 只按文件名粗筛、不筛 RELATIVE_PATH：定制 MediaProvider（荣耀实测）对 Downloads 集合的
-        // RELATIVE_PATH 条件支持不可靠。路径取回来只做「置顶默认目录里的包」用，
-        // 名字命中就列出来 —— 用户把包挪到下载根目录也该能找到。
-        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL);
-        int hit = 0;
-        StringBuilder relSamples = new StringBuilder();
-        try (Cursor c = context.getContentResolver().query(collection,
-                new String[]{MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
-                        MediaStore.Downloads.SIZE, MediaStore.Downloads.RELATIVE_PATH},
-                MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
-                new String[]{"wallswitch-backup-%.zip"}, null)) {
-            if (c != null) {
-                while (c.moveToNext()) {
-                    hit++;
-                    String rel = c.getString(3);
-                    if (relSamples.length() < 120) {
-                        if (relSamples.length() > 0) relSamples.append(" | ");
-                        relSamples.append(rel == null ? "null" : rel);
-                    }
-                    out.add(new BackupCandidate(
-                            ContentUris.withAppendedId(collection, c.getLong(0)),
-                            c.getString(1), c.getLong(2),
-                            WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(rel)));
-                }
-            }
-            lastScanSummary = "文件名粗筛命中 " + hit + " 个；RELATIVE_PATH 样本："
-                    + (relSamples.length() == 0 ? "（无）" : relSamples);
-        } catch (Exception e) {
-            lastScanSummary = "查询抛异常：" + e;
+        // 荣耀实测：卸载重装后 MediaStore 里连文件名粗筛都命中 0 —— 条目被清了，文件还在磁盘上。
+        // 所以备三条通道：Downloads 集合 → Files 集合 → 文件系统直读，前者空了就试后者，
+        // 命中数写进诊断，便于确认到底是哪条通道在这台机器上有效。
+        int viaDownloads = collectFromCollection(context,
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL), out);
+        int viaFiles = 0;
+        if (out.isEmpty()) {
+            viaFiles = collectFromCollection(context,
+                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), out);
+        }
+        int viaFs = 0;
+        if (out.isEmpty()) {
+            viaFs = collectFromFileSystem(out);
         }
         // 默认目录里的排前面，其余按文件名（自带时间戳）倒序 —— 不依赖厂商的排序支持
         out.sort((a, b) -> a.inDefaultDir != b.inDefaultDir
                 ? (a.inDefaultDir ? -1 : 1) : b.name.compareTo(a.name));
+        lastScanSummary = "Downloads集合 " + viaDownloads + " 个，Files集合 " + viaFiles
+                + " 个，文件直读 " + viaFs + " 个";
         return out;
+    }
+
+    /** 从 MediaStore 某个集合按文件名粗筛（不筛路径，厂商对 RELATIVE_PATH 过滤支持不可靠）。 */
+    private static int collectFromCollection(Context context, Uri collection,
+            java.util.List<BackupCandidate> out) {
+        int hit = 0;
+        try (Cursor c = context.getContentResolver().query(collection,
+                new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
+                        MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.RELATIVE_PATH},
+                MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?",
+                new String[]{"wallswitch-backup-%.zip"}, null)) {
+            if (c != null) {
+                while (c.moveToNext()) {
+                    hit++;
+                    out.add(new BackupCandidate(
+                            ContentUris.withAppendedId(collection, c.getLong(0)),
+                            c.getString(1), c.getLong(2),
+                            WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(c.getString(3))));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return hit;
+    }
+
+    /** 兜底：直接读 /sdcard/Download/wallswitch。能否读得动取决于系统对共享存储的放权限度。 */
+    private static int collectFromFileSystem(java.util.List<BackupCandidate> out) {
+        int hit = 0;
+        try {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS), "wallswitch");
+            File[] files = dir.listFiles((d, n) ->
+                    n.startsWith("wallswitch-backup-") && n.endsWith(".zip"));
+            if (files != null) {
+                for (File f : files) {
+                    hit++;
+                    out.add(new BackupCandidate(Uri.fromFile(f), f.getName(), f.length(), true));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return hit;
     }
 
     /** 最近一次扫描的诊断信息，「没找到」弹窗附带给用户看（排查厂商 MediaProvider 差异用）。 */

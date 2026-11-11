@@ -54,8 +54,10 @@ android {
         // 筛 RELATIVE_PATH，改为文件名粗筛 + Java 里比路径
         // 168/3.161：扫描再放宽 —— 完全不筛路径，名字命中即列出（默认目录的置顶）；
         // 「没找到」弹窗附扫描诊断，便于排查厂商 MediaProvider 差异
-        versionCode 168
-        versionName "3.161"
+        // 169/3.162：荣耀实测卸载后 MediaStore 条目被清（粗筛命中 0），扫描改三条通道
+        // 依次兜底：Downloads 集合 → Files 集合 → /sdcard 文件直读，诊断分别报数
+        versionCode 169
+        versionName "3.162"
     }
 
     signingConfigs {
