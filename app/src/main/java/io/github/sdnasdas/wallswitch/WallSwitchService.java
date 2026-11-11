@@ -69,8 +69,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * - 绘制走 GLES20：一张纹理铺满视口（centerCrop），RENDERMODE_WHEN_DIRTY 下只在
  *   脏时画帧，静止时零渲染；切换过渡（淡入/模糊）由 GPU 逐帧混合，无 CPU 全屏搬运。
  *
- * 性能自记：每次真正解码（≈ 每次壁纸内容变化）后把累计统计重写到
- * 公共 Download/WallSwitch/engine_stats.txt，无需 adb 即可直观核对
+ * 性能自记：每次真正解码（≈ 每次壁纸内容变化）后把累计统计追加到
+ * 公共 Download/wallswitch/log/engine_stats.txt，无需 adb 即可直观核对
  * 「纹理上传次数 ≈ 切换次数」与 GL 帧数是否异常。
  *
  * 已知风险：用户/主题商店若把壁纸换成别的，引擎被停用，Switcher 自动回退到
@@ -980,7 +980,7 @@ public class WallSwitchService extends GLWallpaperService {
                 return;
             }
             lastCrashWriteMs = now;
-            writePublicText(ctx, "engine_crash.txt",
+            TakeoverManager.appendPublicLog(ctx, "engine_crash.txt",
                     PERF_TIME.format(new Date()) + "\n"
                             + android.util.Log.getStackTraceString(t) + "\n");
         } catch (Exception ignored) {
@@ -1039,10 +1039,10 @@ public class WallSwitchService extends GLWallpaperService {
         }
     }
 
-    /** 解码（≈壁纸内容变化）后重写性能自记文件：纹理上传次数应≈切换次数。 */
+    /** 解码（≈壁纸内容变化）后往性能自记文件追加一段：纹理上传次数应≈切换次数。 */
     private static void flushPerfStats(Context ctx) {
         try {
-            String content = "WallSwitch 引擎性能自记（正常=每次壁纸内容变化后重写；故障态=每 30 秒重写）\n"
+            String content = "\nWallSwitch 引擎性能自记（正常=每次壁纸内容变化后追加；故障态=每 30 秒追加）\n"
                     + "更新时间: " + PERF_TIME.format(new Date()) + "\n"
                     + "累计GL帧: " + perfFrames.get() + " 帧"
                     + "（RENDERMODE_WHEN_DIRTY：仅画面变化时计帧，静止时不涨是正常）\n"
@@ -1070,43 +1070,7 @@ public class WallSwitchService extends GLWallpaperService {
                     + (lastFaultDiag != null
                     ? "判读: 引擎读不到当前壁纸或 GL 渲染异常（异常态）\n"
                     : "判读: 正常（解码次数应≈切换次数，纹理上传应略多于解码）\n");
-            writePublicText(ctx, "engine_stats.txt", content);
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** 把文本写到公共 Download/WallSwitch（低版本写内部存储），尽力而为。 */
-    private static void writePublicText(Context ctx, String name, String content) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                String dir = "Download/WallSwitch";
-                ContentResolver cr = ctx.getContentResolver();
-                Uri existing = TakeoverManager.findEntry(ctx,
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, name, dir);
-                if (existing != null) {
-                    cr.delete(existing, null, null);
-                }
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                values.put(MediaStore.MediaColumns.RELATIVE_PATH, dir);
-                Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                if (uri == null) {
-                    return;
-                }
-                try (OutputStream out = cr.openOutputStream(uri)) {
-                    if (out != null) {
-                        out.write(content.getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-            } else {
-                File dir = new File(ctx.getFilesDir(), "WallSwitch");
-                if (dir.exists() || dir.mkdirs()) {
-                    try (OutputStream out = new java.io.FileOutputStream(new File(dir, name))) {
-                        out.write(content.getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-            }
+            TakeoverManager.appendPublicLog(ctx, "engine_stats.txt", content);
         } catch (Exception ignored) {
         }
     }

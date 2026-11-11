@@ -316,20 +316,83 @@ public final class TakeoverManager {
 
     /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目（WallSwitchService 的公共日志也复用）。 */
     static Uri findEntry(Context ctx, Uri collection, String name, String dir) {
+        // 只按显示名查，RELATIVE_PATH 放进投影逐行比对：荣耀等厂商的 MediaProvider
+        // 查不出来 RELATIVE_PATH（备份包扫描踩过同一个坑），把它写进查询条件会永远 0 行，
+        // 调用方以为没有旧文件，每次 insert 都被改名成「xx (N).txt」副本
         try (Cursor c = ctx.getContentResolver().query(
                 collection,
-                new String[]{MediaStore.MediaColumns._ID},
-                MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
-                        + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
-                new String[]{name, dir + "/"},
+                new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.RELATIVE_PATH},
+                MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                new String[]{name},
                 null)) {
-            if (c != null && c.moveToFirst()) {
-                return ContentUris.withAppendedId(collection, c.getLong(0));
+            if (c == null) {
+                return null;
             }
+            Uri fallback = null;
+            String want = dir + "/";
+            while (c.moveToNext()) {
+                Uri uri = ContentUris.withAppendedId(collection, c.getLong(0));
+                String rel = c.getString(1);
+                if (want.equals(rel)) {
+                    return uri;
+                }
+                // RELATIVE_PATH 为空：分区存储下 Downloads 查询本就只回自己应用创建的
+                // 条目，按名认领不会误伤别人的文件
+                if ((rel == null || rel.isEmpty()) && fallback == null) {
+                    fallback = uri;
+                }
+            }
+            return fallback;
         } catch (Exception e) {
             // 查询失败按没有条目处理
         }
         return null;
+    }
+
+    /** 公共日志目录：默认导出目录（{@link WallpaperExporter#DEFAULT_RELATIVE_PATH}）下的 log/。 */
+    static final String LOG_DIR = "Download/wallswitch/log";
+
+    /** 往公共日志目录追加一段文本，文件不存在就新建。 */
+    static void appendPublicLog(Context ctx, String name, String content) {
+        writePublicLog(ctx, name, content, true);
+    }
+
+    /** 把公共日志目录里的同名文件截断重写（清空日志用）。 */
+    static void overwritePublicLog(Context ctx, String name, String content) {
+        writePublicLog(ctx, name, content, false);
+    }
+
+    /** 公共日志统一出口：追加/截断一个参数之差，低版本退化到内部存储。 */
+    private static void writePublicLog(Context ctx, String name, String content, boolean append) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentResolver cr = ctx.getContentResolver();
+                Uri uri = findEntry(ctx, MediaStore.Downloads.EXTERNAL_CONTENT_URI, name, LOG_DIR);
+                if (uri == null) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, LOG_DIR);
+                    uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) {
+                        return;
+                    }
+                }
+                try (OutputStream out = cr.openOutputStream(uri, append ? "wa" : "wt")) {
+                    if (out != null) {
+                        out.write(content.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            } else {
+                File dir = new File(ctx.getFilesDir(), "log");
+                if (dir.exists() || dir.mkdirs()) {
+                    try (OutputStream out = new FileOutputStream(new File(dir, name), append)) {
+                        out.write(content.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     /** 把保存结果日志写到公共 Download/WallSwitch（低版本写内部存储），尽力而为。 */

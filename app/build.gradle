@@ -66,8 +66,11 @@ android {
         // 删孤儿文件；同 id 双格式并存留 JPEG 删 PNG
         // 174/3.167：修还原回显计数翻倍 —— manifest.json 是 zip 第 0 号条目，
         // inspect 循环里预填清单计数后扫描又累加一遍，成品图/原图显示翻倍；改为循环结束再填
-        versionCode 174
-        versionName "3.167"
+        // 175/3.168：日志改追加并挪到默认导出目录 log/ —— engine_stats/engine_crash/
+        // 切换日志镜像统一走 TakeoverManager.appendPublicLog（MediaStore "wa"）；
+        // findEntry 修荣耀不返回 RELATIVE_PATH 导致查不到旧文件、每次 insert 被改名出 (N) 副本
+        versionCode 175
+        versionName "3.168"
     }
 
     signingConfigs {

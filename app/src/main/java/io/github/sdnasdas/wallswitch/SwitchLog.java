@@ -311,10 +311,9 @@ public final class SwitchLog {
             editor.putLong(KEY_ANCHOR_PREFIX + suffix, now);
         }
         editor.apply();
-        // 设了导出目录就同名同步一份；没设则 writeTextFile 自己会直接返回。
-        // 镜像给用户看/拷的那份要剥掉行尾 id 段，私有文件里留着供点行反查
-        WallpaperExporter.writeTextFile(ctx, fileName(forHome), "text/plain",
-                stripRefs(readAllText(ctx, forHome)));
+        // 镜像到公共日志目录（默认导出目录的 log/）：只追加本次新写的这段，
+        // 剥掉行尾 id 段 —— 私有文件里留着供点行反查，镜像不整份重写
+        TakeoverManager.appendPublicLog(ctx, fileName(forHome), stripRefs(sb.toString()));
     }
 
     private static String entryLine(Context ctx, long now, String detail, String parens) {
@@ -620,7 +619,7 @@ public final class SwitchLog {
     /**
      * 清空两个范围的日志：私有目录两份文件、三套按范围键，外加 v3.67 及以前那份共用的
      * {@code switch_log.txt} 和它的两个键（拆开后没人再读写，留着只会让人以为还有记录）。
-     * 导出目录里的同名副本一并覆盖成空。纯 IO。
+     * 公共日志目录里的两份镜像一并截断成空。纯 IO。
      */
     public static void clear(Context ctx) {
         if (ctx == null) {
@@ -631,8 +630,9 @@ public final class SwitchLog {
                 Files.deleteIfExists(new File(ctx.getFilesDir(), name).toPath());
             } catch (Exception ignored) {
             }
-            WallpaperExporter.writeTextFile(ctx, name, "text/plain", "");
         }
+        TakeoverManager.overwritePublicLog(ctx, FILE_HOME, "");
+        TakeoverManager.overwritePublicLog(ctx, FILE_LOCK, "");
         SharedPreferences.Editor editor = prefs(ctx).edit();
         for (boolean forHome : new boolean[]{true, false}) {
             String suffix = suffix(forHome);

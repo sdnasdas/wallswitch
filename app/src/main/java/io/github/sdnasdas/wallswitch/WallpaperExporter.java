@@ -154,7 +154,11 @@ public final class WallpaperExporter {
         return null;
     }
 
-    /** 换/清目录后，按文件名缓存的文档 URI 全部失效（指向旧目录），清掉让下次重建。 */
+    /**
+     * 换/清目录后，按文件名缓存的文档 URI 全部失效（指向旧目录），清掉让下次重建。
+     * v3.168 起切换日志镜像改走 {@link TakeoverManager#appendPublicLog}（默认导出目录
+     * log/ 下追加），这类键只剩历史遗留，这里顺手清。
+     */
     private static void clearDocCache(Context context) {
         SharedPreferences p = prefs(context);
         SharedPreferences.Editor e = p.edit();
@@ -286,57 +290,6 @@ public final class WallpaperExporter {
         } catch (Exception ignored) {
         }
         return map;
-    }
-
-    /**
-     * 把一段文本写到导出目录（同名覆盖）。用于同步切换日志。
-     * 首次创建文档并记下 URI，之后用 "wt" 截断重写；文档被删/移动时清掉记录，下次重建。
-     *
-     * <p>URI 按<b>文件名</b>分开存：这里同时背着桌面日志、锁屏日志两个名字（清空时还有个历史
-     * 名），以前共用一个键，等于第二个名字写进来时拿到的还是第一份文档的 URI —— 于是导出目录里
-     * 只有一份文件，内容还是后写的那份。私有目录里两份都全，所以只有导出副本会串。
-     */
-    public static boolean writeTextFile(Context context, String displayName, String mime,
-                                        String content) {
-        if (content == null || !canExport(context)) {
-            return false;
-        }
-        OutputStream out = null;
-        try {
-            Uri doc = existingDocUri(context, displayName);
-            if (doc == null) {
-                doc = openDocForWrite(context, displayName, mime);
-                if (doc == null) {
-                    return false;
-                }
-                putDocUri(context, displayName, doc);
-            }
-            out = context.getContentResolver().openOutputStream(doc, "wt");
-            if (out == null) {
-                return false;
-            }
-            out.write(content.getBytes(StandardCharsets.UTF_8));
-            return true;
-        } catch (Exception e) {
-            prefs(context).edit().remove(docKey(displayName)).apply();
-            return false;
-        } finally {
-            closeQuietly(out);
-        }
-    }
-
-    /** 每个文件名一个键；老的那个单键（v3.89 前共用）不再读，留着无害。 */
-    private static String docKey(String displayName) {
-        return KEY_DOC_URI + "#" + displayName;
-    }
-
-    private static Uri existingDocUri(Context context, String displayName) {
-        String value = prefs(context).getString(docKey(displayName), null);
-        return value == null || value.isEmpty() ? null : Uri.parse(value);
-    }
-
-    private static void putDocUri(Context context, String displayName, Uri doc) {
-        prefs(context).edit().putString(docKey(displayName), doc.toString()).apply();
     }
 
     /**
