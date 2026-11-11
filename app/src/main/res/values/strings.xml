@@ -520,7 +520,7 @@
     <string name="restore_done">已恢复 %1$d 条元数据、写回 %2$d 个设置项、%3$d 张图（包里缺图而丢弃 %4$d 条）</string>
     <string name="restore_failed">恢复失败：%1$s</string>
     <string name="restore_ask_title">要从备份包恢复吗？</string>
-    <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装），默认目录（下载/wallswitch）里也没找到备份包。如果你之前备份过，可以手动选那个 zip 接回来；不点也没关系，以后随时能在「设置 → 从备份包恢复」里恢复。</string>
+    <string name="restore_not_found">未找到可还原的备份包</string>
     <string name="restore_ask_go">手动选备份包</string>
     <string name="restore_ask_no">跳过，全新开始</string>
     <string name="restore_ask_grant">授权访问默认目录</string>

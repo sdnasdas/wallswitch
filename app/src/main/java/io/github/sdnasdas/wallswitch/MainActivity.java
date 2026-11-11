@@ -3460,18 +3460,21 @@ public class MainActivity extends AppCompatActivity {
     /** 首次引导弹窗：扫到备份包就列出来（点哪条还原哪条），否则给「授权默认目录 / 手动选包 / 跳过」。 */
     void showRestoreOnboarding(final java.util.List<BackupStore.BackupCandidate> found) {
         if (found.isEmpty()) {
-            // 附带扫描诊断：厂商 MediaProvider 差异导致扫不到时，用户截图即可反馈原因
-            new AppAlertDialogBuilder(this)
+            // 没找到备份包：一句话说明 + 三个竖排胶囊按钮（授权默认目录 / 手动选包 / 跳过）
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(20), dp(4), dp(20), dp(8));
+            final AlertDialog dialog = new AppAlertDialogBuilder(this)
                     .setTitle(R.string.restore_ask_title)
-                    .setMessage(getString(R.string.restore_ask_msg)
-                            + "\n\n扫描诊断：" + BackupStore.lastScanSummary)
-                    .setPositiveButton(R.string.restore_ask_go, (dialog, which) ->
-                            restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
-                    // SAF 目录授权不受属主限制，是最可靠的兜底
-                    .setNeutralButton(R.string.restore_ask_grant, (dialog, which) ->
-                            launchRestoreTreePicker())
-                    .setNegativeButton(R.string.restore_ask_no, null)
-                    .show();
+                    .setMessage(R.string.restore_not_found)
+                    .setView(box)
+                    .create();
+            box.addView(restoreCapsuleButton(dialog, R.string.restore_ask_grant,
+                    this::launchRestoreTreePicker));
+            box.addView(restoreCapsuleButton(dialog, R.string.restore_ask_go,
+                    () -> restoreZipLauncher.launch(new String[]{"application/zip", "*/*"})));
+            box.addView(restoreCapsuleButton(dialog, R.string.restore_ask_no, () -> { }));
+            dialog.show();
             return;
         }
         // 列表弹窗不配 setMessage：配了列表会被量成零高（项目约定）
@@ -3486,6 +3489,23 @@ public class MainActivity extends AppCompatActivity {
                         restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
                 .setNegativeButton(R.string.restore_ask_no, null)
                 .show();
+    }
+
+    /** 引导弹窗的竖排胶囊按钮：点击后先关弹窗再执行动作。 */
+    private MaterialButton restoreCapsuleButton(final AlertDialog dialog, int textRes,
+            final Runnable action) {
+        MaterialButton b = new MaterialButton(this);
+        b.setText(textRes);
+        b.setCornerRadius(dp(24));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> {
+            dialog.dismiss();
+            action.run();
+        });
+        return b;
     }
 
     /** 拉起 SAF 目录选择器并尽量定位到默认目录（下载/wallswitch），让用户把目录授给我们。 */
