@@ -639,24 +639,30 @@ public final class BackupStore {
         if (!WallpaperExporter.supportsDefaultDir()) {
             return out;
         }
-        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        // 注意不在 WHERE 里筛 RELATIVE_PATH：荣耀/小米这类定制 MediaProvider 对
+        // Downloads 集合的 RELATIVE_PATH 过滤支持不可靠，实测会把结果滤空。
+        // 只按文件名粗筛，RELATIVE_PATH 取回来在 Java 里自己比对。
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL);
         try (Cursor c = context.getContentResolver().query(collection,
                 new String[]{MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME,
-                        MediaStore.Downloads.SIZE},
-                MediaStore.Downloads.RELATIVE_PATH + "=? AND "
-                        + MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
-                new String[]{WallpaperExporter.DEFAULT_RELATIVE_PATH, "wallswitch-backup-%.zip"},
-                MediaStore.Downloads.DATE_MODIFIED + " DESC")) {
+                        MediaStore.Downloads.SIZE, MediaStore.Downloads.RELATIVE_PATH},
+                MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
+                new String[]{"wallswitch-backup-%.zip"}, null)) {
             if (c == null) {
                 return out;
             }
             while (c.moveToNext()) {
+                if (!WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(c.getString(3))) {
+                    continue;
+                }
                 out.add(new BackupCandidate(
                         ContentUris.withAppendedId(collection, c.getLong(0)),
                         c.getString(1), c.getLong(2)));
             }
         } catch (Exception ignored) {
         }
+        // 文件名自带时间戳，按名倒序即新的在前（不依赖厂商的 DATE_MODIFIED 排序支持）
+        out.sort((a, b) -> b.name.compareTo(a.name));
         return out;
     }
 

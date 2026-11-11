@@ -50,8 +50,10 @@ android {
         // 首次启动引导改为扫默认目录列出备份包供选择，没有则手动选包或跳过
         // 166/3.159：修复首次引导不弹 —— LibraryStore.load 首跑自动建默认库，
         // 「库列表为空」永远成立不了，新装机判定只能看壁纸库文件与壁纸是否为空
-        versionCode 166
-        versionName "3.159"
+        // 167/3.160：修复默认目录扫描扫不到 —— 定制 MediaProvider 不支持在 WHERE 里
+        // 筛 RELATIVE_PATH，改为文件名粗筛 + Java 里比路径
+        versionCode 167
+        versionName "3.160"
     }
 
     signingConfigs {
