@@ -33,6 +33,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Process;
+import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.Layout;
@@ -150,6 +151,8 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<Uri> exportDirLauncher;
     // 还原：用户直接指一个备份包（ACTION_OPEN_DOCUMENT，每次现授临时读权限，不依赖卸载前那个目录授权）
     private ActivityResultLauncher<String[]> restoreZipLauncher;
+    // 还原兜底：让用户把默认目录授给我们（SAF 目录授权不受属主限制，卸载清了 MediaStore 条目也能列出）
+    private ActivityResultLauncher<Uri> restoreTreeLauncher;
     private SharedPreferences prefs;
     /** 保存当前壁纸 / 读备份包时的不可关闭进度弹窗（showProgress/dismissTakeoverProgress 管理）。 */
     private androidx.appcompat.app.AlertDialog takeoverProgress;
@@ -300,6 +303,8 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.OpenDocumentTree(), this::onExportDirPicked);
         restoreZipLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocument(), this::onRestoreZipPicked);
+        restoreTreeLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocumentTree(), this::onRestoreTreePicked);
 
         bottomNav = findViewById(R.id.bottom_nav);
         pageNow = findViewById(R.id.page_now);
@@ -3452,7 +3457,7 @@ public class MainActivity extends AppCompatActivity {
         }, "restore-scan").start();
     }
 
-    /** 首次引导弹窗：扫到备份包就列出来（点哪条还原哪条），否则只给手动选包与跳过。 */
+    /** 首次引导弹窗：扫到备份包就列出来（点哪条还原哪条），否则给「授权默认目录 / 手动选包 / 跳过」。 */
     void showRestoreOnboarding(final java.util.List<BackupStore.BackupCandidate> found) {
         if (found.isEmpty()) {
             // 附带扫描诊断：厂商 MediaProvider 差异导致扫不到时，用户截图即可反馈原因
@@ -3462,6 +3467,9 @@ public class MainActivity extends AppCompatActivity {
                             + "\n\n扫描诊断：" + BackupStore.lastScanSummary)
                     .setPositiveButton(R.string.restore_ask_go, (dialog, which) ->
                             restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
+                    // SAF 目录授权不受属主限制，是最可靠的兜底
+                    .setNeutralButton(R.string.restore_ask_grant, (dialog, which) ->
+                            launchRestoreTreePicker())
                     .setNegativeButton(R.string.restore_ask_no, null)
                     .show();
             return;
@@ -3478,6 +3486,41 @@ public class MainActivity extends AppCompatActivity {
                         restoreZipLauncher.launch(new String[]{"application/zip", "*/*"}))
                 .setNegativeButton(R.string.restore_ask_no, null)
                 .show();
+    }
+
+    /** 拉起 SAF 目录选择器并尽量定位到默认目录（下载/wallswitch），让用户把目录授给我们。 */
+    void launchRestoreTreePicker() {
+        Uri initial = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents", "primary:Download/wallswitch");
+        try {
+            restoreTreeLauncher.launch(initial);
+        } catch (Exception e) {
+            restoreTreeLauncher.launch(null);
+        }
+    }
+
+    /** 目录授权回来：顺手存成导出目录，然后按 SAF 列目录里的备份包，有就直接进列表弹窗。 */
+    void onRestoreTreePicked(Uri treeUri) {
+        if (treeUri == null) {
+            return;
+        }
+        WallpaperExporter.setTreeUri(this, treeUri);
+        refreshExportRows();
+        Toast.makeText(this, R.string.export_dir_set, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final java.util.List<BackupStore.BackupCandidate> found =
+                    BackupStore.scanTreeBackups(getApplicationContext(), treeUri);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (found.isEmpty()) {
+                    Toast.makeText(this, R.string.restore_tree_empty, Toast.LENGTH_LONG).show();
+                } else {
+                    showRestoreOnboarding(found);
+                }
+            });
+        }, "restore-tree-scan").start();
     }
 
     /** 列表项文案：从 wallswitch-backup-yyyyMMdd-HHmmss.zip 里抠时间，附大小；解析不了就显示原文件名。 */

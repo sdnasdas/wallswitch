@@ -523,6 +523,8 @@
     <string name="restore_ask_msg">这台机器上还没有壁纸库（像是刚重装），默认目录（下载/wallswitch）里也没找到备份包。如果你之前备份过，可以手动选那个 zip 接回来；不点也没关系，以后随时能在「设置 → 从备份包恢复」里恢复。</string>
     <string name="restore_ask_go">手动选备份包</string>
     <string name="restore_ask_no">跳过，全新开始</string>
+    <string name="restore_ask_grant">授权访问默认目录</string>
+    <string name="restore_tree_empty">这个目录里没有找到备份包，可以点「设置 → 从备份包恢复」手动选 zip</string>
     <string name="restore_pick_title">找到 %1$d 个备份包，选一个恢复</string>
 
     <!-- v3.134 改版：底部三栏 此刻 / 图库 / 设置 -->

@@ -2,8 +2,10 @@ package io.github.sdnasdas.wallswitch;
 
 import android.content.ContentUris;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.DocumentsContract;
@@ -24,6 +26,8 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -644,31 +648,77 @@ public final class BackupStore {
         if (!WallpaperExporter.supportsDefaultDir()) {
             return out;
         }
-        // 荣耀实测：卸载重装后 MediaStore 里连文件名粗筛都命中 0 —— 条目被清了，文件还在磁盘上。
-        // 所以备三条通道：Downloads 集合 → Files 集合 → 文件系统直读，前者空了就试后者，
-        // 命中数写进诊断，便于确认到底是哪条通道在这台机器上有效。
-        int viaDownloads = collectFromCollection(context,
-                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL), out);
-        int viaFiles = 0;
+        // 荣耀实测：卸载后 MediaStore 条目被清、直读目录被共享存储过滤，三条通道全空而文件还在。
+        // 诊断要区分两种死因（集合对应用整体不可见 vs 只是我们的条目没了），
+        // 并尝试触发系统媒体扫描重建索引后补查。
+        StringBuilder diag = new StringBuilder();
+        Uri downloads = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL);
+        Uri files = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL);
+        diag.append("Downloads全量 ").append(probeCollection(context, downloads));
+        diag.append("；按名命中 Downloads=").append(collectFromCollection(context, downloads, out, diag));
         if (out.isEmpty()) {
-            viaFiles = collectFromCollection(context,
-                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), out);
+            diag.append(" Files=").append(collectFromCollection(context, files, out, diag));
         }
-        int viaFs = 0;
         if (out.isEmpty()) {
-            viaFs = collectFromFileSystem(out);
+            diag.append(" 直读=").append(collectFromFileSystem(out));
+        }
+        if (out.isEmpty()) {
+            triggerMediaScan(context);
+            int again = collectFromCollection(context, downloads, out, diag);
+            if (out.isEmpty()) {
+                again += collectFromCollection(context, files, out, diag);
+            }
+            diag.append("；重建索引后补查=").append(again);
         }
         // 默认目录里的排前面，其余按文件名（自带时间戳）倒序 —— 不依赖厂商的排序支持
         out.sort((a, b) -> a.inDefaultDir != b.inDefaultDir
                 ? (a.inDefaultDir ? -1 : 1) : b.name.compareTo(a.name));
-        lastScanSummary = "Downloads集合 " + viaDownloads + " 个，Files集合 " + viaFiles
-                + " 个，文件直读 " + viaFs + " 个";
+        lastScanSummary = diag.toString();
         return out;
+    }
+
+    /** 诊断用：不带任何过滤查一轮，看集合对应用可见的总行数与文件名样本。 */
+    private static String probeCollection(Context context, Uri collection) {
+        int total = 0;
+        StringBuilder names = new StringBuilder();
+        try (Cursor c = context.getContentResolver().query(collection,
+                new String[]{MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null) {
+                while (c.moveToNext()) {
+                    total++;
+                    if (names.length() < 60) {
+                        if (names.length() > 0) names.append(',');
+                        names.append(c.getString(0));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return "查询异常:" + e;
+        }
+        return total + " 行（" + (names.length() == 0 ? "无样本" : names) + "）";
+    }
+
+    /** 触发系统媒体扫描重建目录索引，给卸载后被清条目的文件一次回到 MediaStore 的机会。 */
+    private static void triggerMediaScan(Context context) {
+        File dir = new File(Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS), "wallswitch");
+        final CountDownLatch latch = new CountDownLatch(1);
+        try {
+            MediaScannerConnection.scanFile(context, new String[]{dir.getAbsolutePath()}, null,
+                    (path, uri) -> latch.countDown());
+            latch.await(3, TimeUnit.SECONDS); // 目录路径可能根本不回调，等几秒就放行
+        } catch (Exception ignored) {
+        }
+        try {
+            context.sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(dir)));
+            Thread.sleep(1500);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 从 MediaStore 某个集合按文件名粗筛（不筛路径，厂商对 RELATIVE_PATH 过滤支持不可靠）。 */
     private static int collectFromCollection(Context context, Uri collection,
-            java.util.List<BackupCandidate> out) {
+            java.util.List<BackupCandidate> out, StringBuilder diag) {
         int hit = 0;
         try (Cursor c = context.getContentResolver().query(collection,
                 new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
@@ -684,7 +734,8 @@ public final class BackupStore {
                             WallpaperExporter.DEFAULT_RELATIVE_PATH.equals(c.getString(3))));
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            diag.append("[").append(collection.getLastPathSegment()).append("异常:").append(e).append("]");
         }
         return hit;
     }
@@ -710,6 +761,64 @@ public final class BackupStore {
 
     /** 最近一次扫描的诊断信息，「没找到」弹窗附带给用户看（排查厂商 MediaProvider 差异用）。 */
     public static volatile String lastScanSummary = "";
+
+    /**
+     * 通过 SAF 目录授权列出树里的备份包。SAF 授权不受「属主」限制，卸载清了 MediaStore 条目、
+     * 共享存储挡住直读都不影响 —— 只要用户亲手把目录授给我们就能列出。授到上一级
+     * （Download）时会自动钻进 wallswitch 子目录找。
+     */
+    public static java.util.List<BackupCandidate> scanTreeBackups(Context context, Uri treeUri) {
+        java.util.List<BackupCandidate> out = new java.util.ArrayList<>();
+        try {
+            String rootDocId = DocumentsContract.getTreeDocumentId(treeUri);
+            // 授的是上一级（Download 之类）时，先找 wallswitch 子目录
+            String dirDocId = findChildDir(context, treeUri, rootDocId, "wallswitch");
+            if (dirDocId == null && rootDocId != null && rootDocId.endsWith(":Download/wallswitch")) {
+                dirDocId = rootDocId;
+            }
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri,
+                    dirDocId == null ? rootDocId : dirDocId);
+            try (Cursor c = context.getContentResolver().query(children,
+                    new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                            DocumentsContract.Document.COLUMN_SIZE},
+                    null, null, null)) {
+                while (c != null && c.moveToNext()) {
+                    String name = c.getString(1);
+                    if (name == null || !name.startsWith("wallswitch-backup-")
+                            || !name.endsWith(".zip")) {
+                        continue;
+                    }
+                    out.add(new BackupCandidate(
+                            DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0)),
+                            name, c.getLong(2), true));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        out.sort((a, b) -> b.name.compareTo(a.name));
+        return out;
+    }
+
+    /** 在树的某层里找一个指定名字的子目录，找到返回它的 documentId，没有返回 null。 */
+    private static String findChildDir(Context context, Uri treeUri, String parentDocId,
+            String name) {
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId);
+        try (Cursor c = context.getContentResolver().query(children,
+                new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE},
+                null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                if (name.equals(c.getString(1))
+                        && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) {
+                    return c.getString(0);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
 
     private static java.util.List<File> listFiles(File dir) {
         java.util.List<File> out = new java.util.ArrayList<>();

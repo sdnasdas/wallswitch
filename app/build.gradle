@@ -56,8 +56,12 @@ android {
         // 「没找到」弹窗附扫描诊断，便于排查厂商 MediaProvider 差异
         // 169/3.162：荣耀实测卸载后 MediaStore 条目被清（粗筛命中 0），扫描改三条通道
         // 依次兜底：Downloads 集合 → Files 集合 → /sdcard 文件直读，诊断分别报数
-        versionCode 169
-        versionName "3.162"
+        // 170/3.163：三通道全 0 但文件还在 —— 加全量探测区分「集合整体不可见」与
+        // 「仅我们的条目被清」，并触发系统媒体扫描重建索引后补查一轮
+        // 171/3.164：引导弹窗加「授权访问默认目录」—— SAF 目录授权不受属主限制，
+        // 卸载清了 MediaStore 条目也能列出备份包；授权顺手存为导出目录
+        versionCode 171
+        versionName "3.164"
     }
 
     signingConfigs {
