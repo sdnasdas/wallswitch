@@ -41,9 +41,10 @@ public class LibraryStore {
     // 切换模式取值
     public static final String MODE_ORDER = "order";
     public static final String MODE_RANDOM = "random";
-    // 桌面触发方式取值（v3.152）：定时 / 回桌面。锁屏没有回桌面一说，恒为定时
+    // 触发方式取值：定时（两面通用）/ 回桌面（桌面专属，v3.152）/ 灭屏（锁屏专属，v3.170）
     public static final String TRIGGER_TIMER = "timer";
     public static final String TRIGGER_RETURN = "return";
+    public static final String TRIGGER_SCREEN_OFF = "screen_off";
     // 默认切换间隔（秒）
     public static final int DEFAULT_INTERVAL_SECONDS = 1800;
     // 最短切换间隔（秒）：WorkManager 省电方案的系统下限为 15 分钟
@@ -303,40 +304,60 @@ public class LibraryStore {
     }
 
     /**
-     * 桌面的触发方式（{@link #TRIGGER_TIMER} 默认 / {@link #TRIGGER_RETURN}）。
-     * 锁屏没有「回桌面」事件，无论存什么都按定时处理。
+     * 该面的触发方式：{@link #TRIGGER_TIMER}（默认）或该面专属的事件档
+     * （桌面 = {@link #TRIGGER_RETURN}，锁屏 = {@link #TRIGGER_SCREEN_OFF}）。
+     * 存的值不属于这一面（比如锁屏里存了 return）一律按定时处理。
      */
     public static String scopeTriggerMode(Context ctx, boolean forHome) {
-        if (!forHome) {
-            return TRIGGER_TIMER;
+        String stored = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(slotKey(forHome) + "_trigger", TRIGGER_TIMER);
+        return eventTrigger(forHome).equals(stored) ? stored : TRIGGER_TIMER;
+    }
+
+    /** 这一面专属的事件触发档：桌面 = 回桌面，锁屏 = 灭屏。 */
+    public static String eventTrigger(boolean forHome) {
+        return forHome ? TRIGGER_RETURN : TRIGGER_SCREEN_OFF;
+    }
+
+    /** 该面是否由事件驱动（回桌面 / 灭屏）而不是定时：是的话没有周期任务、没有「下次几点」。 */
+    public static boolean isEventTrigger(Context ctx, boolean forHome) {
+        return !TRIGGER_TIMER.equals(scopeTriggerMode(ctx, forHome));
+    }
+
+    /** 触发方式的完整文案（卡片摘要、日志用）。 */
+    public static int triggerLabelRes(String mode) {
+        if (TRIGGER_RETURN.equals(mode)) {
+            return R.string.trigger_mode_return;
         }
-        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(slotKey(true) + "_trigger", TRIGGER_TIMER);
+        if (TRIGGER_SCREEN_OFF.equals(mode)) {
+            return R.string.trigger_mode_screen_off;
+        }
+        return R.string.trigger_mode_timer;
     }
 
     /**
-     * 改桌面触发方式（二选一）：回桌面 = 撤掉桌面这条定时任务（周期唤醒归零，由引擎可见性回调驱动）；
+     * 改该面的触发方式（定时 / 该面的事件档，二选一）：事件档 = 撤掉这一面的定时任务
+     * （周期唤醒归零，桌面由引擎可见性回调驱动、锁屏由灭屏广播驱动）；
      * 定时 = 从这一刻重新起算一整轮（restartScope 口径，不写日志正文行）。
      * 槽位没库时只记偏好，不动调度。
      */
-    public static void setScopeTriggerMode(Context ctx, String mode) {
-        String normalized = TRIGGER_RETURN.equals(mode) ? TRIGGER_RETURN : TRIGGER_TIMER;
-        if (normalized.equals(scopeTriggerMode(ctx, true))) {
+    public static void setScopeTriggerMode(Context ctx, boolean forHome, String mode) {
+        String event = eventTrigger(forHome);
+        String normalized = event.equals(mode) ? event : TRIGGER_TIMER;
+        if (normalized.equals(scopeTriggerMode(ctx, forHome))) {
             return;
         }
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putString(slotKey(true) + "_trigger", normalized)
+                .putString(slotKey(forHome) + "_trigger", normalized)
                 .apply();
-        if (slotLibId(ctx, true) != null) {
-            if (TRIGGER_RETURN.equals(normalized)) {
-                TimerScheduler.cancelScope(ctx, true);
+        if (slotLibId(ctx, forHome) != null) {
+            if (event.equals(normalized)) {
+                TimerScheduler.cancelScope(ctx, forHome);
             } else {
-                TimerScheduler.restartScope(ctx, true, null);
+                TimerScheduler.restartScope(ctx, forHome, null);
             }
         }
-        SwitchLog.recordTriggerChange(ctx, true,
-                ctx.getString(TRIGGER_RETURN.equals(normalized)
-                        ? R.string.trigger_mode_return : R.string.trigger_mode_timer));
+        SwitchLog.recordTriggerChange(ctx, forHome, ctx.getString(triggerLabelRes(normalized)));
         WidgetProvider.updateWidget(ctx);
         StatusNotifier.update(ctx);
     }

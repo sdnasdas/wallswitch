@@ -150,9 +150,10 @@ public final class SwitchLog {
             if (nextTriggerMillis > 0L) {
                 parens = app.getString(R.string.log_suffix_manual,
                         gapPart, tag, TimerScheduler.clockText(app, nextTriggerMillis));
-            } else if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(app, forHome))) {
-                // 回桌面模式：没有「下次约几点」，只有「下次回桌面时」
-                parens = app.getString(R.string.log_suffix_manual_return, gapPart, tag);
+            } else if (LibraryStore.isEventTrigger(app, forHome)) {
+                // 事件档：没有「下次约几点」，只有「下次回桌面时 / 下次灭屏时」
+                parens = app.getString(forHome ? R.string.log_suffix_manual_return
+                        : R.string.log_suffix_manual_screen_off, gapPart, tag);
             } else {
                 // 暂停中手动切一张：没有「下次」可承诺（任务已撤），只标这一张停在这儿
                 parens = app.getString(R.string.log_suffix_manual_paused, gapPart, tag);
@@ -179,7 +180,7 @@ public final class SwitchLog {
                         : c.getString(R.string.log_config_mode_no_next, modeText));
     }
 
-    /** 记一行「改了桌面触发方式」（定时/回桌面，v3.152）。异步写。 */
+    /** 记一行「改了触发方式」（定时 / 回桌面 / 灭屏，v3.152 / v3.170）。异步写。 */
     public static void recordTriggerChange(Context ctx, boolean forHome, String modeText) {
         recordConfig(ctx, forHome, false, (c, prevTime, now) ->
                 c.getString(R.string.log_config_trigger, modeText));

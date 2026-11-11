@@ -1129,6 +1129,10 @@ public class MainActivity extends AppCompatActivity {
         if (LibraryStore.slotPaused(this, forHome)) {
             return getString(R.string.slot_paused_label);
         }
+        // 事件档没有定时格子，「尚未排定」会让人以为没生效
+        if (LibraryStore.slotLibId(this, forHome) != null && LibraryStore.isEventTrigger(this, forHome)) {
+            return getString(forHome ? R.string.now_next_return : R.string.now_next_screen_off);
+        }
         long next = TimerScheduler.scopeTrigger(this, forHome);
         if (next < 0) {
             return getString(R.string.now_next_none);
@@ -1540,9 +1544,33 @@ public class MainActivity extends AppCompatActivity {
             refreshSlotCards();
         });
         final TextView tvInterval = content.findViewById(R.id.tv_interval);
-        tvInterval.setText(slotIntervalDisplay(forHome));
-        content.findViewById(R.id.row_interval).setOnClickListener(
-                v -> showIntervalPicker(forHome, tvInterval));
+        final TextView tvIntervalLabel = content.findViewById(R.id.tv_interval_label);
+        final TextView tvTriggerHint = content.findViewById(R.id.tv_trigger_hint);
+        bindTriggerRows(forHome, tvIntervalLabel, tvInterval, tvTriggerHint);
+        content.findViewById(R.id.row_interval).setOnClickListener(v -> {
+            // 同一行两用：定时档调「切换间隔」，事件档调「最小间隔」
+            if (LibraryStore.isEventTrigger(this, forHome)) {
+                showMinGapPicker(forHome, tvInterval);
+            } else {
+                showIntervalPicker(forHome, tvInterval);
+            }
+        });
+        // 触发方式（v3.170 从设置页挪进来）：右边那颗按面填字，先 check 再挂监听
+        ((Button) content.findViewById(R.id.btn_trigger_event)).setText(forHome
+                ? R.string.trigger_short_return : R.string.trigger_short_screen_off);
+        MaterialButtonToggleGroup trigger = content.findViewById(R.id.toggle_trigger);
+        trigger.check(LibraryStore.isEventTrigger(this, forHome)
+                ? R.id.btn_trigger_event : R.id.btn_trigger_timer);
+        trigger.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) {
+                return;
+            }
+            LibraryStore.setScopeTriggerMode(this, forHome, checkedId == R.id.btn_trigger_event
+                    ? LibraryStore.eventTrigger(forHome) : LibraryStore.TRIGGER_TIMER);
+            bindTriggerRows(forHome, tvIntervalLabel, tvInterval, tvTriggerHint);
+            refreshTimerStatus();
+            refreshSlotCards();
+        });
         View clear = content.findViewById(R.id.btn_slot_clear);
         clear.setVisibility(LibraryStore.slotLibId(this, forHome) == null ? View.GONE : View.VISIBLE);
         clear.setOnClickListener(v -> {
@@ -4017,15 +4045,58 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 该范围的设置摘要行：模式 · 每 X（卡片与弹窗共用）；回桌面模式的桌面显示触发方式而非间隔。 */
+    /** 该范围的设置摘要行：模式 · 每 X（卡片用）；事件档（回桌面 / 灭屏）显示触发方式而非间隔。 */
     String slotIntervalDisplay(boolean forHome) {
         boolean random = LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(this, forHome));
         String modeText = getString(random ? R.string.mode_random : R.string.mode_order);
-        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(this, forHome))) {
-            return modeText + " · " + getString(R.string.trigger_mode_return);
+        if (LibraryStore.isEventTrigger(this, forHome)) {
+            return modeText + " · " + getString(
+                    LibraryStore.triggerLabelRes(LibraryStore.scopeTriggerMode(this, forHome)));
         }
         return modeText + " · " + getString(R.string.slot_every_prefix)
                 + formatInterval(LibraryStore.scopeIntervalSeconds(this, forHome));
+    }
+
+    /** 面板里「切换间隔 / 最小间隔」那一行右侧的值。 */
+    String slotRowValue(boolean forHome) {
+        if (LibraryStore.isEventTrigger(this, forHome)) {
+            int gap = Switcher.eventMinGapMinutes(this, forHome);
+            return gap <= 0 ? getString(R.string.min_gap_every) : getString(R.string.min_gap_value, gap);
+        }
+        return slotIntervalDisplay(forHome);
+    }
+
+    /** 按当前触发方式重填面板里那一行的标题/值和事件档的前提说明。 */
+    private void bindTriggerRows(boolean forHome, TextView label, TextView value, TextView hint) {
+        boolean event = LibraryStore.isEventTrigger(this, forHome);
+        label.setText(event ? R.string.min_gap_label : R.string.lib_interval_label);
+        value.setText(slotRowValue(forHome));
+        hint.setVisibility(event ? View.VISIBLE : View.GONE);
+        hint.setText(forHome ? R.string.trigger_hint_return : R.string.trigger_hint_screen_off);
+    }
+
+    /** 事件档最小间隔：0~60 分钟滚轮（0 = 每次都换），两面各存各的。 */
+    void showMinGapPicker(final boolean forHome, final TextView tvValue) {
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(pad, pad / 2, pad, 0);
+        final NumberPicker picker = new NumberPicker(this);
+        picker.setMinValue(0);
+        picker.setMaxValue(60);
+        picker.setWrapSelectorWheel(false);
+        picker.setValue(Math.min(60, Switcher.eventMinGapMinutes(this, forHome)));
+        row.addView(wheelColumn(picker, getString(R.string.return_gap_unit)));
+        new AppAlertDialogBuilder(this)
+                .setTitle(forHome ? R.string.return_gap_title : R.string.screen_off_gap_title)
+                .setView(row)
+                .setPositiveButton(R.string.confirm, (dialog, which) -> {
+                    Switcher.setEventMinGapMinutes(MainActivity.this, forHome, picker.getValue());
+                    tvValue.setText(slotRowValue(forHome));
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /**
@@ -4142,12 +4213,17 @@ public class MainActivity extends AppCompatActivity {
             // 暂停的那一面没有「下次」：任务已撤，倒计时留着只会骗人
             return getString(R.string.slot_paused_label);
         }
-        // 回桌面模式没有定时格子：显示触发方式与上次切换时刻（v3.152）
-        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(this, forHome))) {
-            long lastReturn = Switcher.lastReturnSwitch(this);
-            return lastReturn > 0
-                    ? getString(R.string.timer_status_return, formatClock(lastReturn))
-                    : getString(R.string.timer_status_return_never);
+        // 事件档没有定时格子：显示触发方式与上次由它换图的时刻（v3.152 回桌面 / v3.170 灭屏）
+        if (LibraryStore.isEventTrigger(this, forHome)) {
+            long lastEvent = Switcher.lastEventSwitch(this, forHome);
+            if (forHome) {
+                return lastEvent > 0
+                        ? getString(R.string.timer_status_return, formatClock(lastEvent))
+                        : getString(R.string.timer_status_return_never);
+            }
+            return lastEvent > 0
+                    ? getString(R.string.timer_status_screen_off, formatClock(lastEvent))
+                    : getString(R.string.timer_status_screen_off_never);
         }
         long next = TimerScheduler.scopeTrigger(this, forHome);
         long now = System.currentTimeMillis();

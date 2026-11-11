@@ -104,20 +104,6 @@
             app:persistent="false"
             app:title="@string/settings_design_pinned" />
 
-        <Preference
-            app:iconSpaceReserved="false"
-            app:icon="@drawable/ic_swap_vert"
-            app:key="trigger_mode"
-            app:persistent="false"
-            app:title="@string/trigger_mode_title" />
-
-        <Preference
-            app:iconSpaceReserved="false"
-            app:icon="@drawable/ic_schedule"
-            app:key="return_gap"
-            app:persistent="false"
-            app:title="@string/return_gap_title" />
-
         <SwitchPreferenceCompat
             app:iconSpaceReserved="false"
             app:icon="@drawable/ic_night"

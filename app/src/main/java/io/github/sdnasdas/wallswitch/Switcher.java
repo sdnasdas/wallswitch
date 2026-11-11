@@ -52,6 +52,10 @@ public class Switcher {
     private static final String KEY_LAST_RETURN_SWITCH = "last_return_switch";
     private static final String KEY_RETURN_MIN_GAP = "return_min_gap_minutes";
     private static final int DEFAULT_RETURN_MIN_GAP = 2;
+    // 灭屏切换锁屏（v3.170）：上次灭屏切换时刻与最小间隔（分钟，默认 0 = 每次灭屏都换）
+    private static final String KEY_LAST_SCREEN_OFF_SWITCH = "last_screen_off_switch";
+    private static final String KEY_SCREEN_OFF_MIN_GAP = "screen_off_min_gap_minutes";
+    private static final int DEFAULT_SCREEN_OFF_MIN_GAP = 0;
     // 最近一次解码结果缓存：小图库高频切换时避免反复解码同一张图（上限 1 张，控制内存）
     private static String cachedName;
     private static Bitmap cachedBitmap;
@@ -719,6 +723,62 @@ public class Switcher {
             String detail = ctx.getString(R.string.log_detail_scope,
                     ctx.getString(R.string.scope_home), lib == null || lib.name == null ? "" : lib.name);
             SwitchLog.recordAuto(ctx, true, detail, -1L, getCurrent(ctx, libId, true), libId);
+        }
+        return ok;
+    }
+
+    // ==================== 事件档的最小间隔（两面各一份） ====================
+
+    /** 该面事件档的最小间隔（分钟）：桌面 = 回桌面间隔（默认 2），锁屏 = 灭屏间隔（默认 0）。 */
+    public static int eventMinGapMinutes(Context ctx, boolean forHome) {
+        return forHome ? returnMinGapMinutes(ctx)
+                : ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getInt(KEY_SCREEN_OFF_MIN_GAP, DEFAULT_SCREEN_OFF_MIN_GAP);
+    }
+
+    public static void setEventMinGapMinutes(Context ctx, boolean forHome, int minutes) {
+        if (forHome) {
+            setReturnMinGapMinutes(ctx, minutes);
+            return;
+        }
+        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_SCREEN_OFF_MIN_GAP, Math.max(0, minutes)).apply();
+    }
+
+    /** 该面上次由事件档换图的时刻（状态行显示用），没有过返回 0。 */
+    public static long lastEventSwitch(Context ctx, boolean forHome) {
+        return forHome ? lastReturnSwitch(ctx)
+                : ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getLong(KEY_LAST_SCREEN_OFF_SWITCH, 0L);
+    }
+
+    // ==================== 灭屏切换锁屏（v3.170） ====================
+
+    /**
+     * 「灭屏时给锁屏换一张」的唯一入口（{@link ScreenOffTrigger} 收到灭屏广播后调来，后台线程）。
+     * 灭屏那一刻写进系统锁屏存档，下次亮屏看到的就是新图（真机探针：写入 70~330ms，亮屏前全部写完）。
+     * 节流只有最小间隔一道（从上一次灭屏换图起算，默认 0 = 每次都换）；
+     * 通话中的熄屏（贴脸）由调用方先挡掉。夜间过滤在 {@link #next} 内部同样生效，被滤空时静默不切。
+     */
+    public static boolean switchOnScreenOff(Context ctx) {
+        String libId = LibraryStore.slotLibId(ctx, false);
+        if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, false)
+                || !TakeoverManager.isEnabled(ctx)) {
+            return false;
+        }
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        long last = prefs.getLong(KEY_LAST_SCREEN_OFF_SWITCH, 0L);
+        if (last > 0L && now - last < eventMinGapMinutes(ctx, false) * 60_000L) {
+            return false;
+        }
+        boolean ok = next(ctx, libId, false);
+        if (ok) {
+            prefs.edit().putLong(KEY_LAST_SCREEN_OFF_SWITCH, now).apply();
+            LibraryStore.Library lib = LibraryStore.get(ctx, libId);
+            String detail = ctx.getString(R.string.log_detail_scope,
+                    ctx.getString(R.string.scope_lock), lib == null || lib.name == null ? "" : lib.name);
+            SwitchLog.recordAuto(ctx, false, detail, -1L, getCurrent(ctx, libId, false), libId);
         }
         return ok;
     }

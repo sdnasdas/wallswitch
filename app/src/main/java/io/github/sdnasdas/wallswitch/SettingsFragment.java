@@ -172,8 +172,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             WidgetProvider.updateWidget(requireContext());
         });
         click("pinned", this::onPinnedTapped);
-        click("trigger_mode", this::pickTriggerMode);
-        click("return_gap", this::pickReturnGap);
         toggle("night_filter", on -> Switcher.setNightFilterEnabled(requireContext(), on));
         click("night_period", this::pickNightPeriod);
         click("transition", this::pickTransition);
@@ -508,11 +506,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             String pin = PinnedWallpaper.label(ctx);
             return pin == null ? getString(R.string.settings_state_unset) : pin;
         });
-        summary("trigger_mode", () -> getString(
-                LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, true))
-                        ? R.string.trigger_mode_return : R.string.trigger_mode_timer));
-        summary("return_gap", () -> getString(R.string.return_gap_summary,
-                Switcher.returnMinGapMinutes(ctx)));
         checked("night_filter", () -> Switcher.nightFilterEnabled(ctx));
         summary("night_period", () -> getString(R.string.night_period_summary,
                 hourText(Switcher.nightStartMinutes(ctx)), hourText(Switcher.nightEndMinutes(ctx))));
@@ -604,53 +597,8 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 .show();
     }
 
-    // ==================== 触发方式与夜间过滤（v3.152） ====================
-
-    /** 桌面触发方式（定时 / 回桌面）：二选一，调度互斥在 LibraryStore.setScopeTriggerMode 里收口。 */
-    private void pickTriggerMode() {
-        Context ctx = requireContext();
-        final String[] values = {LibraryStore.TRIGGER_TIMER, LibraryStore.TRIGGER_RETURN};
-        String[] labels = {getString(R.string.trigger_mode_timer),
-                getString(R.string.trigger_mode_return)};
-        new AppAlertDialogBuilder(ctx)
-                .setTitle(R.string.trigger_mode_title)
-                .setSingleChoiceItems(labels,
-                        LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, true))
-                                ? 1 : 0,
-                        (d, which) -> {
-                            LibraryStore.setScopeTriggerMode(ctx, values[which]);
-                            host().refreshTimerStatus();
-                            refreshAll();
-                            d.dismiss();
-                        })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    /** 回桌面切换的最小间隔：0~30 分钟滚轮（与循环间隔同一个 wheelColumn）。 */
-    private void pickReturnGap() {
-        Context ctx = requireContext();
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(pad, pad / 2, pad, 0);
-        final NumberPicker picker = new NumberPicker(ctx);
-        picker.setMinValue(0);
-        picker.setMaxValue(30);
-        picker.setWrapSelectorWheel(false);
-        picker.setValue(Math.min(30, Switcher.returnMinGapMinutes(ctx)));
-        row.addView(host().wheelColumn(picker, getString(R.string.return_gap_unit)));
-        new AppAlertDialogBuilder(ctx)
-                .setTitle(R.string.return_gap_title)
-                .setView(row)
-                .setPositiveButton(R.string.confirm, (dialog, which) -> {
-                    Switcher.setReturnMinGapMinutes(ctx, picker.getValue());
-                    refreshAll();
-                })
-                .setNegativeButton(R.string.cancel, null)
-                .show();
-    }
+    // ==================== 夜间过滤（v3.152） ====================
+    // 触发方式与回桌面最小间隔 v3.170 起挪进每一面自己的设置面板（MainActivity#showSlotSettingsSheet）
 
     /** 夜间时段：开始/结束两个整点滚轮（跨午夜合法，如 22:00 ~ 07:00）。 */
     private void pickNightPeriod() {

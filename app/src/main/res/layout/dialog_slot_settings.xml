@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 一面（桌面 / 锁屏）的设置底部面板：点此刻页那一面的预览图打开。
-     壁纸库（点开带缩略图的选库列表）、顺序/随机、切换间隔（时/分滚轮）、卡片配色（色相 + 浓淡），
+     壁纸库（点开带缩略图的选库列表）、顺序/随机、触发方式（定时 / 回桌面或灭屏）、
+     切换间隔（定时档，时/分滚轮）或最小间隔（事件档，分钟滚轮）、暂停，
      底部「不再使用此面」= 清空这一面（原来选库列表第 0 项那条，留着它也行，这里给个显眼的出口）。
      改动即保存。 -->
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -113,6 +114,48 @@
                 android:text="@string/mode_random" />
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
+        <!-- 触发方式（v3.170 从设置页挪进来）：定时 / 该面的事件档（桌面 = 回桌面，锁屏 = 灭屏）。
+             右边那颗的字由代码按面填。选定时，下面那行是「切换间隔」；选事件档，那行变「最小间隔」 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/trigger_mode_title"
+            android:textAppearance="@style/TextAppearance.Ws.Section" />
+
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggle_trigger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+
+            <Button
+                android:id="@+id/btn_trigger_timer"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/trigger_short_timer" />
+
+            <Button
+                android:id="@+id/btn_trigger_event"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <!-- 事件档的一句前提说明（选定时时隐藏） -->
+        <TextView
+            android:id="@+id/tv_trigger_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone" />
         <LinearLayout
             android:id="@+id/row_interval"
             android:layout_width="match_parent"
@@ -126,6 +169,7 @@
             android:orientation="horizontal">
 
             <TextView
+                android:id="@+id/tv_interval_label"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

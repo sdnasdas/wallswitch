@@ -552,6 +552,9 @@
     <string name="now_next_at">下次 %1$s</string>
     <string name="now_next_overdue">已过预计时间，等待补切</string>
     <string name="now_next_none">尚未排定</string>
+    <!-- 事件档没有「下次几点」：卡片这一行直说下次什么时候换（v3.170） -->
+    <string name="now_next_return">下次回桌面时</string>
+    <string name="now_next_screen_off">下次灭屏时</string>
     <string name="now_recent_title">最近切换</string>
     <string name="pinned_pick">选一张</string>
     <string name="pinned_clear">清除</string>
@@ -608,13 +611,24 @@
     <string name="export_dir_cancel">取消导出目录</string>
     <string name="update_downloading_tap">下载中 %1$d%% · 点按取消</string>
     <string name="edit_preview_toggle">桌面图标预览</string>
-    <!-- v3.152：触发方式（定时/回桌面）+ 夜间亮度过滤 -->
-    <string name="trigger_mode_title">桌面触发方式</string>
+    <!-- v3.152：触发方式（定时/回桌面）+ 夜间亮度过滤；v3.170：锁屏加「灭屏」档，
+         触发方式与最小间隔从设置页挪进每一面自己的设置面板 -->
+    <string name="trigger_mode_title">触发方式</string>
     <string name="trigger_mode_timer">定时切换</string>
     <string name="trigger_mode_return">回桌面时切换</string>
+    <string name="trigger_mode_screen_off">灭屏时切换</string>
+    <!-- 面板里那组二选一按钮用短字，和「顺序 / 随机」一样宽 -->
+    <string name="trigger_short_timer">定时</string>
+    <string name="trigger_short_return">回桌面</string>
+    <string name="trigger_short_screen_off">灭屏</string>
     <string name="return_gap_title">回桌面切换最小间隔</string>
-    <string name="return_gap_summary">回桌面至少间隔 %1$d 分钟才换一张</string>
+    <string name="screen_off_gap_title">灭屏切换最小间隔</string>
     <string name="return_gap_unit">分钟</string>
+    <string name="min_gap_label">最小间隔</string>
+    <string name="min_gap_every">每次都换</string>
+    <string name="min_gap_value">至少 %1$d 分钟</string>
+    <string name="trigger_hint_return">每次回到桌面换一张；需要桌面正在使用本 App 的动态壁纸</string>
+    <string name="trigger_hint_screen_off">每次灭屏换一张，亮屏就是新图；需要桌面正在使用本 App 的动态壁纸，通话中熄屏不换</string>
     <string name="night_filter_title">夜间只切暗色壁纸</string>
     <string name="night_period_title">夜间时段</string>
     <string name="night_period_summary">%1$s ~ %2$s</string>
@@ -623,6 +637,7 @@
     <string name="status_night_filtered">夜间无可切的暗色壁纸</string>
     <string name="log_config_night_skipped">夜间无可切的暗色壁纸，本轮跳过</string>
     <string name="log_suffix_manual_return">" （%1$s%2$s · 回桌面时再切）"</string>
+    <string name="log_suffix_manual_screen_off">" （%1$s%2$s · 灭屏时再切）"</string>
     <string name="log_config_trigger">触发方式改为%1$s</string>
     <string name="sel_night">夜间禁用</string>
     <string name="sel_night_off">解除禁用</string>
@@ -630,4 +645,6 @@
     <string name="night_unmark_done">已对 %1$d 张解除夜间禁用</string>
     <string name="timer_status_return">回桌面时切换 · 上次 %1$s</string>
     <string name="timer_status_return_never">回桌面时切换 · 尚未切换过</string>
+    <string name="timer_status_screen_off">灭屏时切换 · 上次 %1$s</string>
+    <string name="timer_status_screen_off_never">灭屏时切换 · 尚未切换过</string>
 </resources>

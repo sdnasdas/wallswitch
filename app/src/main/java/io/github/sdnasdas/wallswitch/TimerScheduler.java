@@ -122,9 +122,9 @@ public class TimerScheduler {
         String libId = LibraryStore.slotLibId(ctx, forHome);
         // 暂停的那一面一律撤任务：不撤的话，每次回应用的 scheduleAll 会把刚撤掉的定时又排回来，
         // 暂停等于没生效（比"到点跳过"更省 —— 暂停期间连一次唤醒都没有）
-        // 桌面触发方式是「回桌面」同理：定时格子整个撤掉，切换由引擎可见性回调驱动（v3.152）
+        // 触发方式是事件档（桌面回桌面 / 锁屏灭屏）同理：定时格子整个撤掉，切换由事件驱动（v3.152 / v3.170）
         if (libId == null || libId.isEmpty() || LibraryStore.slotPaused(ctx, forHome)
-                || LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
+                || LibraryStore.isEventTrigger(ctx, forHome)) {
             cancelScope(ctx, forHome);
             return;
         }
@@ -187,9 +187,8 @@ public class TimerScheduler {
             return -1L;
         }
         boolean paused = LibraryStore.slotPaused(ctx, forHome);
-        // 回桌面模式没有「下一轮定时」：手动切一张只把 last_run 推到此刻，不排格子、不承诺下次
-        boolean returnMode = LibraryStore.TRIGGER_RETURN.equals(
-                LibraryStore.scopeTriggerMode(ctx, forHome));
+        // 事件档（回桌面 / 灭屏）没有「下一轮定时」：手动切一张只把 last_run 推到此刻，不排格子、不承诺下次
+        boolean returnMode = LibraryStore.isEventTrigger(ctx, forHome);
         long now = System.currentTimeMillis();
         long next = (paused || returnMode) ? -1L : now + intervalSeconds(ctx, forHome) * 1000L;
         SharedPreferences.Editor editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -319,8 +318,8 @@ public class TimerScheduler {
             // 暂停中不切、不记账、不记日志：正常情况下任务早被撤掉了，这里只给排队中的那一次兜底
             return false;
         }
-        // 回桌面模式下桌面的定时任务已撤，这里只兜「撤之前已排队的那一次」
-        if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
+        // 事件档下这一面的定时任务已撤，这里只兜「撤之前已排队的那一次」
+        if (LibraryStore.isEventTrigger(ctx, forHome)) {
             return false;
         }
         // 「开启接管」关着 = 本 App 不接管系统壁纸：定时任务完全不动系统（不发通知、不记日志），
@@ -420,8 +419,8 @@ public class TimerScheduler {
         }
         boolean did = false;
         for (boolean forHome : new boolean[]{true, false}) {
-            // 回桌面模式没有「定时那一轮」可补：它由引擎可见性驱动，跳过
-            if (LibraryStore.TRIGGER_RETURN.equals(LibraryStore.scopeTriggerMode(ctx, forHome))) {
+            // 事件档（回桌面 / 灭屏）没有「定时那一轮」可补：它由事件驱动，跳过
+            if (LibraryStore.isEventTrigger(ctx, forHome)) {
                 continue;
             }
             if (LibraryStore.slotLibId(ctx, forHome) != null && isDue(ctx, forHome)) {

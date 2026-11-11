@@ -353,16 +353,20 @@ public class StatusNotifier {
                 keyPending(ctx, busy, REQ_PIN, NotifActionReceiver.ACTION_PIN));
     }
 
-    /** 「库名 · 模式 · 每 X」一行（作用面不再写在这里——它已经是第二行那颗角标）。 */
+    /** 「库名 · 模式 · 每 X」一行（作用面不再写在这里——它已经是第二行那颗角标）；事件档写触发方式。 */
     private static String summaryLine(Context ctx, boolean forHome, LibraryStore.Library lib) {
         boolean random = LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome));
-        return (lib.name == null ? "" : lib.name)
-                + " · " + ctx.getString(random ? R.string.mode_random : R.string.mode_order)
-                + " · " + ctx.getString(R.string.slot_every_prefix)
+        String head = (lib.name == null ? "" : lib.name)
+                + " · " + ctx.getString(random ? R.string.mode_random : R.string.mode_order);
+        if (LibraryStore.isEventTrigger(ctx, forHome)) {
+            return head + " · " + ctx.getString(
+                    LibraryStore.triggerLabelRes(LibraryStore.scopeTriggerMode(ctx, forHome)));
+        }
+        return head + " · " + ctx.getString(R.string.slot_every_prefix)
                 + intervalText(LibraryStore.scopeIntervalSeconds(ctx, forHome));
     }
 
-    /** 时间那一行：暂停中直说"已暂停"，否则走秒倒计时或静态短句「下次 21:45」。 */
+    /** 时间那一行：暂停中直说"已暂停"，事件档直说"下次灭屏时"，否则走秒倒计时或静态短句「下次 21:45」。 */
     private static void bindTimerLine(Context ctx, RemoteViews views, boolean forHome) {
         long trigger = TimerScheduler.scopeTrigger(ctx, forHome);
         long now = System.currentTimeMillis();
@@ -370,6 +374,11 @@ public class StatusNotifier {
             views.setViewVisibility(R.id.notif_timer, View.GONE);
             views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
             views.setTextViewText(R.id.notif_waiting, ctx.getString(R.string.slot_paused_label));
+        } else if (LibraryStore.isEventTrigger(ctx, forHome)) {
+            views.setViewVisibility(R.id.notif_timer, View.GONE);
+            views.setViewVisibility(R.id.notif_waiting, View.VISIBLE);
+            views.setTextViewText(R.id.notif_waiting, ctx.getString(
+                    forHome ? R.string.now_next_return : R.string.now_next_screen_off));
         } else if (trigger > now) {
             views.setViewVisibility(R.id.notif_timer, View.VISIBLE);
             views.setViewVisibility(R.id.notif_waiting, View.GONE);

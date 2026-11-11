@@ -378,6 +378,8 @@ public class WallSwitchService extends GLWallpaperService {
         setupThermalListener(getApplicationContext());
         // 电池温度：常驻通知那行温度的刷新源，也是低版本闸门的信号
         setupBatteryTempListener(getApplicationContext());
+        // 锁屏「灭屏时切换」（v3.170）：灭屏广播只能动态注册，挂在这个被系统绑定常驻的服务上
+        ScreenOffTrigger.register(getApplicationContext());
         // 记下当前深浅色档：之后只有真的翻档才重发小组件与通知（见 WallEngine#onConfigurationChanged）
         lastNightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         // 引擎进程任何线程崩溃都落一份堆栈到公共目录：黑屏/发热/反复重启这类"现象级故障"
