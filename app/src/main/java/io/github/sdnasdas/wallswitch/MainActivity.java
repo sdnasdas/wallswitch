@@ -5043,6 +5043,48 @@ public class MainActivity extends AppCompatActivity {
         }, "wallpaper-export-all").start();
     }
 
+    /**
+     * 清理冗余文件：后台扫出孤儿与双格式残留（留 JPEG 删 PNG），弹确认窗报完分类计数才动手。
+     * 双格式那批的格式标记在 deleteRedundant 里作废，网格角标重算，不用刷网格。
+     */
+    void startPrune() {
+        Toast.makeText(this, R.string.prune_scanning, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final WallpaperStore.RedundantScan scan =
+                    WallpaperStore.scanRedundant(getApplicationContext());
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (scan.count() == 0) {
+                    Toast.makeText(this, R.string.prune_none, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new AppAlertDialogBuilder(this)
+                        .setTitle(R.string.prune_title)
+                        .setMessage(getString(R.string.prune_confirm, scan.count(),
+                                scan.bytes() / (1024 * 1024), scan.fullDupes, scan.fullOrphans,
+                                scan.originals, scan.thumbs))
+                        .setPositiveButton(R.string.prune_go, (dialog, which) -> runPrune(scan))
+                        .setNegativeButton(R.string.cancel, null)
+                        .show();
+            });
+        }, "prune-scan").start();
+    }
+
+    private void runPrune(WallpaperStore.RedundantScan scan) {
+        new Thread(() -> {
+            final int deleted = WallpaperStore.deleteRedundant(scan);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                Toast.makeText(this, getString(R.string.prune_done, deleted,
+                        scan.bytes() / (1024 * 1024)), Toast.LENGTH_LONG).show();
+            });
+        }, "prune-delete").start();
+    }
+
     /** 备份整库：一个 zip 装下图、缩略图、两个 json 和 prefs，写进导出目录（没设自定义目录则落默认目录）。 */
     void startBackup() {
         if (!WallpaperExporter.canExport(this)) {

@@ -527,6 +527,15 @@
     <string name="restore_tree_empty">这个目录里没有找到备份包，可以点「设置 → 从备份包恢复」手动选 zip</string>
     <string name="restore_pick_title">找到 %1$d 个备份包，选一个恢复</string>
 
+    <!-- 清理冗余文件：按 library.json 对账三个内部目录，删孤儿与同 id 双格式里读侧不认的那份 -->
+    <string name="settings_design_storage">存储空间</string>
+    <string name="prune_title">清理冗余文件</string>
+    <string name="prune_scanning">正在扫描…</string>
+    <string name="prune_none">没有可清理的冗余文件</string>
+    <string name="prune_confirm">发现 %1$d 个冗余文件，共约 %2$d MB：\n\n· 重复保存的成品图 %3$d 份（同一张存了 PNG 和 JPEG 两份，只留 JPEG 那份）\n· 没有对应条目的成品图 %4$d 张\n· 没有对应条目的原图 %5$d 张\n· 没有对应条目的缩略图 %6$d 张\n\n删除不影响任何现有壁纸。</string>
+    <string name="prune_go">清理</string>
+    <string name="prune_done">已清理 %1$d 个冗余文件，释放约 %2$d MB</string>
+
     <!-- v3.134 改版：底部三栏 此刻 / 图库 / 设置 -->
     <string name="tab_now">此刻</string>
     <string name="tab_gallery">图库</string>

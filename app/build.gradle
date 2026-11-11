@@ -62,8 +62,10 @@ android {
         // 卸载清了 MediaStore 条目也能列出备份包；授权顺手存为导出目录
         // 172/3.165：引导弹窗精简 —— 没找到只留一句「未找到可还原的备份包」，
         // 三个按钮改竖排胶囊；删掉调试期的扫描诊断与媒体扫描重建代码
-        versionCode 172
-        versionName "3.165"
+        // 173/3.166：数据与文件页加「清理冗余文件」—— 按 library.json 对账三个内部目录，
+        // 删孤儿文件；同 id 双格式并存留 JPEG 删 PNG
+        versionCode 173
+        versionName "3.166"
     }
 
     signingConfigs {

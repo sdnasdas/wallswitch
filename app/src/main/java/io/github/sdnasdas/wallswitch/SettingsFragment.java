@@ -191,6 +191,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         click("export_now", () -> host().exportAllWallpapers());
         click("backup", () -> host().startBackup());
         click("restore", () -> host().launchRestorePicker());
+        click("prune", () -> host().startPrune());
         click("update_source", this::pickUpdateSource);
         toggle("auto_update", on -> UpdateChecker.setAutoCheck(requireContext(), on));
         click("update", () -> host().onUpdateRowTapped());

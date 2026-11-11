@@ -206,6 +206,18 @@
                     app:persistent="false"
                     app:title="@string/video_trim_title" />
             </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/settings_design_storage">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_delete"
+                    app:key="prune"
+                    app:persistent="false"
+                    app:title="@string/prune_title" />
+            </PreferenceCategory>
         </PreferenceScreen>
     </PreferenceCategory>
 

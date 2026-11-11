@@ -1288,6 +1288,125 @@ public class WallpaperStore {
         return f.isFile() && f.length() > 0L;
     }
 
+    /** 冗余文件的扫描结果：文件清单 + 分类计数（文案按三类分开报）。 */
+    public static final class RedundantScan {
+        public final List<File> files = new ArrayList<>();
+        // 双格式被删掉 PNG 的 id：留下的从 PNG 换成 JPEG，格式标记要作废重算
+        final List<String> dupeIds = new ArrayList<>();
+        public int fullDupes;      // 同 id 双格式并存时删掉的 PNG 那份（留 JPEG，见 scanRedundant）
+        public int fullOrphans;    // 没有对应条目的成品图
+        public int originals;      // 没有对应条目的原图
+        public int thumbs;         // 没有对应条目的缩略图
+
+        public int count() {
+            return files.size();
+        }
+
+        public long bytes() {
+            long total = 0;
+            for (File f : files) {
+                total += f.length();
+            }
+            return total;
+        }
+    }
+
+    /**
+     * 按 library.json 对账 wallpapers/ originals/ thumbs/ 三个目录，列出该删的冗余文件：
+     * <ul>
+     *   <li>id 不在元数据里的：孤儿（老版本删除没连带清文件、还原只覆盖不清理，都是这么攒下的）；</li>
+     *   <li>同 id 两种成品图格式并存：留 JPEG 删 PNG —— 同一张图 JPEG 占地方小得多；
+     *       两份本是同一张位图编码了两次，删掉 PNG 后读侧 {@link #getFullFile} 自然落到
+     *       留下的 JPEG 上，屏上零变化。</li>
+     * </ul>
+     * inbox/ 是待编辑暂存，不归这里管，不碰。纯扫描不删，调用方必须放后台线程。
+     */
+    public static RedundantScan scanRedundant(Context context) {
+        List<Item> items = load(context);
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (Item item : items) {
+            ids.add(item.id);
+        }
+        RedundantScan scan = new RedundantScan();
+        File[] fulls = new File(context.getFilesDir(), DIR_FULL).listFiles();
+        if (fulls != null) {
+            Map<String, List<File>> byId = new HashMap<>();
+            for (File f : fulls) {
+                String name = f.getName();
+                String id = name.endsWith(FULL_EXT)
+                        ? name.substring(0, name.length() - FULL_EXT.length())
+                        : name.endsWith(LEGACY_FULL_EXT)
+                        ? name.substring(0, name.length() - LEGACY_FULL_EXT.length())
+                        : null;
+                // 不是 <id>.png/.jpg 的文件不归这里管，不碰
+                if (id == null) {
+                    continue;
+                }
+                List<File> group = byId.get(id);
+                if (group == null) {
+                    group = new ArrayList<>();
+                    byId.put(id, group);
+                }
+                group.add(f);
+            }
+            for (Map.Entry<String, List<File>> e : byId.entrySet()) {
+                List<File> group = e.getValue();
+                if (!ids.contains(e.getKey())) {
+                    scan.fullOrphans += group.size();
+                    scan.files.addAll(group);
+                } else if (group.size() > 1) {
+                    // 双格式只有 PNG + JPEG 各一份这一种可能（扩展名就两种）：留 JPEG 删 PNG
+                    scan.dupeIds.add(e.getKey());
+                    for (File f : group) {
+                        if (!f.getName().endsWith(LEGACY_FULL_EXT)) {
+                            scan.fullDupes++;
+                            scan.files.add(f);
+                        }
+                    }
+                }
+            }
+        }
+        File[] originals = new File(context.getFilesDir(), DIR_ORIGINAL).listFiles();
+        if (originals != null) {
+            for (File f : originals) {
+                if (!ids.contains(f.getName())) {
+                    scan.originals++;
+                    scan.files.add(f);
+                }
+            }
+        }
+        File[] thumbs = new File(context.getFilesDir(), DIR_THUMB).listFiles();
+        if (thumbs != null) {
+            for (File f : thumbs) {
+                String name = f.getName();
+                if (name.endsWith(".jpg")
+                        && !ids.contains(name.substring(0, name.length() - ".jpg".length()))) {
+                    scan.thumbs++;
+                    scan.files.add(f);
+                }
+            }
+        }
+        return scan;
+    }
+
+    /**
+     * 删掉 {@link #scanRedundant} 扫出来的文件，返回实际删掉的个数。
+     * 双格式删 PNG 的那批 id 要作废格式标记：留下的从 PNG 换成 JPEG，
+     * 不作废的话网格角标会继续报删之前那一档。孤儿文件本来就没有在读侧的缓存里，不用管。
+     */
+    public static int deleteRedundant(RedundantScan scan) {
+        int deleted = 0;
+        for (File f : scan.files) {
+            if (f.delete()) {
+                deleted++;
+            }
+        }
+        for (String id : scan.dupeIds) {
+            invalidateImageMarks(id);
+        }
+        return deleted;
+    }
+
     /** 获取某张壁纸的缩略图文件。 */
     private static File getThumbFile(Context context, String id) {
         File dir = new File(context.getFilesDir(), DIR_THUMB);
