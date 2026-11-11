@@ -264,10 +264,10 @@ public final class BackupStore {
         return r;
     }
 
-    /** 看起来像新装机（从没写过库文件）时，才值得问一句要不要还原。 */
+    /** 看起来像新装机（从没写过壁纸库文件）时，才值得问一句要不要还原。 */
     public static boolean looksLikeFreshInstall(Context context) {
+        // 库列表不能参与判定：LibraryStore.load 首跑就自动创建「默认库」，「库为空」永远成立不了
         return !new File(context.getFilesDir(), "library.json").exists()
-                && LibraryStore.load(context).isEmpty()
                 && WallpaperStore.load(context).isEmpty();
     }
 

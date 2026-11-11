@@ -48,8 +48,10 @@ android {
         // CI 改打 release 包 —— applicationId 即应用身份，换名后旧包无法覆盖安装，需备份后卸载重装
         // 165/3.158：导出目录加默认去向 下载/wallswitch（MediaStore，免权限、卸载不丢），
         // 首次启动引导改为扫默认目录列出备份包供选择，没有则手动选包或跳过
-        versionCode 165
-        versionName "3.158"
+        // 166/3.159：修复首次引导不弹 —— LibraryStore.load 首跑自动建默认库，
+        // 「库列表为空」永远成立不了，新装机判定只能看壁纸库文件与壁纸是否为空
+        versionCode 166
+        versionName "3.159"
     }
 
     signingConfigs {
