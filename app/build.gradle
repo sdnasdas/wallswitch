@@ -72,8 +72,8 @@ android {
         // 176/3.169：灭屏换锁屏探针（真机：灭屏后 1~3ms 起写、setStream 70~330ms，亮屏前全部写完）
         // 177/3.170：探针转正 —— 锁屏触发方式加「灭屏」档（通话中不换、最小间隔可调，默认每次都换）；
         // 桌面/锁屏的触发方式与最小间隔从设置页挪进每一面自己的设置面板
-        versionCode 190
-        versionName "3.183"
+        versionCode 191
+        versionName "3.184"
     }
 
     signingConfigs {

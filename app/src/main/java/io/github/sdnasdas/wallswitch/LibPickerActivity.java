@@ -110,6 +110,14 @@ public class LibPickerActivity extends AppCompatActivity {
         rows.add(new Row(getString(forHome
                         ? R.string.widget_console_lib_none : R.string.widget_console_lib_none_lock),
                 getString(R.string.slot_none_sub), null, null));
+        // 「全部壁纸」排在「不切换」之后、各个库之前（与 App 内选库列表同一档序，v3.184）
+        if (!libs.isEmpty()) {
+            List<WallpaperStore.Item> merged = WallpaperStore.loadByLib(this, LibraryStore.ALL_ID);
+            rows.add(new Row(getString(R.string.lib_all_name),
+                    getString(R.string.lib_all_sub, merged.size()), LibraryStore.ALL_ID,
+                    libThumb(LibraryStore.ALL_ID,
+                            merged.isEmpty() ? null : merged.get(0).id, forHome)));
+        }
         for (LibraryStore.Library lib : libs) {
             Integer count = counts.get(lib.id);
             rows.add(new Row(lib.name,

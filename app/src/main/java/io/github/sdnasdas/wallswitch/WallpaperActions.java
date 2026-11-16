@@ -149,6 +149,26 @@ final class WallpaperActions {
             deleteWallpaperEverywhere(item);
             return;
         }
+        if (LibraryStore.isAll(src)) {
+            // 从「全部壁纸」打开的详情（v3.184）：没有「本库」可解除，只挂一个库就照常一键删；
+            // 挂在几个库里才拦一道，而且只给彻底删除一个出口 —— 想只从某个库拿掉得去那个库里做
+            if (otherCount <= 1) {
+                deleteWallpaperEverywhere(item);
+                return;
+            }
+            AlertDialog dialog = new AppAlertDialogBuilder(a)
+                    .setTitle(R.string.delete_confirm_title)
+                    .setMessage(a.getString(R.string.delete_confirm_all_msg,
+                            others.toString(), otherCount))
+                    .setPositiveButton(R.string.delete_purge, (d, which) -> deleteWallpaperEverywhere(item))
+                    .setNegativeButton(R.string.cancel, null)
+                    .show();
+            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            positive.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_delete, 0, 0, 0);
+            positive.setCompoundDrawableTintList(ColorStateList.valueOf(a.getColor(R.color.danger)));
+            positive.setTextColor(a.getColor(R.color.danger));
+            return;
+        }
         AlertDialog dialog = new AppAlertDialogBuilder(a)
                 .setTitle(R.string.delete_confirm_title)
                 // 个数只数点得出名字的那些：连同本库，文案里的数字与列出的库必须对得上

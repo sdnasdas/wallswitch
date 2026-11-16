@@ -49,6 +49,14 @@ public class LibraryStore {
     public static final int DEFAULT_INTERVAL_SECONDS = 1800;
     // 最短切换间隔（秒）：WorkManager 省电方案的系统下限为 15 分钟
     public static final int MIN_INTERVAL_SECONDS = 15 * 60;
+    /**
+     * 虚拟库「全部壁纸」的 id（v3.184 全局播放）：不进 libraries.json、不在图库里显示，
+     * 只出现在两面的选库列表里。{@link #get} 认它并现造一个库对象，
+     * {@link WallpaperStore#loadByLib} 认它并返回「按库顺序拼接、去重」的全部壁纸 ——
+     * 于是切换 / 上一张 / 设为桌面 / 当值闸门这些按库 id 走的链路一条都不用分叉。
+     * 进度照常记在 {@code p___all___h_*} 名下，与各个真库的进度互不影响。
+     */
+    public static final String ALL_ID = "__all__";
 
     /** 壁纸库元数据。 */
     public static class Library {
@@ -56,6 +64,11 @@ public class LibraryStore {
         public String name;
         /** 用户指定的封面壁纸 id；null = 自动（在屏那张优先，其次库内第一张）。读时要验它还在库里。 */
         public String cover;
+        /**
+         * 在线壁纸库的来源（v3.184）：{@link OnlineLibraries#SRC_MET} / {@link OnlineLibraries#SRC_AIC}；
+         * null = 普通库。订阅开关就是「这个来源的库在不在」，删掉库就等于关掉订阅。
+         */
+        public String online;
         // ===== 以下为遗留字段（见类注释），只为 JSON 往返保留 =====
         public boolean home;
         public boolean lock;
@@ -88,6 +101,8 @@ public class LibraryStore {
                     lib.mode = o.optString("mode", MODE_ORDER);
                     String cover = o.optString("cover", "");
                     lib.cover = cover.isEmpty() ? null : cover;
+                    String online = o.optString("online", "");
+                    lib.online = online.isEmpty() ? null : online;
                     libs.add(lib);
                 } catch (Exception ignored) {
                     // 单条缺 id 属于历史脏数据，跳过该条，不影响其余库
@@ -194,6 +209,9 @@ public class LibraryStore {
                 if (lib.cover != null) {
                     o.put("cover", lib.cover);
                 }
+                if (lib.online != null) {
+                    o.put("online", lib.online);
+                }
                 arr.put(o);
             }
             MetaFiles.writeJson(ctx, LIBS_FILE, arr.toString());
@@ -222,8 +240,38 @@ public class LibraryStore {
         saveList(ctx, result);
     }
 
-    /** 按 id 查找库，找不到返回 null。 */
+    /** 是不是虚拟库「全部壁纸」。 */
+    public static boolean isAll(String libId) {
+        return ALL_ID.equals(libId);
+    }
+
+    /** 现造「全部壁纸」这个库对象（不落盘；改名、删库、设封面这些入口都够不着它）。 */
+    public static Library allLibrary(Context ctx) {
+        Library lib = new Library();
+        lib.id = ALL_ID;
+        lib.name = ctx.getString(R.string.lib_all_name);
+        lib.home = true;
+        lib.intervalSeconds = DEFAULT_INTERVAL_SECONDS;
+        lib.mode = MODE_ORDER;
+        return lib;
+    }
+
+    /** 选库列表用：最前面是「全部壁纸」，其余照图库顺序。一个真库都没有时不放它（没有可拼的）。 */
+    public static List<Library> loadWithAll(Context ctx) {
+        List<Library> libs = load(ctx);
+        List<Library> result = new ArrayList<>();
+        if (!libs.isEmpty()) {
+            result.add(allLibrary(ctx));
+        }
+        result.addAll(libs);
+        return result;
+    }
+
+    /** 按 id 查找库，找不到返回 null。「全部壁纸」也认（现造一个）。 */
     public static Library get(Context ctx, String libId) {
+        if (isAll(libId)) {
+            return allLibrary(ctx);
+        }
         for (Library lib : load(ctx)) {
             if (lib.id.equals(libId)) {
                 return lib;
@@ -243,6 +291,40 @@ public class LibraryStore {
         lib.enabled = false;
         lib.intervalSeconds = DEFAULT_INTERVAL_SECONDS;
         lib.mode = MODE_ORDER;
+        libs.add(lib);
+        saveList(ctx, libs);
+        return lib;
+    }
+
+    /** 某个在线来源对应的库；没开这个订阅（库不在）返回 null。 */
+    public static Library findOnline(Context ctx, String source) {
+        if (source == null) {
+            return null;
+        }
+        for (Library lib : load(ctx)) {
+            if (source.equals(lib.online)) {
+                return lib;
+            }
+        }
+        return null;
+    }
+
+    /** 建一个在线壁纸库（已经有了就直接返回那个，不建第二个）。 */
+    public static Library createOnline(Context ctx, String source, String name) {
+        Library existing = findOnline(ctx, source);
+        if (existing != null) {
+            return existing;
+        }
+        List<Library> libs = load(ctx);
+        Library lib = new Library();
+        lib.id = UUID.randomUUID().toString();
+        lib.name = name;
+        lib.home = true;
+        lib.lock = false;
+        lib.enabled = false;
+        lib.intervalSeconds = DEFAULT_INTERVAL_SECONDS;
+        lib.mode = MODE_ORDER;
+        lib.online = source;
         libs.add(lib);
         saveList(ctx, libs);
         return lib;

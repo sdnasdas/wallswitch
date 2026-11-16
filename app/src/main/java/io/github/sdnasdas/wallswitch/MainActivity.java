@@ -811,6 +811,8 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // 自愈：每次回到应用都核对一遍排定（槽位配置没变时走 KEEP，不碰系统里已有的周期格子）
         TimerScheduler.scheduleAll(this);
+        // 在线壁纸库的每日下载同理（KEEP 不打乱节奏；从备份还原出在线库后也靠这一声排上）
+        OnlineLibraries.ensureScheduled(getApplicationContext());
         // 打开应用同样是“设备活跃”时机：后台补跑被 Doze/ROM 冻结而漏掉的定时切换
         new Thread(() -> {
             final boolean did = TimerScheduler.catchUp(getApplicationContext());
@@ -1006,7 +1008,8 @@ public class MainActivity extends AppCompatActivity {
             root.findViewById(R.id.btn_now_settings).setOnClickListener(v -> showSlotSettingsSheet(forHome));
             lib.setOnClickListener(v -> {
                 String id = LibraryStore.slotLibId(MainActivity.this, forHome);
-                if (id != null) {
+                // 「全部壁纸」不是一个能进的库（图库里没有它的详情页），点它等同于去改这一面的设置
+                if (id != null && !LibraryStore.isAll(id)) {
                     openLibrary(id);
                 } else {
                     showSlotSettingsSheet(forHome);
@@ -2239,6 +2242,18 @@ public class MainActivity extends AppCompatActivity {
                 showSetWallpaperDialog(item);
             }
         });
+        // 在线壁纸库那张的署名行（v3.184）：点开博物馆的藏品页
+        findViewById(R.id.tv_detail_credit).setOnClickListener(v -> {
+            WallpaperStore.Item item = detailItem();
+            if (item == null || item.link == null) {
+                return;
+            }
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(item.link)));
+            } catch (Exception e) {
+                Toast.makeText(this, R.string.online_link_failed, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void openScopeDetail(boolean forHome) {
@@ -2365,6 +2380,25 @@ public class MainActivity extends AppCompatActivity {
         MenuItem delete = detailToolbar.getMenu().findItem(R.id.action_detail_delete);
         if (delete != null) {
             delete.setEnabled(editable);
+        }
+        // 从「全部壁纸」打开时没有「本库」：移动 / 从本库移出无从谈起，收起；复制到某个库照常可用
+        boolean fromAll = LibraryStore.isAll(detailLibId);
+        MenuItem move = detailToolbar.getMenu().findItem(R.id.action_detail_move);
+        if (move != null) {
+            move.setVisible(!fromAll);
+        }
+        MenuItem unlink = detailToolbar.getMenu().findItem(R.id.action_detail_unlink);
+        if (unlink != null) {
+            unlink.setVisible(!fromAll);
+        }
+        // 署名只有在线壁纸库下载来的那些才有；自己导入的整行收起
+        TextView credit = findViewById(R.id.tv_detail_credit);
+        if (item.credit == null) {
+            credit.setVisibility(View.GONE);
+        } else {
+            credit.setText(item.link == null ? item.credit
+                    : getString(R.string.online_credit_with_link, item.credit));
+            credit.setVisibility(View.VISIBLE);
         }
         refreshLiveMenu();
     }
@@ -3008,9 +3042,9 @@ public class MainActivity extends AppCompatActivity {
         bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 10);
     }
 
-    /** 库选择列表：第 0 项「不切换」（清空本范围），其余带各自缩略图；当前占位库打勾。 */
+    /** 库选择列表：第 0 项「不切换」（清空本范围），第 1 项「全部壁纸」（全局播放），其余带各自缩略图；当前占位库打勾。 */
     void showLibPickerDialog(final boolean forHome, final View settingsContent) {
-        final List<LibraryStore.Library> libs = LibraryStore.load(this);
+        final List<LibraryStore.Library> libs = LibraryStore.loadWithAll(this);
         new AppAlertDialogBuilder(this)
                 .setTitle(R.string.slot_pick_lib_title)
                 .setAdapter(new SlotLibPickerAdapter(libs, forHome), (dialog, which) -> {
@@ -3606,8 +3640,10 @@ public class MainActivity extends AppCompatActivity {
             }
             LibraryStore.Library lib = libs.get(position - 1);
             name.setText(lib.name);
-            sub.setText(getString(R.string.lib_count,
-                    WallpaperStore.loadByLib(MainActivity.this, lib.id).size()));
+            int count = WallpaperStore.loadByLib(MainActivity.this, lib.id).size();
+            sub.setText(LibraryStore.isAll(lib.id)
+                    ? getString(R.string.lib_all_sub, count)
+                    : getString(R.string.lib_count, count));
             bindThumb(thumb, slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 10);
             check.setVisibility(lib.id.equals(liveId) ? View.VISIBLE : View.INVISIBLE);
             return row;

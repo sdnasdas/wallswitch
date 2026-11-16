@@ -398,8 +398,41 @@ public class Switcher {
      * 删除：清掉指向它的指针，再推进到库里下一张。
      * 该库未启用 / 不覆盖该范围 / 接管总开关关着时只清指针、不上屏（那时它本来也不在屏上）。
      * 锁屏路径涉及解码与系统调用，调用方放后台线程。
+     *
+     * <p>v3.184：「全部壁纸」也有自己的一套指针（{@code p___all___*}），而调用方只知道这张属于哪个真库；
+     * 所以这里顺带把「全部壁纸」那套也查一遍 —— 否则一面挂着全局播放时，重编/删掉当前这张不会跟着上屏。
      */
     public static void reapplyIfCurrent(Context ctx, String libId, String wallpaperId) {
+        reapplyOne(ctx, libId, wallpaperId);
+        if (!LibraryStore.isAll(libId)) {
+            reapplyOne(ctx, LibraryStore.ALL_ID, wallpaperId);
+        }
+        // 覆盖路径不走 applyById（指针没动），通知里的大图标/标题要单独刷一次；
+        // 小组件同样要跟一遍 —— 控制台小组件会显示当前这张，覆盖后指针没动、原先没人叫它刷新，
+        // 格子里就会停在覆盖前的旧图（1×1 那格只有个固定图标，所以这条缺口一直没显形）
+        StatusNotifier.update(ctx);
+        WidgetProvider.updateWidget(ctx);
+    }
+
+    /**
+     * 删库（或在线壁纸库淘汰旧图）之后，「全部壁纸」的当前指针可能指着一张已经彻底没了的图：
+     * 真库删掉时它自己的指针随库一起清，但全局那套不归任何一个真库管。逐面查一遍，文件没了就按删除处理
+     * （清指针 + 在屏的推进到下一张）。有系统调用，调用方放后台线程。
+     */
+    public static void repairAllPointers(Context ctx) {
+        for (boolean forHome : new boolean[]{true, false}) {
+            String current = getCurrent(ctx, LibraryStore.ALL_ID, forHome);
+            if (current == null) {
+                continue;
+            }
+            File full = WallpaperStore.getFullFile(ctx, current);
+            if (full == null || !full.exists()) {
+                reapplyIfCurrent(ctx, LibraryStore.ALL_ID, current);
+            }
+        }
+    }
+
+    private static void reapplyOne(Context ctx, String libId, String wallpaperId) {
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         for (boolean forHome : new boolean[]{true, false}) {
             String current = getCurrent(ctx, libId, forHome);
@@ -430,11 +463,6 @@ public class Switcher {
                 }
             }
         }
-        // 覆盖路径不走 applyById（指针没动），通知里的大图标/标题要单独刷一次；
-        // 小组件同样要跟一遍 —— 控制台小组件会显示当前这张，覆盖后指针没动、原先没人叫它刷新，
-        // 格子里就会停在覆盖前的旧图（1×1 那格只有个固定图标，所以这条缺口一直没显形）
-        StatusNotifier.update(ctx);
-        WidgetProvider.updateWidget(ctx);
     }
 
     /** 清除某库的切换进度（删除库时调用）。 */

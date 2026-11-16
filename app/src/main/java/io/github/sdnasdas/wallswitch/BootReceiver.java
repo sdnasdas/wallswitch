@@ -15,6 +15,8 @@ public class BootReceiver extends BroadcastReceiver {
         final Context app = context.getApplicationContext();
         // 先重排定时（个别 ROM 会清掉调度器任务）
         TimerScheduler.scheduleAll(app);
+        // 在线壁纸库的每日下载同理自愈（没开任何在线库时这一声是撤任务）
+        OnlineLibraries.ensureScheduled(app);
         final PendingResult pending = goAsync();
         new Thread(() -> {
             try {

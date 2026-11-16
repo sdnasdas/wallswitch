@@ -24,8 +24,10 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -148,6 +150,15 @@ public class WallpaperStore {
         public int bright = -1;
         /** 用户手动标的「夜间禁用」：夜间时段永不切到这张（与亮度分档无关，v3.152）。 */
         public boolean nightOff;
+        /**
+         * 在线壁纸库下载来的这张是哪件藏品（v3.184）：{@code met:436535} / {@code aic:28560}。
+         * null = 用户自己导入的。在线库只淘汰带这个标记的条目，也靠它去重（同一件藏品不下第二次）。
+         */
+        public String onlineSrc;
+        /** 署名一行：作品名 · 作者 · 年代（在线壁纸库下载时写入；详情页底部显示）。 */
+        public String credit;
+        /** 藏品在博物馆网站上的页面（点署名行打开）。 */
+        public String link;
 
         /** 有没有可复原的构图参数（尺寸有效 + 矩形不退化）。 */
         public boolean hasCropRect() {
@@ -290,6 +301,10 @@ public class WallpaperStore {
                 // 亮度分档与夜间禁用：老文件读不到就取默认（-1 待补算 / 未禁用）
                 item.bright = obj.optInt("bright", -1);
                 item.nightOff = obj.optBoolean("night_off", false);
+                // 在线壁纸库的来源与署名（v3.184）：老文件读不到就是 null = 用户自己导入的
+                item.onlineSrc = optNonEmpty(obj, "online_src");
+                item.credit = optNonEmpty(obj, "credit");
+                item.link = optNonEmpty(obj, "link");
                 result.add(item);
             }
         } catch (Exception ignored) {
@@ -804,12 +819,34 @@ public class WallpaperStore {
         }
     }
 
-    /** 列出指定壁纸库内的全部壁纸（按添加顺序）。 */
+    /** 列出指定壁纸库内的全部壁纸（按添加顺序）。传「全部壁纸」的 id 走 {@link #loadAllOrdered}。 */
     public static List<Item> loadByLib(Context context, String libId) {
+        if (LibraryStore.isAll(libId)) {
+            return loadAllOrdered(context);
+        }
         List<Item> result = new ArrayList<>();
         for (Item item : load(context)) {
             if (item.inLib(libId)) {
                 result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 「全部壁纸」的候选集（v3.184）：按图库里库的排列顺序拼接，库内保持原有顺序；
+     * 一张挂在几个库里只在它第一次出现的位置算一次（多归属本来就是同一个 id，天然去重）。
+     * 挂在已删库名下的残留归属不算 —— 只认还在 libraries.json 里的库。
+     */
+    private static List<Item> loadAllOrdered(Context context) {
+        List<Item> items = load(context);
+        List<Item> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (LibraryStore.Library lib : LibraryStore.load(context)) {
+            for (Item item : items) {
+                if (item.inLib(lib.id) && seen.add(item.id)) {
+                    result.add(item);
+                }
             }
         }
         return result;
@@ -1632,6 +1669,88 @@ public class WallpaperStore {
         saveLibrary(context, items);
     }
 
+    /** 读一个字符串键，缺省或空串都当没有（返回 null）。 */
+    private static String optNonEmpty(JSONObject obj, String key) {
+        String v = obj.optString(key, "");
+        return v.isEmpty() ? null : v;
+    }
+
+    /**
+     * 与裁剪页 fit-cover 默认构图同一几何：原图居中、按窗口比例取一块。
+     * 原图更宽就左右裁，更高就上下裁；返回原图像素坐标，尺寸无效返回 null。
+     */
+    public static Rect centerCoverRect(int srcW, int srcH, int viewW, int viewH) {
+        if (srcW <= 0 || srcH <= 0 || viewW <= 0 || viewH <= 0) {
+            return null;
+        }
+        if ((long) srcW * viewH > (long) viewW * srcH) {
+            int w = Math.min(srcW, Math.max(1, Math.round(srcH * (float) viewW / viewH)));
+            int left = (srcW - w) / 2;
+            return new Rect(left, 0, left + w, srcH);
+        }
+        int h = Math.min(srcH, Math.max(1, Math.round(srcW * (float) viewH / viewW)));
+        int top = (srcH - h) / 2;
+        return new Rect(0, top, srcW, top + h);
+    }
+
+    /**
+     * 在线壁纸库的入库（v3.184，后台 Worker 调，不经过收件箱）：
+     * 按默认取景（居中 fit-cover）从 {@code source} 裁出成品图、生成缩略图，再把 source 搬成原图，
+     * 最后一次性追加带来源与署名的条目（裁剪矩形一并写上，「调整取景」能复原这次构图）。
+     *
+     * <p>为什么不走 inbox + {@link #confirmImport}：收件箱里的文件会被界面当成「待编辑项」，
+     * 后台正解码那几秒里用户恰好打开 App，就会弹出一张他从没选过的图的裁剪页。
+     *
+     * <p>成品图格式跟着用户在裁剪页选的那一档（{@link #fullPrefersJpeg}），与手动导入一致。
+     * 任何一步失败都清掉已经写下的文件再抛出，不留半张。
+     */
+    public static Item importOnline(Context context, File source, String libId, int viewW, int viewH,
+                                    String onlineSrc, String credit, String link) throws Exception {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(source.getAbsolutePath(), bounds);
+        Rect region = centerCoverRect(bounds.outWidth, bounds.outHeight, viewW, viewH);
+        if (region == null) {
+            throw new IOException("图片解码失败");
+        }
+        Bitmap cropped = decodeRegion(source, region, maxWallpaperDim(context));
+        if (cropped == null) {
+            throw new IOException("图片解码失败");
+        }
+        String id = UUID.randomUUID().toString();
+        try {
+            writeFull(context, id, cropped);
+            int bright = writeThumb(context, id, cropped);
+            File originalFile = getOriginalFile(context, id);
+            originalFile.getParentFile().mkdirs();
+            Files.move(source.toPath(), originalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            Item item = new Item();
+            item.id = id;
+            item.joinLib(libId);
+            item.bright = bright;
+            item.srcWidth = bounds.outWidth;
+            item.srcHeight = bounds.outHeight;
+            item.cropLeft = region.left;
+            item.cropTop = region.top;
+            item.cropRight = region.right;
+            item.cropBottom = region.bottom;
+            item.onlineSrc = onlineSrc;
+            item.credit = credit;
+            item.link = link;
+            List<Item> items = load(context);
+            items.add(item);
+            saveLibrary(context, items);
+            return item;
+        } catch (Exception | OutOfMemoryError e) {
+            destroyStoredFiles(context, id);
+            throw e instanceof Exception ? (Exception) e : new IOException(e);
+        } finally {
+            if (!cropped.isRecycled()) {
+                cropped.recycle();
+            }
+        }
+    }
+
     /** 矩形坐标保留两位小数：0.01 像素的精度对复原取景框足够，又不至于让 library.json 啰嗦。 */
     private static double round2(float v) {
         return Math.round(v * 100d) / 100d;
@@ -1639,6 +1758,32 @@ public class WallpaperStore {
 
     /** 把列表写回 library.json（原子写：临时文件刷盘后 rename，不再有半截状态）。 */
     private static void saveLibrary(Context context, List<Item> items) throws Exception {
+        MetaFiles.writeJson(context, LIB_FILE, toJson(items).toString());
+        // 落盘成功才回填缓存（写失败抛出去，走不到这两行）：交出去的字节就是这份表，
+        // 所以缓存与文件此刻必然一致，不用等下一次指纹比对再重读
+        File libFile = new File(context.getFilesDir(), LIB_FILE);
+        cachedItems = new ArrayList<>(items);
+        cachedStamp = fileStamp(libFile);
+        metaItems = items.size();
+        metaBytes = libFile.length();
+    }
+
+    /**
+     * 备份用（v3.184）：整份表序列化成 library.json 的字节，跳过 skip 里的条目，不落盘。
+     * 字段序列化仍只有 {@link #toJson} 一处定义。
+     */
+    public static byte[] serializeExcluding(Context context, Set<String> skip) throws Exception {
+        List<Item> keep = new ArrayList<>();
+        for (Item item : load(context)) {
+            if (!skip.contains(item.id)) {
+                keep.add(item);
+            }
+        }
+        return toJson(keep).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** 条目 → library.json 的 JSON 数组（字段序列化唯一的定义处）。 */
+    private static JSONArray toJson(List<Item> items) throws Exception {
         JSONArray arr = new JSONArray();
         for (Item item : items) {
             JSONObject obj = new JSONObject();
@@ -1667,15 +1812,18 @@ public class WallpaperStore {
             if (item.nightOff) {
                 obj.put("night_off", true);
             }
+            // 同一原则：只有在线壁纸库下载的条目才带这三个键，自己导入的一个字节不多
+            if (item.onlineSrc != null) {
+                obj.put("online_src", item.onlineSrc);
+            }
+            if (item.credit != null) {
+                obj.put("credit", item.credit);
+            }
+            if (item.link != null) {
+                obj.put("link", item.link);
+            }
             arr.put(obj);
         }
-        MetaFiles.writeJson(context, LIB_FILE, arr.toString());
-        // 落盘成功才回填缓存（写失败抛出去，走不到这两行）：交出去的字节就是这份表，
-        // 所以缓存与文件此刻必然一致，不用等下一次指纹比对再重读
-        File libFile = new File(context.getFilesDir(), LIB_FILE);
-        cachedItems = new ArrayList<>(items);
-        cachedStamp = fileStamp(libFile);
-        metaItems = items.size();
-        metaBytes = libFile.length();
+        return arr;
     }
 }

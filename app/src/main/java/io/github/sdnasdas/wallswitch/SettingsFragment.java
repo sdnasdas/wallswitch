@@ -194,6 +194,94 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         click("update_source", this::pickUpdateSource);
         toggle("auto_update", on -> UpdateChecker.setAutoCheck(requireContext(), on));
         click("update", () -> host().onUpdateRowTapped());
+        onlineToggle("online_met", OnlineLibraries.SRC_MET);
+        onlineToggle("online_aic", OnlineLibraries.SRC_AIC);
+        click("online_refresh", this::onOnlineRefreshTapped);
+    }
+
+    /**
+     * 在线壁纸库的开关（v3.184）：开 = 建库并排下载；关 = 删掉那个库（二次确认，因为会删图）。
+     * 开关状态不落 prefs，一律由「库在不在」现算，所以监听器返回 false，等操作做完由 refreshAll 回填。
+     */
+    private void onlineToggle(String key, String source) {
+        Preference p = homeScreen.findPreference(key);
+        if (p == null) {
+            return;
+        }
+        p.setOnPreferenceChangeListener((pref, value) -> {
+            final Context app = requireContext().getApplicationContext();
+            final String name = getString(OnlineLibraries.nameRes(source));
+            if ((Boolean) value) {
+                new Thread(() -> {
+                    OnlineLibraries.enable(app, source);
+                    refreshAfterOnlineChange(null);
+                }, "online-enable").start();
+                Toast.makeText(app, getString(R.string.online_enabled_toast, name,
+                        OnlineLibraries.PER_DAY, OnlineLibraries.KEEP), Toast.LENGTH_LONG).show();
+                return false;
+            }
+            LibraryStore.Library lib = LibraryStore.findOnline(app, source);
+            final String libId = lib == null ? null : lib.id;
+            new AppAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.online_disable_title, name))
+                    .setMessage(R.string.online_disable_msg)
+                    .setPositiveButton(R.string.confirm, (d, w) -> new Thread(() -> {
+                        OnlineLibraries.disable(app, source);
+                        refreshAfterOnlineChange(libId);
+                    }, "online-disable").start())
+                    .setNegativeButton(R.string.cancel, null)
+                    .show();
+            return false;
+        });
+    }
+
+    /** 建库/删库之后把受影响的界面都刷一遍（后台线程调，切回主线程做）。 */
+    private void refreshAfterOnlineChange(String deletedLibId) {
+        android.app.Activity activity = getActivity();
+        if (!(activity instanceof MainActivity)) {
+            return;
+        }
+        MainActivity a = (MainActivity) activity;
+        a.runOnUiThread(() -> {
+            if (a.isFinishing() || a.isDestroyed()) {
+                return;
+            }
+            if (deletedLibId != null && deletedLibId.equals(a.currentLibId())) {
+                a.onCurrentLibraryDeleted();
+            }
+            a.gallery.refreshLibs();
+            a.refreshTimerStatus();
+            a.syncTakeoverAsync();
+            refreshAll();
+        });
+    }
+
+    private void onOnlineRefreshTapped() {
+        Context ctx = requireContext();
+        boolean any = false;
+        for (String source : OnlineLibraries.SOURCES) {
+            any |= OnlineLibraries.isEnabled(ctx, source);
+        }
+        if (!any) {
+            Toast.makeText(ctx, R.string.online_refresh_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        OnlineLibraries.runNow(ctx.getApplicationContext());
+        Toast.makeText(ctx, getString(R.string.online_refresh_queued, OnlineLibraries.PER_DAY),
+                Toast.LENGTH_LONG).show();
+    }
+
+    /** 在线库那一行的状态：没开 / 已开但还没下到 / N 张 · 上次更新时刻。 */
+    private CharSequence onlineSummary(Context ctx, String source) {
+        if (!OnlineLibraries.isEnabled(ctx, source)) {
+            return getString(R.string.online_state_off);
+        }
+        int count = OnlineLibraries.downloadedCount(ctx, source);
+        long last = OnlineLibraries.lastSuccess(ctx, source);
+        if (count == 0 || last == 0L) {
+            return getString(R.string.online_state_waiting, count);
+        }
+        return getString(R.string.online_state_count, count, TimerScheduler.clockText(ctx, last));
     }
 
     @Override
@@ -558,6 +646,18 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         });
         summary("update_source", () -> getString(UpdateChecker.SRC_GITHUB.equals(UpdateChecker.source(ctx))
                 ? R.string.update_source_github : R.string.update_source_gitee));
+        checked("online_met", () -> OnlineLibraries.isEnabled(ctx, OnlineLibraries.SRC_MET));
+        checked("online_aic", () -> OnlineLibraries.isEnabled(ctx, OnlineLibraries.SRC_AIC));
+        summary("online_met", () -> onlineSummary(ctx, OnlineLibraries.SRC_MET));
+        summary("online_aic", () -> onlineSummary(ctx, OnlineLibraries.SRC_AIC));
+        summary("settings_online", () -> {
+            int on = 0;
+            for (String source : OnlineLibraries.SOURCES) {
+                on += OnlineLibraries.isEnabled(ctx, source) ? 1 : 0;
+            }
+            return on == 0 ? getString(R.string.online_state_off)
+                    : getString(R.string.online_screen_summary, on);
+        });
         checked("auto_update", () -> UpdateChecker.autoCheck(ctx));
         refreshUpdateRow();
         Supplier<CharSequence> version = () -> "v" + UpdateChecker.localVersion(ctx);

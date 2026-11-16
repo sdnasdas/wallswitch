@@ -135,6 +135,47 @@
 
         <PreferenceScreen
             app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_cloud"
+            app:key="settings_online"
+            app:persistent="false"
+            app:title="@string/online_title">
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/online_category_sources">
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_cloud"
+                    app:key="online_met"
+                    app:persistent="false"
+                    app:title="@string/online_src_met"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+
+                <SwitchPreferenceCompat
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_cloud"
+                    app:key="online_aic"
+                    app:persistent="false"
+                    app:title="@string/online_src_aic"
+                    app:widgetLayout="@layout/pref_switch_widget" />
+            </PreferenceCategory>
+
+            <PreferenceCategory
+                app:iconSpaceReserved="false"
+                app:title="@string/online_category_actions">
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_sync"
+                    app:key="online_refresh"
+                    app:persistent="false"
+                    app:title="@string/online_refresh_title" />
+            </PreferenceCategory>
+        </PreferenceScreen>
+
+        <PreferenceScreen
+            app:iconSpaceReserved="false"
             app:icon="@drawable/ic_backup"
             app:key="settings_backup"
             app:persistent="false"

@@ -381,17 +381,8 @@ final class ImportController {
      * 原图更宽就左右裁，更高就上下裁；返回原图像素坐标。
      */
     private static Rect centerCoverRect(int srcW, int srcH, int viewW, int viewH) {
-        if (srcW <= 0 || srcH <= 0 || viewW <= 0 || viewH <= 0) {
-            return null;
-        }
-        if ((long) srcW * viewH > (long) viewW * srcH) {
-            int w = Math.min(srcW, Math.max(1, Math.round(srcH * (float) viewW / viewH)));
-            int left = (srcW - w) / 2;
-            return new Rect(left, 0, left + w, srcH);
-        }
-        int h = Math.min(srcH, Math.max(1, Math.round(srcW * (float) viewH / viewW)));
-        int top = (srcH - h) / 2;
-        return new Rect(0, top, srcW, top + h);
+        // 几何收在 WallpaperStore 一处：在线壁纸库的后台入库（v3.184）也用同一套默认取景
+        return WallpaperStore.centerCoverRect(srcW, srcH, viewW, viewH);
     }
 
     /** 进程重启后收件箱也走同一分流，避免 MP4 被当成图片解码后删掉。 */
@@ -565,7 +556,8 @@ final class ImportController {
         // 从哪个库点进来的也带上：那张挂在几个库里时，编辑页要问「只改这个库」还是「同步修改」，
         // 分叉出来的新条目得有个明确归属的库（没有它就只能一律覆盖）
         String libId = a.itemActionLibId();
-        if (libId != null) {
+        // 从「全部壁纸」进来时没有「这个库」可分叉，不带库 id = 一律覆盖（所有库同步改）
+        if (libId != null && !LibraryStore.isAll(libId)) {
             intent.putExtra(EditActivity.EXTRA_LIB_ID, libId);
         }
         a.startActivity(intent);

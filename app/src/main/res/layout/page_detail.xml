@@ -63,6 +63,22 @@
         android:orientation="vertical"
         android:paddingTop="32dp">
 
+        <!-- 在线壁纸库那张的署名（作品 · 作者 · 年代，点开藏品页）；自己导入的没有，整行 GONE -->
+        <TextView
+            android:id="@+id/tv_detail_credit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:paddingStart="20dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="6dp"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

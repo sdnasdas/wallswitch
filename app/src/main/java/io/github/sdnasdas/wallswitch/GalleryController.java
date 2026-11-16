@@ -206,6 +206,9 @@ final class GalleryController {
         a.refreshTimerStatus();
         // 删除在用的库会改变「谁在被接管」，同步一次接管状态
         a.syncTakeoverAsync();
+        // 「全部壁纸」的指针不随真库一起清：被删库独占的那张若正在全局播放里当值，得推进到下一张
+        final android.content.Context app = a.getApplicationContext();
+        new Thread(() -> Switcher.repairAllPointers(app), "repair-all-pointers").start();
     }
 
     /** 新建库弹窗：建好直接进它的库详情（接着就是「添加」）。 */
