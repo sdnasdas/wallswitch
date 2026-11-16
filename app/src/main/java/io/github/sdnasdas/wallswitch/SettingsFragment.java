@@ -173,6 +173,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         });
         click("pinned", this::onPinnedTapped);
         toggle("night_filter", on -> Switcher.setNightFilterEnabled(requireContext(), on));
+        toggle("bottom_nav_capsule", on -> host().setCapsuleNavEnabled(on));
         click("night_period", this::pickNightPeriod);
         click("transition", this::pickTransition);
         click("motion", this::pickMotion);
@@ -252,6 +253,18 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         list.setPadding(side, 0, side, dp(24));
         list.setClipToPadding(false);
         list.setItemAnimator(null);
+        updateBottomPadding();
+    }
+
+    void updateBottomPadding() {
+        if (getView() == null) {
+            return;
+        }
+        RecyclerView list = getListView();
+        int bottom = dp(24) + (getId() == R.id.settings_container ? host().floatingNavInset() : 0);
+        if (list.getPaddingBottom() != bottom) {
+            list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), bottom);
+        }
     }
 
     @Override
@@ -507,6 +520,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             return pin == null ? getString(R.string.settings_state_unset) : pin;
         });
         checked("night_filter", () -> Switcher.nightFilterEnabled(ctx));
+        checked("bottom_nav_capsule", () -> host().capsuleNavEnabled());
         summary("night_period", () -> getString(R.string.night_period_summary,
                 hourText(Switcher.nightStartMinutes(ctx)), hourText(Switcher.nightEndMinutes(ctx))));
         summary("transition", this::transitionLabel);

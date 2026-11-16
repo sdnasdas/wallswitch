@@ -24,6 +24,15 @@
     <!-- 多选「已勾选」专用蓝（用户点名要蓝勾：中性灰勾在照片上不显眼）。全局仍是中性灰，
          蓝色只给「选中」这一件事：勾、选中格描边 -->
     <color name="select_blue">#1A73E8</color>
+    <!-- 胶囊底栏液态玻璃：薄白色调保持通透；高光与背光暗边的强度只取 alpha。
+         fallback 两项给 Android 13 以下（没有运行时着色器）的不透明胶囊 -->
+    <color name="nav_glass_tint">#59FFFFFF</color>
+    <color name="nav_glass_highlight">#FFFFFFFF</color>
+    <color name="nav_glass_shade">#14000000</color>
+    <color name="nav_glass_pill">#12000000</color>
+    <color name="nav_glass_fallback">#F7F7F7</color>
+    <color name="nav_glass_fallback_rim">#1F000000</color>
+    <color name="nav_selected_icon">#2F6BEB</color>
     <color name="now_card_bg">#1A1A1A</color>
 
     <!-- 完整 Material3 颜色角色：中性灰阶 + 石墨灰强调（不带蓝、不带暖）。

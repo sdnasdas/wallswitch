@@ -179,6 +179,13 @@
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
+    <!-- 胶囊底栏标签：选中与否都是中等字重 500；11sp 两个字的宽度与 28dp 图标的图形宽度相当 -->
+    <style name="TextAppearance.Ws.NavLabel" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">11sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
     <!-- 选库页（小组件「缩略图那格」拉起，见 LibPickerActivity）：这个 Activity 没有内容视图，
          只弹一个单选框。透明 + 无标题 + windowIsTranslucent 让背景仍是桌面，
          观感就是"小组件下拉出一个列表"而不是"打开了 App"。

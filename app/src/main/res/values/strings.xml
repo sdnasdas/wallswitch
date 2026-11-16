@@ -630,6 +630,8 @@
     <string name="trigger_hint_return">每次回到桌面换一张；需要桌面正在使用本 App 的动态壁纸</string>
     <string name="trigger_hint_screen_off">每次灭屏换一张，亮屏就是新图；需要桌面正在使用本 App 的动态壁纸，通话中熄屏不换</string>
     <string name="night_filter_title">夜间只切暗色壁纸</string>
+    <string name="settings_bottom_nav_capsule_title">悬浮胶囊底栏</string>
+    <string name="settings_bottom_nav_capsule_summary">底部三栏改成悬浮圆角胶囊；关闭则回到贴底经典样式</string>
     <string name="night_period_title">夜间时段</string>
     <string name="night_period_summary">%1$s ~ %2$s</string>
     <string name="night_period_start">开始</string>

@@ -97,6 +97,15 @@
             app:persistent="false"
             app:title="@string/settings_design_launcher_preview" />
 
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:icon="@drawable/ic_tab_wallpaper"
+            app:key="bottom_nav_capsule"
+            app:persistent="false"
+            app:summary="@string/settings_bottom_nav_capsule_summary"
+            app:title="@string/settings_bottom_nav_capsule_title"
+            app:widgetLayout="@layout/pref_switch_widget" />
+
         <Preference
             app:iconSpaceReserved="false"
             app:icon="@drawable/ic_push_pin"

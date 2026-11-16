@@ -46,6 +46,12 @@
     <color name="m3_inverse_on_surface">#2E2E2E</color>
     <color name="m3_inverse_primary">#4A4A4A</color>
     <color name="notif_frost">#8C141414</color>
+    <color name="nav_glass_tint">#661E1E1E</color>
+    <color name="nav_glass_highlight">#14FFFFFF</color>
+    <color name="nav_glass_shade">#14000000</color>
+    <color name="nav_glass_pill">#24FFFFFF</color>
+    <color name="nav_glass_fallback">#262626</color>
+    <color name="nav_glass_fallback_rim">#26FFFFFF</color>
     <color name="notif_scope_lock">#C0D0B9</color>
     <!-- 夜间档强调色是浅石墨 #D6D6D6，压在其上的圆钮得用深墨才分得开（见浅色版那条注释） -->
     <color name="notif_on_brand_ink">#FF1F1F1F</color>
