@@ -10,14 +10,15 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 /**
  * 切换逻辑核心：按「壁纸库 + 范围（桌面/锁屏）」切换，进度按库隔离。
  * 进度键（SharedPreferences "settings"）由 progressBase 生成：
- * - p_&lt;libId&gt;_h_seq/_pool/_hist/_current：该库桌面范围的顺序索引/随机池/最近播放链路/当前壁纸
- * - p_&lt;libId&gt;_l_seq/_pool/_hist/_current：该库锁屏范围
+ * - p_&lt;libId&gt;_h_seq/_hist/_current：该库桌面范围的顺序索引/最近播放链路/当前壁纸
+ * - p_&lt;libId&gt;_l_seq/_hist/_current：该库锁屏范围
+ * （_pool 是 v3.188 之前「洗牌一轮」随机留下的旧键：现在随机每次现抽，不再读写它，只在清进度时一并删掉）
  *
  * <h3>两条上屏链路（v3.9 起）</h3>
  * <ul>
@@ -36,6 +37,9 @@ public class Switcher {
     private static final String PREFS_NAME = "settings";
     // 「上一张」链路上限：超出从头丢弃（先进先出）
     private static final int MAX_HISTORY = 20;
+    /** 随机切换时收藏的权重（普通图为 1）：用户 2026-11-19 选「每次现抽、收藏 2 倍」。 */
+    static final int FAVORITE_WEIGHT = 2;
+    private static final Random RANDOM = new Random();
 
     // ==================== 夜间过滤与回桌面切换（v3.152） ====================
 
@@ -46,8 +50,9 @@ public class Switcher {
     private static final String KEY_NIGHT_END = "night_end_minutes";
     private static final int DEFAULT_NIGHT_START = 22 * 60;
     private static final int DEFAULT_NIGHT_END = 7 * 60;
-    // 亮/暗分界（平均亮度 0~255）：经验值，亮色系壁纸普遍在 140 以上，暗色系多在 110 以下
-    private static final int NIGHT_BRIGHT_THRESHOLD = 128;
+    // 亮/暗分界（平均亮度 0~255）：经验值，亮色系壁纸普遍在 140 以上，暗色系多在 110 以下。
+    // 详细信息里的「浅色 / 深色」用的也是这一条线，与夜间过滤永远同一个答案
+    static final int NIGHT_BRIGHT_THRESHOLD = 128;
     // 回桌面切换的节流：上次回桌面切换时刻与最小间隔（分钟，默认 2）
     private static final String KEY_LAST_RETURN_SWITCH = "last_return_switch";
     private static final String KEY_RETURN_MIN_GAP = "return_min_gap_minutes";
@@ -112,7 +117,7 @@ public class Switcher {
         String oldCurrent = getCurrent(ctx, libId, forHome);
         String nextId;
         if (LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome))) {
-            nextId = pickRandom(prefs, base, candidates);
+            nextId = pickRandom(candidates, oldCurrent, RANDOM);
         } else {
             nextId = pickOrder(prefs, base, candidates);
         }
@@ -132,7 +137,7 @@ public class Switcher {
      * 回退到「最近播放」链路的上一张（常驻通知的「上一张」按钮用）：每按一次往回走一张
      * （从链路尾部弹出），走空后静默不动；回退本身不往链路追加，否则会在最后两张之间
      * 来回打转。顺序模式把 seq 对齐到回退到的这张（之后的「下一张」从它后面继续）；
-     * 随机模式把被换下的当前图塞回本轮池头部（图不丢、本轮不重复）。
+     * 随机模式每次现抽、没有「本轮池」，回退只动链路与指针。
      * 守卫与 {@link #next} 一致；返回是否成功上屏。
      */
     public static boolean prev(Context ctx, String libId, boolean forHome) {
@@ -166,17 +171,10 @@ public class Switcher {
             lastError = null;
             return false;
         }
-        // 顺序进度对齐到回退到的这张：之后的「下一张」从它后面继续（随机模式不用 seq，无妨）
+        // 顺序进度对齐到回退到的这张：之后的「下一张」从它后面继续（随机模式每次现抽，不用 seq，无妨）
         int idx = findByIndex(candidates, prevId);
         if (idx >= 0) {
             prefs.edit().putInt(base + "_seq", idx).apply();
-        }
-        if (LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(ctx, forHome))) {
-            // 被换下的当前图不再在屏上，塞回本轮池头部：接下来的随机还能抽到它
-            String current = getCurrent(ctx, libId, forHome);
-            if (current != null) {
-                poolPushHead(prefs, base, current);
-            }
         }
         return applyById(ctx, libId, prevId, forHome);
     }
@@ -212,24 +210,9 @@ public class Switcher {
         prefs.edit().putString(base + "_hist", new JSONArray(hist).toString()).apply();
     }
 
-    /** 随机池头插一个 id（prev 回退后把换下的图放回本轮池），解析容错与 pickRandom 相同。 */
-    private static void poolPushHead(SharedPreferences prefs, String base, String id) {
-        List<String> pool = new ArrayList<>();
-        try {
-            JSONArray arr = new JSONArray(prefs.getString(base + "_pool", "[]"));
-            for (int i = 0; i < arr.length(); i++) {
-                pool.add(arr.getString(i));
-            }
-        } catch (Exception ignored) {
-        }
-        pool.remove(id);
-        pool.add(0, id);
-        prefs.edit().putString(base + "_pool", new JSONArray(pool).toString()).apply();
-    }
-
     /**
      * 把库里指定的一张设为该范围当前壁纸（库内长按浮出的「设为首页」用）：
-     * 指针移过去并立刻上屏，同时把顺序进度拨到它、清掉随机池 —— 之后自动切换就从这张往下走。
+     * 指针移过去并立刻上屏，同时把顺序进度拨到它 —— 之后自动切换就从这张往下走。
      * 校验与 {@link #next} 相同（接管开关 / 库启用 / 覆盖该范围 / 这张确实在这个库里），
      * 失败原因写进 {@link #lastError()} 供界面提示。
      */
@@ -250,7 +233,7 @@ public class Switcher {
         String base = progressBase(libId, forHome);
         // 「上一张」链路要记切换前的当前图（applyById 会覆盖 _current，必须先取）
         String oldCurrent = getCurrent(ctx, libId, forHome);
-        // 进度对齐到这张：顺序模式下次从它后面继续；随机池清空重建，免得紧接着又抽到同一张
+        // 进度对齐到这张：顺序模式下次从它后面继续；_pool 是 v3.188 之前洗牌随机留下的旧键，顺手清掉
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putInt(base + "_seq", index)
                 .remove(base + "_pool")
@@ -269,6 +252,12 @@ public class Switcher {
      * 桌面走引擎（未激活时如实报 engine_inactive）；锁屏走一次静态存档写入。
      */
     private static boolean applyById(Context ctx, String libId, String wallpaperId, boolean forHome) {
+        return applyById(ctx, libId, wallpaperId, forHome, true);
+    }
+
+    /** @param countShown 要不要记一次上屏统计（重编分叉换指针时传 false：屏上还是同一张图） */
+    private static boolean applyById(Context ctx, String libId, String wallpaperId, boolean forHome,
+                                     boolean countShown) {
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putString(progressBase(libId, forHome) + "_current", wallpaperId).apply();
         boolean applied;
@@ -290,6 +279,10 @@ public class Switcher {
         // 成功后刷新小组件缩略图与常驻通知。v3.81 起只有一条通知，但桌面与锁屏切完都得刷它
         //（以前只在 forHome 时刷，那时锁屏根本没有对应的状态可显示）
         if (applied) {
+            // 详细信息里的「上屏次数 / 最近一次上屏」：所有上屏都从这里出，记在这一处就不会漏
+            if (countShown) {
+                WallpaperStats.recordShown(ctx, wallpaperId, forHome);
+            }
             WidgetProvider.updateWidget(ctx);
             StatusNotifier.update(ctx);
         }
@@ -383,8 +376,9 @@ public class Switcher {
                 continue;
             }
             if (LibraryStore.ownsScope(ctx, libId, forHome) && TakeoverManager.isEnabled(ctx)) {
-                // 这一面正显示着它：换指针 + 按新那条上图（applyById 里带着刷小组件与通知）
-                applyById(ctx, libId, toId, forHome);
+                // 这一面正显示着它：换指针 + 按新那条上图（applyById 里带着刷小组件与通知）。
+                // 分叉不是一次新的上屏（屏上还是同一张，只换了取景），不计入上屏次数
+                applyById(ctx, libId, toId, forHome, false);
             } else {
                 // 这一面本来没在它上面（没占槽位或接管关着）：只把账改对，不上屏
                 prefs.edit().putString(base + "_current", toId).apply();
@@ -557,34 +551,41 @@ public class Switcher {
         return candidates.get(nextIndex).id;
     }
 
-    /** 随机模式：从剩余池取一张（该库一轮不重复、用完重置），池内失效 id 先过滤。 */
-    private static String pickRandom(SharedPreferences prefs, String base,
-                                     List<WallpaperStore.Item> candidates) {
-        List<String> pool = new ArrayList<>();
-        try {
-            JSONArray arr = new JSONArray(prefs.getString(base + "_pool", "[]"));
-            for (int i = 0; i < arr.length(); i++) {
-                String id = arr.getString(i);
-                for (WallpaperStore.Item item : candidates) {
-                    if (item.id.equals(id)) {
-                        pool.add(id);
-                        break;
-                    }
-                }
-            }
-        } catch (Exception ignored) {
+    /**
+     * 随机模式（v3.188 起每次现抽，不再洗牌一轮）：按权重从候选里抽一张，收藏的权重是
+     * {@link #FAVORITE_WEIGHT}、普通的是 1；只排除正在显示的那张（候选只剩它一张时照样返回它）。
+     * 不保证一轮内每张都轮到 —— 这是用户选的取舍，换来的是收藏能明显多出现。
+     * 纯函数，不读写任何进度，单测直接喂 {@link Random}。
+     */
+    static String pickRandom(List<WallpaperStore.Item> candidates, String currentId, Random random) {
+        if (candidates.isEmpty()) {
+            return null;
         }
-        // 池为空则用候选全集重置（打乱顺序保证随机）
-        if (pool.isEmpty()) {
-            for (WallpaperStore.Item item : candidates) {
-                pool.add(item.id);
+        int total = 0;
+        for (WallpaperStore.Item item : candidates) {
+            if (candidates.size() > 1 && item.id.equals(currentId)) {
+                continue;
             }
-            Collections.shuffle(pool);
+            total += weightOf(item);
         }
-        // 取出第一张并从池中移除后写回，保证一轮内不重复
-        String nextId = pool.remove(0);
-        prefs.edit().putString(base + "_pool", new JSONArray(pool).toString()).apply();
-        return nextId;
+        if (total <= 0) {
+            return candidates.get(0).id;
+        }
+        int roll = random.nextInt(total);
+        for (WallpaperStore.Item item : candidates) {
+            if (candidates.size() > 1 && item.id.equals(currentId)) {
+                continue;
+            }
+            roll -= weightOf(item);
+            if (roll < 0) {
+                return item.id;
+            }
+        }
+        return candidates.get(candidates.size() - 1).id;
+    }
+
+    static int weightOf(WallpaperStore.Item item) {
+        return item.favorite ? FAVORITE_WEIGHT : 1;
     }
 
 

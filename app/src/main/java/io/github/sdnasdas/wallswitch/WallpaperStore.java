@@ -150,14 +150,14 @@ public class WallpaperStore {
         public int bright = -1;
         /** 用户手动标的「夜间禁用」：夜间时段永不切到这张（与亮度分档无关，v3.152）。 */
         public boolean nightOff;
+        /** 收藏：随机切换时被抽中的机会是普通图的 {@link Switcher#FAVORITE_WEIGHT} 倍（v3.188）。 */
+        public boolean favorite;
         /**
-         * 在线壁纸库下载来的这张是哪件藏品（v3.184）：{@code met:436535} / {@code aic:28560}。
-         * null = 用户自己导入的。在线库只淘汰带这个标记的条目，也靠它去重（同一件藏品不下第二次）。
+         * 入库时刻（墙钟毫秒，v3.188 起导入时写）。0 = 不知道：之前导入的老壁纸没记过，
+         * 详细信息里显示「—」，不拿文件修改时间去凑（备份还原、重编都会改它）。
          */
-        public String onlineSrc;
-        /** 署名一行：作品名 · 作者 · 年代（在线壁纸库下载时写入；详情页底部显示）。 */
+        public long importedAt;
         public String credit;
-        /** 藏品在博物馆网站上的页面（点署名行打开）。 */
         public String link;
 
         /** 有没有可复原的构图参数（尺寸有效 + 矩形不退化）。 */
@@ -301,8 +301,8 @@ public class WallpaperStore {
                 // 亮度分档与夜间禁用：老文件读不到就取默认（-1 待补算 / 未禁用）
                 item.bright = obj.optInt("bright", -1);
                 item.nightOff = obj.optBoolean("night_off", false);
-                // 在线壁纸库的来源与署名（v3.184）：老文件读不到就是 null = 用户自己导入的
-                item.onlineSrc = optNonEmpty(obj, "online_src");
+                item.favorite = obj.optBoolean("fav", false);
+                item.importedAt = obj.optLong("imported_at", 0L);
                 item.credit = optNonEmpty(obj, "credit");
                 item.link = optNonEmpty(obj, "link");
                 result.add(item);
@@ -645,6 +645,12 @@ public class WallpaperStore {
         Item item = new Item();
         item.id = id;
         item.joinLib(libId);
+        item.importedAt = System.currentTimeMillis();
+        if (sourceUrl != null && WallpaperDownload.isHttps(sourceUrl)) {
+            item.link = sourceUrl;
+            item.credit = sourceTitle == null || sourceTitle.trim().isEmpty()
+                    ? Uri.parse(sourceUrl).getHost() : sourceTitle;
+        }
         if (bright >= 0) {
             item.bright = bright;
         }
@@ -718,6 +724,9 @@ public class WallpaperStore {
         Item fresh = new Item();
         fresh.id = newId;
         fresh.joinLib(libId);
+        // 分叉是「这个库里换一版取景」，在用户眼里还是同一张：收藏与入库时间跟着走
+        fresh.favorite = src.favorite;
+        fresh.importedAt = src.importedAt;
         if (bright >= 0) {
             fresh.bright = bright;
         }
@@ -728,6 +737,7 @@ public class WallpaperStore {
             }
         }
         saveLibrary(context, items);
+        WallpaperStats.copy(context, srcId, newId);
         return newId;
     }
 
@@ -815,6 +825,7 @@ public class WallpaperStore {
      * 实况段就躺在原图字节尾部，所以它跟着原图一起走，不需要单独清理。
      */
     private static void destroyStoredFiles(Context context, String id) throws IOException {
+        WallpaperStats.forget(context, id);
         deleteFullFiles(context, id);
         try {
             Files.deleteIfExists(getThumbFile(context, id).toPath());
@@ -1745,9 +1756,11 @@ public class WallpaperStore {
             if (item.nightOff) {
                 obj.put("night_off", true);
             }
-            // 同一原则：只有在线壁纸库下载的条目才带这三个键，自己导入的一个字节不多
-            if (item.onlineSrc != null) {
-                obj.put("online_src", item.onlineSrc);
+            if (item.favorite) {
+                obj.put("fav", true);
+            }
+            if (item.importedAt > 0L) {
+                obj.put("imported_at", item.importedAt);
             }
             if (item.credit != null) {
                 obj.put("credit", item.credit);
