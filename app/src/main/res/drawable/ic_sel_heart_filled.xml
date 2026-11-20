@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库内多选悬浮栏：已收藏（实心，选中的全都收藏了，再点就是取消收藏）。
+     与空心版同一条轮廓、同样描边，只多了填充，切换时外形不跳 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,20.3s-7.8,-4.7 -7.8,-10.4A4.4,4.4 0,0 1,12 7.2a4.4,4.4 0,0 1,7.8 2.7c0,5.7 -7.8,10.4 -7.8,10.4z"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.1" />
+</vector>

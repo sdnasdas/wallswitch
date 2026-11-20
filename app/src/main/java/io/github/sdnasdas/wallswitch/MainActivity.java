@@ -413,6 +413,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // 「更多」菜单开着时重建（切深色、改字号）不能留下挂在旧窗口上的 PopupWindow
+        dismissSelectionMore();
         super.onDestroy();
         stopLive();
         images.close();
@@ -438,7 +440,12 @@ public class MainActivity extends AppCompatActivity {
             pageLibrary.setPadding(b[0], b[1], b[2], b[3]);
             pageSettingsSecondary.setPadding(b[0], b[1], b[2], b[3]);
             logRoot.setPadding(b[0], b[1], b[2], b[3]);
-            selectionBar.setPadding(0, dp(6), 0, dp(6) + b[3]);
+            // 悬浮胶囊离手势条 16dp：底边距随系统栏高度补
+            ViewGroup.MarginLayoutParams sel = (ViewGroup.MarginLayoutParams) selectionBar.getLayoutParams();
+            if (sel.bottomMargin != b[3] + dp(16)) {
+                sel.bottomMargin = b[3] + dp(16);
+                selectionBar.setLayoutParams(sel);
+            }
             return insets;
         });
     }
@@ -924,7 +931,7 @@ public class MainActivity extends AppCompatActivity {
             rows.add(displayRow(item.id, item.title, item.libId, new ArrayList<>(item.libIds),
                     item.srcWidth, item.srcHeight, item.cropLeft, item.cropTop, item.cropRight,
                     item.cropBottom, imageRevision(item.id), imageClearEpoch,
-                    Switcher.inUseWhere(this, item.id)));
+                    Switcher.inUseWhere(this, item.id), item.favorite));
         }
         return rows;
     }
@@ -1474,6 +1481,7 @@ public class MainActivity extends AppCompatActivity {
             inUse.setVisibility(Switcher.inUseWhere(MainActivity.this, item.id) != null
                     ? View.VISIBLE : View.GONE);
             inUse.setText(R.string.in_use_badge);
+            v.findViewById(R.id.iv_fav_badge).setVisibility(item.favorite ? View.VISIBLE : View.GONE);
             boolean selected = item.id.equals(selectedId);
             v.findViewById(R.id.iv_selected_check).setVisibility(selected ? View.VISIBLE : View.GONE);
             v.setOnClickListener(x -> {
@@ -1775,13 +1783,18 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         boolean organize = wallpaperAdapter.isOrganizeMode();
-        boolean selected = wallpaperAdapter.selectedCount() > 0;
-        findViewById(R.id.sel_move).setEnabled(selected);
-        findViewById(R.id.sel_copy).setEnabled(selected);
-        findViewById(R.id.sel_remove).setEnabled(selected);
-        findViewById(R.id.sel_night).setEnabled(selected);
-        bindCoverButton();
-        bindNightButton();
+        int count = wallpaperAdapter.selectedCount();
+        boolean selected = count > 0;
+        // 悬浮栏只有图标：不可点的那几颗压到 38% 透明度，ImageButton 自己不会变灰
+        bindSelectionButton(R.id.sel_fav, selected);
+        bindSelectionButton(R.id.sel_save, selected);
+        bindSelectionButton(R.id.sel_set_wallpaper, count == 1);
+        bindSelectionButton(R.id.sel_remove, selected);
+        bindSelectionButton(R.id.sel_more, selected);
+        bindFavoriteButton();
+        if (!organize || !selected) {
+            dismissSelectionMore();
+        }
         Menu menu = libraryToolbar.getMenu();
         menu.setGroupVisible(R.id.group_library_normal, !organize);
         menu.setGroupVisible(R.id.group_library_select, organize);
@@ -1798,39 +1811,289 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupSelectionBar() {
-        findViewById(R.id.sel_move).setOnClickListener(
-                v -> showOrganizeTargetDialog(true, wallpaperAdapter.selectedIdsInOrder()));
-        findViewById(R.id.sel_copy).setOnClickListener(
-                v -> showOrganizeTargetDialog(false, wallpaperAdapter.selectedIdsInOrder()));
+        findViewById(R.id.sel_fav).setOnClickListener(v -> toggleFavoriteForSelection());
+        findViewById(R.id.sel_save).setOnClickListener(v -> saveSelectionToAlbum());
+        findViewById(R.id.sel_set_wallpaper).setOnClickListener(v -> setWallpaperForSelection());
         findViewById(R.id.sel_remove).setOnClickListener(
                 v -> confirmRemoveSelected(wallpaperAdapter.selectedIdsInOrder()));
-        findViewById(R.id.sel_cover).setOnClickListener(v -> toggleCoverForSelection());
-        findViewById(R.id.sel_night).setOnClickListener(v -> toggleNightForSelection());
+        findViewById(R.id.sel_more).setOnClickListener(v -> showSelectionMore(v));
     }
 
-    /** 恰好勾一张时「设为封面」可点；勾的那张已经是本库封面时文案换成「取消封面」。 */
-    private void bindCoverButton() {
-        Button cover = findViewById(R.id.sel_cover);
-        boolean single = wallpaperAdapter.selectedCount() == 1;
-        cover.setEnabled(single);
-        boolean isCover = single && wallpaperAdapter.selectedIdsInOrder().get(0)
-                .equals(LibraryStore.coverId(this, currentLibId()));
-        cover.setText(isCover ? R.string.sel_uncover : R.string.sel_cover);
+    private void bindSelectionButton(int id, boolean enabled) {
+        View button = findViewById(id);
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1f : 0.32f);
     }
 
-    /** 「夜间禁用」按勾选集合的整体状态显示：勾的全都禁用了，文案换成「解除禁用」（点了就是解除）。 */
-    private void bindNightButton() {
-        Button night = findViewById(R.id.sel_night);
+    /** 勾的全都收藏了：心形实心，再点就是取消收藏；否则空心，点了把没收藏的那些都收藏上。 */
+    private boolean selectionAllFavorite() {
         List<String> ids = wallpaperAdapter.selectedIdsInOrder();
-        boolean allOff = !ids.isEmpty();
+        if (ids.isEmpty()) {
+            return false;
+        }
+        for (String id : ids) {
+            WallpaperStore.Item item = WallpaperStore.get(this, id);
+            if (item == null || !item.favorite) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void bindFavoriteButton() {
+        ImageButton fav = findViewById(R.id.sel_fav);
+        boolean all = selectionAllFavorite();
+        fav.setImageResource(all ? R.drawable.ic_sel_heart_filled : R.drawable.ic_sel_heart);
+        CharSequence label = getString(all ? R.string.sel_unfav : R.string.sel_fav);
+        fav.setContentDescription(label);
+        fav.setTooltipText(label);
+    }
+
+    /**
+     * 批量收藏 / 取消收藏：勾的里面还有没收藏的就一律收藏，全都收藏了就一律取消。
+     * 只改 library.json 的 fav 字段；做完<b>不退出多选</b>，心形当场变实心/空心就是反馈。
+     */
+    private void toggleFavoriteForSelection() {
+        List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            return;
+        }
+        boolean target = !selectionAllFavorite();
+        List<WallpaperStore.Item> items = WallpaperStore.load(this);
+        for (WallpaperStore.Item item : items) {
+            if (ids.contains(item.id)) {
+                item.favorite = target;
+            }
+        }
+        try {
+            WallpaperStore.saveItems(this, items);
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.organize_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+        bindFavoriteButton();
+        Toast.makeText(this, target ? R.string.fav_done : R.string.unfav_done, Toast.LENGTH_SHORT).show();
+        // 格子右下角的粉心当场跟上（DisplayRow 带着 favorite，只重绑变了的那几格）
+        refreshList();
+    }
+
+    /**
+     * 保存：先问存哪一份（成品图 / 原图，v3.189），再把勾的那几张的原始字节存进相册 Pictures/WallSwitch。
+     * 同一张同一份再存是覆盖，不叠副本；原图名字带 _original，和成品图分开。
+     * 选原图时没留存原图的老壁纸跳过并报数。弹窗是纯列表（不配 setMessage，否则列表被量成零高）。
+     */
+    private void saveSelectionToAlbum() {
+        final List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Toast.makeText(this, R.string.album_save_unsupported, Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AppAlertDialogBuilder(this)
+                .setTitle(R.string.save_pick_title)
+                .setItems(new CharSequence[]{getString(R.string.save_pick_full),
+                        getString(R.string.save_pick_original), getString(R.string.save_pick_both)},
+                        (d, which) -> saveToAlbum(ids, which != 1, which != 0))
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** @param full 存成品图；@param original 存原图（「均下载」两个都为真） */
+    private void saveToAlbum(final List<String> ids, final boolean full, final boolean original) {
+        final Context app = getApplicationContext();
+        Toast.makeText(this, getString(R.string.album_save_running, ids.size()), Toast.LENGTH_SHORT).show();
+        exitOrganizeMode();
+        new Thread(() -> {
+            int fullOk = 0;
+            int originalOk = 0;
+            int missing = 0;
+            int failed = 0;
+            for (String id : ids) {
+                String tag = id.substring(0, Math.min(8, id.length()));
+                if (full) {
+                    File file = WallpaperStore.getFullFile(app, id);
+                    boolean png = file.getName().endsWith(".png");
+                    if (file.isFile() && saveFileToAlbum(app, file,
+                            "wallswitch_" + tag + (png ? ".png" : ".jpg"), png ? "image/png" : "image/jpeg")) {
+                        fullOk++;
+                    } else {
+                        failed++;
+                    }
+                }
+                if (original) {
+                    File file = WallpaperStore.getOriginalFile(app, id);
+                    if (!file.isFile() || file.length() == 0L) {
+                        missing++;
+                    } else {
+                        String[] type = WallpaperInfo.albumTypeOf(WallpaperInfo.sniffFileFormat(file));
+                        if (saveFileToAlbum(app, file, "wallswitch_" + tag + "_original" + type[0], type[1])) {
+                            originalOk++;
+                        } else {
+                            failed++;
+                        }
+                    }
+                }
+            }
+            final int savedFull = fullOk;
+            final int savedOriginal = originalOk;
+            final int saved = fullOk + originalOk;
+            final int skipped = missing;
+            final int failedCount = failed;
+            runOnUiThread(() -> {
+                String text;
+                if (full && original && saved > 0 && failedCount == 0) {
+                    // 均下载：两份分开报数（缺原图的老壁纸只少了原图那一份）
+                    text = getString(R.string.album_save_both_done, savedFull, savedOriginal);
+                } else if (saved == 0 && skipped > 0 && failedCount == 0) {
+                    text = getString(R.string.album_save_none_original);
+                } else if (saved == 0) {
+                    text = getString(R.string.album_save_failed);
+                } else if (failedCount > 0) {
+                    text = getString(R.string.album_save_partial, saved, failedCount + skipped);
+                } else if (skipped > 0) {
+                    text = getString(R.string.album_save_no_original, saved, skipped);
+                } else {
+                    text = getString(R.string.album_save_done, saved);
+                }
+                Toast.makeText(app, text, Toast.LENGTH_LONG).show();
+            });
+        }, "save-selection").start();
+    }
+
+    private static boolean saveFileToAlbum(Context app, File file, String name, String mime) {
+        try (FileInputStream in = new FileInputStream(file)) {
+            return TakeoverManager.saveStreamToAlbum(app, name, mime, in) != null;
+        } catch (Exception | OutOfMemoryError e) {
+            return false;
+        }
+    }
+
+    /** 设为壁纸：恰好勾一张时可点，走单张预览页那个「桌面 / 锁屏 / 均应用」弹窗。 */
+    private void setWallpaperForSelection() {
+        List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.size() != 1) {
+            return;
+        }
+        WallpaperStore.Item item = WallpaperStore.get(this, ids.get(0));
+        if (item == null) {
+            return;
+        }
+        exitOrganizeMode();
+        showSetWallpaperDialog(item);
+    }
+
+    private android.widget.PopupWindow selectionMore;
+    private long selectionMoreDismissedAt;
+
+    private void dismissSelectionMore() {
+        if (selectionMore != null) {
+            selectionMore.dismiss();
+            selectionMore = null;
+        }
+    }
+
+    /**
+     * 「更多」：向上弹出 移动到 / 复制到 / 设为封面 / 夜间禁用 / 详细信息。
+     * 设为封面与详细信息只在恰好勾一张时可点；封面、夜间两行的文案按勾选的现状取反。
+     * 展开期间那颗「更多」变实心，收起复原。
+     */
+    private void showSelectionMore(View anchor) {
+        if (selectionMore != null) {
+            dismissSelectionMore();
+            return;
+        }
+        // 菜单开着时点「更多」：触摸先在窗外把菜单收掉，紧接着这次点击又会把它打开 —— 刚收起就当是在收
+        if (android.os.SystemClock.uptimeMillis() - selectionMoreDismissedAt < 300) {
+            return;
+        }
+        final List<String> ids = wallpaperAdapter.selectedIdsInOrder();
+        if (ids.isEmpty()) {
+            return;
+        }
+        View content = LayoutInflater.from(this).inflate(R.layout.popup_selection_more, null, false);
+        // inflate 时没有父容器，根上的 220dp 不会生效：宽度在这里给死
+        final android.widget.PopupWindow popup = new android.widget.PopupWindow(content,
+                dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        // 底放在窗口上（不是内容上），elevation 才有轮廓可投阴影
+        popup.setBackgroundDrawable(getDrawable(R.drawable.popup_menu_background));
+        popup.setElevation(dp(8));
+        popup.setOutsideTouchable(true);
+        boolean single = ids.size() == 1;
+        boolean isCover = single && ids.get(0).equals(LibraryStore.coverId(this, currentLibId()));
+        TextView cover = content.findViewById(R.id.more_cover);
+        cover.setText(isCover ? R.string.sel_uncover : R.string.sel_cover);
+        TextView night = content.findViewById(R.id.more_night);
+        night.setText(selectionAllNightOff(ids) ? R.string.sel_night_off : R.string.sel_night);
+        for (int id : new int[]{R.id.more_cover, R.id.more_info}) {
+            View row = content.findViewById(id);
+            row.setEnabled(single);
+            row.setAlpha(single ? 1f : 0.38f);
+        }
+        content.findViewById(R.id.more_move).setOnClickListener(v -> {
+            dismissSelectionMore();
+            showOrganizeTargetDialog(true, wallpaperAdapter.selectedIdsInOrder());
+        });
+        content.findViewById(R.id.more_copy).setOnClickListener(v -> {
+            dismissSelectionMore();
+            showOrganizeTargetDialog(false, wallpaperAdapter.selectedIdsInOrder());
+        });
+        cover.setOnClickListener(v -> {
+            dismissSelectionMore();
+            toggleCoverForSelection();
+        });
+        night.setOnClickListener(v -> {
+            dismissSelectionMore();
+            toggleNightForSelection();
+        });
+        content.findViewById(R.id.more_info).setOnClickListener(v -> {
+            dismissSelectionMore();
+            List<String> now = wallpaperAdapter.selectedIdsInOrder();
+            WallpaperStore.Item item = now.size() == 1 ? WallpaperStore.get(this, now.get(0)) : null;
+            if (item != null) {
+                WallpaperInfoSheet.show(this, item);
+            }
+        });
+        final ImageButton more = (ImageButton) anchor;
+        more.setBackgroundResource(R.drawable.sel_more_open_bg);
+        more.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(more,
+                com.google.android.material.R.attr.colorSurface)));
+        popup.setOnDismissListener(() -> {
+            if (selectionMore == popup) {
+                selectionMore = null;
+            }
+            selectionMoreDismissedAt = android.os.SystemClock.uptimeMillis();
+            android.util.TypedValue ripple = new android.util.TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+            more.setBackgroundResource(ripple.resourceId);
+            more.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(more,
+                    com.google.android.material.R.attr.colorOnSurface)));
+        });
+        // 贴着悬浮栏右上方弹出：右边与悬浮栏右缘对齐，底边比悬浮栏顶高 8dp
+        content.measure(View.MeasureSpec.makeMeasureSpec(dp(220), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.UNSPECIFIED);
+        View bar = findViewById(R.id.selection_bar);
+        int[] barPos = new int[2];
+        bar.getLocationInWindow(barPos);
+        View root = findViewById(R.id.app_root);
+        int x = barPos[0] + bar.getWidth() - content.getMeasuredWidth();
+        int y = barPos[1] - content.getMeasuredHeight() - dp(8);
+        selectionMore = popup;
+        popup.showAtLocation(root, Gravity.TOP | Gravity.START, Math.max(0, x), Math.max(0, y));
+    }
+
+    private boolean selectionAllNightOff(List<String> ids) {
+        if (ids.isEmpty()) {
+            return false;
+        }
         for (String id : ids) {
             WallpaperStore.Item item = WallpaperStore.get(this, id);
             if (item == null || !item.nightOff) {
-                allOff = false;
-                break;
+                return false;
             }
         }
-        night.setText(allOff ? R.string.sel_night_off : R.string.sel_night);
+        return true;
     }
 
     /**
@@ -2107,6 +2370,7 @@ public class MainActivity extends AppCompatActivity {
             inUse.setVisibility(Switcher.inUseWhere(MainActivity.this, item.id) != null
                     ? View.VISIBLE : View.GONE);
             inUse.setText(R.string.in_use_badge);
+            v.findViewById(R.id.iv_fav_badge).setVisibility(item.favorite ? View.VISIBLE : View.GONE);
             boolean selected = selectedIds.contains(item.id);
             // 与图库库卡片同一枚蓝勾：只在勾中时出现，没勾的格子不放空心框
             v.findViewById(R.id.iv_selected_check).setVisibility(
@@ -2138,8 +2402,10 @@ public class MainActivity extends AppCompatActivity {
         private void bindHeader(View v) {
             LibraryStore.Library lib = currentLib();
             v.setTag(lib == null ? null : lib.id);
-            v.setVisibility(lib == null || organizeMode ? View.GONE : View.VISIBLE);
-            if (lib == null || organizeMode) {
+            // 多选时头部照常显示：列表项设 GONE 仍会按原高度占位，以前那块就成了一大片空白；
+            // 保留头部还能让格子不跳位，长按的那张始终在手指下面
+            v.setVisibility(lib == null ? View.GONE : View.VISIBLE);
+            if (lib == null) {
                 unbindImageTree(v);
                 return;
             }
@@ -2156,6 +2422,12 @@ public class MainActivity extends AppCompatActivity {
             ((TextView) v.findViewById(R.id.tv_header_count)).setText(getString(R.string.lib_count, allItems.size()));
             bindScopeButton(v.findViewById(R.id.btn_lib_home), true, lib.id);
             bindScopeButton(v.findViewById(R.id.btn_lib_lock), false, lib.id);
+            // 多选期间这两颗不可点（一次只做一件事：要么整理选中的图，要么换这个库的去向）
+            for (int id : new int[]{R.id.btn_lib_home, R.id.btn_lib_lock}) {
+                View scope = v.findViewById(id);
+                scope.setEnabled(!organizeMode);
+                scope.setAlpha(organizeMode ? 0.38f : 1f);
+            }
             MaterialButtonToggleGroup filters = v.findViewById(R.id.wallpaper_filters);
             filters.clearOnButtonCheckedListeners();
             filters.check(wallpaperFilter == 1 ? R.id.filter_live
@@ -2837,12 +3109,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 整理态点「从本库移除」：只有它可能把图从手机上没掉，所以只有它可能要二次确认，
-     * 而且把账算明：几张只挂在这个库里（移出 = 成品图、缩略图、原图一起没），
-     * 几张还挂在别的库里（移出 = 这一页不再显示）。
-     *
-     * <p>预演出「一张都不会删」时直接办、不弹窗 —— 那时候它和移动一样是可逆的（复制回来就完），
-     * 拦一道确认只是白让人多点一下。
+     * 整理态点「移出本库」：一律二次确认（v3.189 用户要求，删不删文件都问），并把账算明：
+     * 几张只挂在这个库里（移出 = 成品图、缩略图、原图一起没），几张还挂在别的库里（移出 = 这一页不再显示）。
      */
     void confirmRemoveSelected(final List<String> ids) {
         if (ids.isEmpty()) {
@@ -2855,20 +3123,24 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         int[] preview = WallpaperStore.previewRemovalFromLib(this, ids, src);
-        if (preview[0] == 0) {
-            applyOrganizeChange(ORGANIZE_REMOVE, ids, src, null, null);
-            return;
-        }
-        String msg = preview[1] == 0
+        // v3.189 起不管删不删文件都要确认：以前「一张都不会删」时直接办，用户要求移出也先问一句
+        String msg = preview[0] == 0
+                ? getString(R.string.organize_remove_msg_shared, ids.size(), lib.name)
+                : preview[1] == 0
                 ? getString(R.string.organize_remove_msg_all, preview[0])
                 : getString(R.string.organize_remove_msg_mixed, preview[0], preview[1]);
-        new AppAlertDialogBuilder(this)
+        AlertDialog dialog = new AppAlertDialogBuilder(this)
                 .setTitle(getString(R.string.organize_remove_title, ids.size(), lib.name))
                 .setMessage(msg)
-                .setPositiveButton(R.string.confirm, (dialog, which) ->
+                .setPositiveButton(R.string.organize_remove_confirm, (d, which) ->
                         applyOrganizeChange(ORGANIZE_REMOVE, ids, src, null, null))
                 .setNegativeButton(R.string.cancel, null)
                 .show();
+        // 会删文件的那种用红字，提醒这一下找不回来
+        if (preview[0] > 0) {
+            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            positive.setTextColor(getColor(R.color.danger));
+        }
     }
 
     /**

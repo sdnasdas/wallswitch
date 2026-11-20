@@ -33,6 +33,10 @@
     <color name="nav_glass_fallback">#F7F7F7</color>
     <color name="nav_glass_fallback_rim">#1F000000</color>
     <color name="nav_selected_icon">#2F6BEB</color>
+    <!-- 库内多选悬浮胶囊（v3.188）：近乎不透明的表面 + 细边；收藏那颗心用粉红（确认稿同色，深浅档共用） -->
+    <color name="sel_pill_bg">#F7FFFFFF</color>
+    <color name="sel_pill_rim">#14000000</color>
+    <color name="fav_heart">#FF5A6E</color>
     <color name="now_card_bg">#1A1A1A</color>
 
     <!-- 完整 Material3 颜色角色：中性灰阶 + 石墨灰强调（不带蓝、不带暖）。

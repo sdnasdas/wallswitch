@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 分段按钮（库内筛选、切换设置的模式/触发方式、切换日志的桌面/锁屏）的底色：
+     选中那格实心蓝（与胶囊底栏选中同一个蓝），没选中保持透明描边。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/nav_selected_icon" android:state_checked="true" />
+    <item android:color="@android:color/transparent" />
+</selector>

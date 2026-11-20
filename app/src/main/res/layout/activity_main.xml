@@ -90,71 +90,86 @@
         layout="@layout/page_library"
         android:visibility="gone" />
 
-    <!-- 库内多选动作条浮在覆盖层上；出现时顶替底部导航。
-         「设为封面」只在恰好勾了一张时可点；勾的那张已经是封面时文案换成「取消封面」
-         「夜间禁用」按勾选集合的整体状态取反：全都禁用了点它就是「解除禁用」 -->
+    <!-- 库内多选动作栏（v3.188 起悬浮胶囊，只放图标）：出现时顶替底部导航。
+         从左到右：收藏 / 保存到相册 / 设为壁纸（恰好勾一张才可点）/ 移出本库（红）/ 更多。
+         「更多」里是 移动到、复制到、设为封面、夜间禁用、详细信息（见 MainActivity#showSelectionMore）。
+         长按每颗都有文字提示，读屏念 contentDescription。底边距由 setupInsets 按系统栏补上 -->
     <LinearLayout
         android:id="@+id/selection_bar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="64dp"
         android:layout_gravity="bottom"
-        android:background="?attr/colorSurfaceContainer"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/sel_pill_bg"
+        android:elevation="8dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/sel_move"
-            style="@style/Widget.Material3.Button.TextButton.Icon"
+        <ImageButton
+            android:id="@+id/sel_fav"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/sel_move"
-            app:icon="@drawable/ic_move"
-            app:iconGravity="top" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/sel_fav"
+            android:src="@drawable/ic_sel_heart"
+            android:tooltipText="@string/sel_fav"
+            app:tint="@color/fav_heart" />
 
-        <Button
-            android:id="@+id/sel_copy"
-            style="@style/Widget.Material3.Button.TextButton.Icon"
+        <ImageButton
+            android:id="@+id/sel_save"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/sel_copy"
-            app:icon="@drawable/ic_copy"
-            app:iconGravity="top" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/sel_save"
+            android:src="@drawable/ic_sel_save"
+            android:tooltipText="@string/sel_save"
+            app:tint="?attr/colorOnSurface" />
 
-        <Button
-            android:id="@+id/sel_cover"
-            style="@style/Widget.Material3.Button.TextButton.Icon"
+        <ImageButton
+            android:id="@+id/sel_set_wallpaper"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/sel_cover"
-            app:icon="@drawable/ic_cover"
-            app:iconGravity="top" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/design_set_wallpaper"
+            android:src="@drawable/ic_sel_set_wallpaper"
+            android:tooltipText="@string/design_set_wallpaper"
+            app:tint="?attr/colorOnSurface" />
 
-        <Button
-            android:id="@+id/sel_night"
-            style="@style/Widget.Material3.Button.TextButton.Icon"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/sel_night"
-            app:icon="@drawable/ic_night"
-            app:iconGravity="top" />
-
-        <Button
+        <ImageButton
             android:id="@+id/sel_remove"
-            style="@style/Widget.Material3.Button.TextButton.Icon"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/sel_remove"
-            android:textColor="?attr/colorError"
-            app:icon="@drawable/ic_remove_circle"
-            app:iconGravity="top"
-            app:iconTint="?attr/colorError" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/sel_remove_lib"
+            android:src="@drawable/ic_sel_trash"
+            android:tooltipText="@string/sel_remove_lib"
+            app:tint="?attr/colorError" />
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1">
+
+            <ImageButton
+                android:id="@+id/sel_more"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="center"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/sel_more"
+                android:src="@drawable/ic_sel_more"
+                android:tooltipText="@string/sel_more"
+                app:tint="?attr/colorOnSurface" />
+        </FrameLayout>
     </LinearLayout>
 
     <include

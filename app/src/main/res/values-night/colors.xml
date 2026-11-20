@@ -82,4 +82,7 @@
     <color name="log_stop_fg">#FFCDD2</color>
     <color name="log_setting_bg">#2A2E33</color>
     <color name="log_setting_fg">#CFD8DC</color>
+    <!-- 库内多选悬浮胶囊（v3.188）夜间档 -->
+    <color name="sel_pill_bg">#F2262626</color>
+    <color name="sel_pill_rim">#1FFFFFFF</color>
 </resources>

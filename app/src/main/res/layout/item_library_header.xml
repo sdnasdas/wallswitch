@@ -93,7 +93,7 @@
             app:singleSelection="true">
             <Button
                 android:id="@+id/filter_all"
-                style="?attr/materialButtonOutlinedStyle"
+                style="@style/Widget.Ws.SegmentButton"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
@@ -103,7 +103,7 @@
                 android:textSize="12sp" />
             <Button
                 android:id="@+id/filter_live"
-                style="?attr/materialButtonOutlinedStyle"
+                style="@style/Widget.Ws.SegmentButton"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
@@ -113,7 +113,7 @@
                 android:textSize="12sp" />
             <Button
                 android:id="@+id/filter_static"
-                style="?attr/materialButtonOutlinedStyle"
+                style="@style/Widget.Ws.SegmentButton"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"

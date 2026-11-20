@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 库内多选悬浮栏「更多」弹出的菜单（PopupWindow 内容）。文案随勾选状态由代码改：
+     设为封面 ↔ 取消封面、夜间禁用 ↔ 解除禁用；设为封面与详细信息只在恰好勾一张时可点 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="220dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/more_move"
+        style="@style/Widget.Ws.SelectionMoreRow"
+        android:drawableStart="@drawable/ic_move"
+        android:text="@string/sel_move" />
+
+    <TextView
+        android:id="@+id/more_copy"
+        style="@style/Widget.Ws.SelectionMoreRow"
+        android:drawableStart="@drawable/ic_copy"
+        android:text="@string/sel_copy" />
+
+    <TextView
+        android:id="@+id/more_cover"
+        style="@style/Widget.Ws.SelectionMoreRow"
+        android:drawableStart="@drawable/ic_cover"
+        android:text="@string/sel_cover" />
+
+    <TextView
+        android:id="@+id/more_night"
+        style="@style/Widget.Ws.SelectionMoreRow"
+        android:drawableStart="@drawable/ic_night"
+        android:text="@string/sel_night" />
+
+    <TextView
+        android:id="@+id/more_info"
+        style="@style/Widget.Ws.SelectionMoreRow"
+        android:drawableStart="@drawable/ic_info"
+        android:text="@string/sel_info" />
+</LinearLayout>
