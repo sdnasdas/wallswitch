@@ -145,6 +145,8 @@ public class StatusNotifier {
      * 所有成功上屏与触发时间变化的路径都会调它，保证通知始终反映最新状态。
      */
     public static void update(Context ctx) {
+        // 磁贴不依赖通知权限或常驻通知开关；面板可见时与现有状态刷新同源。
+        PinnedWallpaperTileService.refresh();
         render(ctx, false);
     }
 

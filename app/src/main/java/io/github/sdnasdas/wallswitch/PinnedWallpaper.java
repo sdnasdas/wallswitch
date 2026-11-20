@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 「一键设置」：在抽屉里指定一张已有库里的已有壁纸，常驻通知标题那一行那颗开关按一下就把它同时钉到
@@ -45,6 +46,60 @@ public class PinnedWallpaper {
     private static final String KEY_LIB = "pin_lib";
     private static final String KEY_WALLPAPER = "pin_wallpaper";
     private static final String KEY_UNDO = "pin_undo";
+    private static final ActionGate ACTION_GATE = new ActionGate();
+
+    /** 通知、磁贴和此刻页共用的防连点闸门：执行中丢弃重复动作，而不是排队后又自动撤回。 */
+    static final class ActionGate {
+        private final AtomicBoolean busy = new AtomicBoolean(false);
+
+        boolean tryStart() {
+            return busy.compareAndSet(false, true);
+        }
+
+        boolean isBusy() {
+            return busy.get();
+        }
+
+        void finish() {
+            busy.set(false);
+        }
+    }
+
+    static boolean isBusy() {
+        return ACTION_GATE.isBusy();
+    }
+
+    /** 必须在创建后台任务之前调用；启动失败或任务结束时由调用方释放。 */
+    static boolean tryStartAction() {
+        if (!ACTION_GATE.tryStart()) {
+            return false;
+        }
+        PinnedWallpaperTileService.refresh();
+        return true;
+    }
+
+    static void finishAction() {
+        ACTION_GATE.finish();
+        PinnedWallpaperTileService.refresh();
+    }
+
+    /** 通知与磁贴的执行入口：调用方已在异步派发前持有闸门，后台线程现读真实状态。 */
+    static String toggle(Context ctx) {
+        return perform(ctx, null);
+    }
+
+    /** 此刻页开关明确要求目标状态；调用方已持有闸门，后台线程调用。 */
+    static String setApplied(Context ctx, boolean applied) {
+        return perform(ctx, applied);
+    }
+
+    private static String perform(Context ctx, Boolean requested) {
+        boolean pinned = canUndo(ctx);
+        if (requested != null && requested == pinned) {
+            return null;
+        }
+        return pinned ? undo(ctx) : apply(ctx);
+    }
 
     // 快照 JSON 里两面的键名（与 Switcher/槽位那套 h/l 后缀同一含义，只是这里想让人直接读出是哪一面）
     private static final String FACE_HOME = "home";
@@ -91,11 +146,13 @@ public class PinnedWallpaper {
     /** 记下要钉住的那一张。改选只动"待钉"这一对键，快照要等真正按下去钉的时候才重写。 */
     public static void set(Context ctx, String libId, String wallpaperId) {
         prefs(ctx).edit().putString(KEY_LIB, libId).putString(KEY_WALLPAPER, wallpaperId).apply();
+        PinnedWallpaperTileService.refresh();
     }
 
     /** 清除设定，连带丢掉撤回快照（键从此不画；屏上那张不动，想恢复轮播是按暂停键而不是清这里）。 */
     public static void clear(Context ctx) {
         prefs(ctx).edit().remove(KEY_LIB).remove(KEY_WALLPAPER).remove(KEY_UNDO).apply();
+        PinnedWallpaperTileService.refresh();
     }
 
     /**

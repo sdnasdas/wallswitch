@@ -214,6 +214,13 @@
 
     <string name="close">关闭</string>
 
+    <!-- 下拉快捷设置：复用通知的一键设置，不显示库名或图片以避免锁屏泄露。 -->
+    <string name="pinned_tile_label">一键壁纸</string>
+    <string name="pinned_tile_unset">先在「此刻」页的一键设置中选图</string>
+    <string name="pinned_tile_ready">点击设置</string>
+    <string name="pinned_tile_on">已设置 · 再点撤回</string>
+    <string name="pinned_tile_busy">正在处理…</string>
+
     <!-- 自动切换提示（系统通知：成功静音留痕、失败弹横幅） -->
     <string name="auto_notify_enabled">切换完成通知</string>
     <string name="notify_channel_ok">自动切换记录</string>

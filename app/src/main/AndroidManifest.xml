@@ -159,6 +159,21 @@
                 android:resource="@xml/wallpaper" />
         </service>
 
+        <!-- 快捷设置「一键壁纸」：只执行内部广播，不打开 App；由系统绑定，不新增运行时权限。 -->
+        <service
+            android:name=".PinnedWallpaperTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_push_pin"
+            android:label="@string/pinned_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
         <!-- 常驻通知上的「上一张/下一张」按钮（仅应用内部 PendingIntent 触发，不暴露给外部） -->
         <receiver
             android:name=".NotifActionReceiver"

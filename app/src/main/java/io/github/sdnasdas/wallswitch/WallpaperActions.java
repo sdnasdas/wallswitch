@@ -325,10 +325,20 @@ final class WallpaperActions {
             refreshPinnedCard();
             return;
         }
+        if (!PinnedWallpaper.tryStartAction()) {
+            refreshPinnedCard();
+            return;
+        }
+        // 派发前就占住闸门，不能等后台线程实际启动时才判断连点。
         // 钉/退都会写锁屏静态存档，是阻塞系统调用；与通知那颗一样放后台跑，落定后再刷两态
         final Context app = a.getApplicationContext();
-        new Thread(() -> {
-            String error = on ? PinnedWallpaper.apply(app) : PinnedWallpaper.undo(app);
+        Thread worker = new Thread(() -> {
+            final String error;
+            try {
+                error = PinnedWallpaper.setApplied(app, on);
+            } finally {
+                PinnedWallpaper.finishAction();
+            }
             if (error == null) {
                 StatusNotifier.update(app);
             }
@@ -341,7 +351,13 @@ final class WallpaperActions {
                 }
                 refreshPinnedCard();
             });
-        }, "pinned-card").start();
+        }, "pinned-card");
+        try {
+            worker.start();
+        } catch (RuntimeException e) {
+            PinnedWallpaper.finishAction();
+            refreshPinnedCard();
+        }
     }
 
     /**
