@@ -530,6 +530,11 @@ public final class TakeoverManager {
     /** 把输入流原样写进公共相册（库里的成品图是现成的 PNG 或 JPEG 字节，接管中保存时直接复制）。
      *  返回写进去的那条 MediaStore 记录，失败返回 null（调用方要拿它去「打开相册」）。 */
     static Uri saveStreamToAlbum(Context ctx, String name, InputStream in) {
+        return saveStreamToAlbum(ctx, name, name.endsWith(".jpg") ? "image/jpeg" : "image/png", in);
+    }
+
+    /** 同上，MIME 由调用方给（存原图时格式可能是 HEIC / WebP 等，不能只按 jpg/png 二选一）。 */
+    static Uri saveStreamToAlbum(Context ctx, String name, String mime, InputStream in) {
         ContentResolver cr = ctx.getContentResolver();
         Uri existing = findEntry(ctx, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, SAVED_DIR);
         if (existing != null) {
@@ -542,8 +547,7 @@ public final class TakeoverManager {
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
         // MIME 跟着名字走：这条复制的是库里那份原始字节，报成 image/png 会让按 MIME 解码的
         // 查看器打不开一张 JPEG（下面 saveToMediaStore 那条自己 compress 成 PNG，仍是 image/png）
-        values.put(MediaStore.MediaColumns.MIME_TYPE,
-                name.endsWith(".jpg") ? "image/jpeg" : "image/png");
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, SAVED_DIR);
         Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
         if (uri == null) {

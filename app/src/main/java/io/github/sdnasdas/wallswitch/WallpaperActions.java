@@ -146,14 +146,18 @@ final class WallpaperActions {
             otherCount++;
         }
         if (others.length() == 0) {
-            deleteWallpaperEverywhere(item);
+            // 只挂在本库：删了就是彻底删除，v3.189 起同样要二次确认（以前是一键直接删）
+            LibraryStore.Library own = LibraryStore.get(a, src);
+            confirmPurge(item, own == null || LibraryStore.isAll(src)
+                    ? a.getString(R.string.delete_all_single_msg)
+                    : a.getString(R.string.delete_single_msg, own.name));
             return;
         }
         if (LibraryStore.isAll(src)) {
-            // 从「全部壁纸」打开的详情（v3.184）：没有「本库」可解除，只挂一个库就照常一键删；
-            // 挂在几个库里才拦一道，而且只给彻底删除一个出口 —— 想只从某个库拿掉得去那个库里做
+            // 从「全部壁纸」打开的详情（v3.184）：没有「本库」可解除，只给彻底删除一个出口 ——
+            // 想只从某个库拿掉得去那个库里做。只挂一个库时也要确认（v3.189）
             if (otherCount <= 1) {
-                deleteWallpaperEverywhere(item);
+                confirmPurge(item, a.getString(R.string.delete_all_single_msg));
                 return;
             }
             AlertDialog dialog = new AppAlertDialogBuilder(a)
@@ -181,6 +185,20 @@ final class WallpaperActions {
                 .setNeutralButton(R.string.cancel, null)
                 .show();
         // 破坏性那一条不该长成主按钮的强调色：照批量删库确认钮的压法，红字 + 红垃圾桶
+        Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        positive.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_delete, 0, 0, 0);
+        positive.setCompoundDrawableTintList(ColorStateList.valueOf(a.getColor(R.color.danger)));
+        positive.setTextColor(a.getColor(R.color.danger));
+    }
+
+    /** 彻底删除前的确认：红字红垃圾桶的「彻底删除」+ 取消。 */
+    private void confirmPurge(final WallpaperStore.Item item, String message) {
+        AlertDialog dialog = new AppAlertDialogBuilder(a)
+                .setTitle(R.string.delete_single_title)
+                .setMessage(message)
+                .setPositiveButton(R.string.delete_purge, (d, which) -> deleteWallpaperEverywhere(item))
+                .setNegativeButton(R.string.cancel, null)
+                .show();
         Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         positive.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_delete, 0, 0, 0);
         positive.setCompoundDrawableTintList(ColorStateList.valueOf(a.getColor(R.color.danger)));

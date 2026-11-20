@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 壁纸格右下角「已收藏」标记：粉色实心心形 + 一圈白边，压在任何图上都看得清 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@color/fav_heart"
+        android:pathData="M12,20.3s-7.8,-4.7 -7.8,-10.4A4.4,4.4 0,0 1,12 7.2a4.4,4.4 0,0 1,7.8 2.7c0,5.7 -7.8,10.4 -7.8,10.4z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.8" />
+</vector>

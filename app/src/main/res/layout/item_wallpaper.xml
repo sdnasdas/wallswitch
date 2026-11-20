@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 壁纸格（v3.134 三列）：正方形缩略图 + 下方标题。
      角标：左上 LIVE（原图带实况段）、右上成品图格式（PNG / JPEG —— 标的是上屏那张，缩略图永远是 JPEG）、
-     左下「使用中」（这张正被桌面/锁屏当值或被一键设置钉着：重编与彻底删除会被拦，提前看得见）。
+     左下「使用中」（这张正被桌面/锁屏当值或被一键设置钉着：重编与彻底删除会被拦，提前看得见）、
+     右下粉心「已收藏」。
      多选态：勾中的那张右上角只压一枚蓝勾（与图库库卡片同款），不描边、不压暗。
      长按浮出三颗圆键那一排已下线：单张的动作都在详情页底部那条上。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -77,6 +78,19 @@
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="@id/img_thumb"
             app:layout_constraintStart_toStartOf="parent" />
+
+        <!-- 右下角「已收藏」（v3.189）：四个角里只剩这里空着，多选时也不和右上的蓝勾抢位置 -->
+        <ImageView
+            android:id="@+id/iv_fav_badge"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_margin="5dp"
+            android:contentDescription="@string/fav_badge_desc"
+            android:elevation="2dp"
+            android:src="@drawable/ic_fav_badge"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/img_thumb"
+            app:layout_constraintEnd_toEndOf="parent" />
 
         <!-- 选中标记（多选与快捷设置共用）：与图库库卡片同一枚蓝勾，只在勾中时出现 -->
         <ImageView
