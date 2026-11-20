@@ -282,8 +282,15 @@ public class TimerScheduler {
         }
     }
 
+    static void cancelRetiredOnlineWork(Context ctx) {
+        WorkManager manager = WorkManager.getInstance(ctx);
+        manager.cancelUniqueWork("online_libs_daily");
+        manager.cancelUniqueWork("online_libs_now");
+    }
+
     /** 按当前槽位设置重排两个范围的定时，并用 WorkManager 的真实调度时间校准倒计时（回到应用时自愈调用）。 */
     public static void scheduleAll(Context ctx) {
+        cancelRetiredOnlineWork(ctx);
         if (!isTimerEnabled(ctx)) {
             return;
         }

@@ -811,8 +811,6 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // 自愈：每次回到应用都核对一遍排定（槽位配置没变时走 KEEP，不碰系统里已有的周期格子）
         TimerScheduler.scheduleAll(this);
-        // 在线壁纸库的每日下载同理（KEEP 不打乱节奏；从备份还原出在线库后也靠这一声排上）
-        OnlineLibraries.ensureScheduled(getApplicationContext());
         // 打开应用同样是“设备活跃”时机：后台补跑被 Doze/ROM 冻结而漏掉的定时切换
         new Thread(() -> {
             final boolean did = TimerScheduler.catchUp(getApplicationContext());
@@ -2242,16 +2240,15 @@ public class MainActivity extends AppCompatActivity {
                 showSetWallpaperDialog(item);
             }
         });
-        // 在线壁纸库那张的署名行（v3.184）：点开博物馆的藏品页
         findViewById(R.id.tv_detail_credit).setOnClickListener(v -> {
             WallpaperStore.Item item = detailItem();
-            if (item == null || item.link == null) {
+            if (item == null || !WallpaperDownload.isHttps(item.link)) {
                 return;
             }
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(item.link)));
             } catch (Exception e) {
-                Toast.makeText(this, R.string.online_link_failed, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.source_link_failed, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -2391,13 +2388,12 @@ public class MainActivity extends AppCompatActivity {
         if (unlink != null) {
             unlink.setVisible(!fromAll);
         }
-        // 署名只有在线壁纸库下载来的那些才有；自己导入的整行收起
         TextView credit = findViewById(R.id.tv_detail_credit);
         if (item.credit == null) {
             credit.setVisibility(View.GONE);
         } else {
-            credit.setText(item.link == null ? item.credit
-                    : getString(R.string.online_credit_with_link, item.credit));
+            credit.setText(!WallpaperDownload.isHttps(item.link) ? item.credit
+                    : getString(R.string.source_credit_with_link, item.credit));
             credit.setVisibility(View.VISIBLE);
         }
         refreshLiveMenu();

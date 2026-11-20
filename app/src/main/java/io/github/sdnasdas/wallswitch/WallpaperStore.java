@@ -623,6 +623,11 @@ public class WallpaperStore {
 
     /** 确认导入：保存成品图与缩略图、按所属壁纸库追加元数据，并把收件箱那份原图搬进 originals/。 */
     public static Item confirmImport(Context context, String inboxId, Bitmap edited, String libId) throws Exception {
+        return confirmImport(context, inboxId, edited, libId, null, null);
+    }
+
+    static Item confirmImport(Context context, String inboxId, Bitmap edited, String libId,
+                              String sourceTitle, String sourceUrl) throws Exception {
         Bitmap bitmap = edited;
         if (bitmap == null) {
             File sourceFile = getInboxFile(context, inboxId);
@@ -1693,64 +1698,6 @@ public class WallpaperStore {
         return new Rect(0, top, srcW, top + h);
     }
 
-    /**
-     * 在线壁纸库的入库（v3.184，后台 Worker 调，不经过收件箱）：
-     * 按默认取景（居中 fit-cover）从 {@code source} 裁出成品图、生成缩略图，再把 source 搬成原图，
-     * 最后一次性追加带来源与署名的条目（裁剪矩形一并写上，「调整取景」能复原这次构图）。
-     *
-     * <p>为什么不走 inbox + {@link #confirmImport}：收件箱里的文件会被界面当成「待编辑项」，
-     * 后台正解码那几秒里用户恰好打开 App，就会弹出一张他从没选过的图的裁剪页。
-     *
-     * <p>成品图格式跟着用户在裁剪页选的那一档（{@link #fullPrefersJpeg}），与手动导入一致。
-     * 任何一步失败都清掉已经写下的文件再抛出，不留半张。
-     */
-    public static Item importOnline(Context context, File source, String libId, int viewW, int viewH,
-                                    String onlineSrc, String credit, String link) throws Exception {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(source.getAbsolutePath(), bounds);
-        Rect region = centerCoverRect(bounds.outWidth, bounds.outHeight, viewW, viewH);
-        if (region == null) {
-            throw new IOException("图片解码失败");
-        }
-        Bitmap cropped = decodeRegion(source, region, maxWallpaperDim(context));
-        if (cropped == null) {
-            throw new IOException("图片解码失败");
-        }
-        String id = UUID.randomUUID().toString();
-        try {
-            writeFull(context, id, cropped);
-            int bright = writeThumb(context, id, cropped);
-            File originalFile = getOriginalFile(context, id);
-            originalFile.getParentFile().mkdirs();
-            Files.move(source.toPath(), originalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            Item item = new Item();
-            item.id = id;
-            item.joinLib(libId);
-            item.bright = bright;
-            item.srcWidth = bounds.outWidth;
-            item.srcHeight = bounds.outHeight;
-            item.cropLeft = region.left;
-            item.cropTop = region.top;
-            item.cropRight = region.right;
-            item.cropBottom = region.bottom;
-            item.onlineSrc = onlineSrc;
-            item.credit = credit;
-            item.link = link;
-            List<Item> items = load(context);
-            items.add(item);
-            saveLibrary(context, items);
-            return item;
-        } catch (Exception | OutOfMemoryError e) {
-            destroyStoredFiles(context, id);
-            throw e instanceof Exception ? (Exception) e : new IOException(e);
-        } finally {
-            if (!cropped.isRecycled()) {
-                cropped.recycle();
-            }
-        }
-    }
-
     /** 矩形坐标保留两位小数：0.01 像素的精度对复原取景框足够，又不至于让 library.json 啰嗦。 */
     private static double round2(float v) {
         return Math.round(v * 100d) / 100d;
@@ -1766,20 +1713,6 @@ public class WallpaperStore {
         cachedStamp = fileStamp(libFile);
         metaItems = items.size();
         metaBytes = libFile.length();
-    }
-
-    /**
-     * 备份用（v3.184）：整份表序列化成 library.json 的字节，跳过 skip 里的条目，不落盘。
-     * 字段序列化仍只有 {@link #toJson} 一处定义。
-     */
-    public static byte[] serializeExcluding(Context context, Set<String> skip) throws Exception {
-        List<Item> keep = new ArrayList<>();
-        for (Item item : load(context)) {
-            if (!skip.contains(item.id)) {
-                keep.add(item);
-            }
-        }
-        return toJson(keep).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** 条目 → library.json 的 JSON 数组（字段序列化唯一的定义处）。 */

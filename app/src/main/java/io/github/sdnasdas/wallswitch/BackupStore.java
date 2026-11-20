@@ -118,27 +118,17 @@ public final class BackupStore {
         try {
             zout = new java.util.zip.ZipOutputStream(
                     context.getContentResolver().openOutputStream(doc, "wt"));
-            // 内容清单先算一次，好写进 manifest。
-            // 只挂在在线壁纸库里的那些（v3.184）不进包：随时能重新下载，带上会把包撑大很多；
-            // 被复制到自己库里的照常备份。在线库本身（libraries.json）和订阅设置照常带走
-            java.util.Set<String> skip = OnlineLibraries.backupExcludedIds(context);
-            java.util.List<File> images = withoutIds(
-                    listFiles(new File(context.getFilesDir(), "wallpapers")), skip);
-            java.util.List<File> originals = withoutIds(
-                    listFiles(new File(context.getFilesDir(), "originals")), skip);
-            java.util.List<File> thumbs = withoutIds(
-                    listFiles(new File(context.getFilesDir(), "thumbs")), skip);
+            LibraryStore.load(context);
+            java.util.List<File> images = listFiles(new File(context.getFilesDir(), "wallpapers"));
+            java.util.List<File> originals = listFiles(new File(context.getFilesDir(), "originals"));
+            java.util.List<File> thumbs = listFiles(new File(context.getFilesDir(), "thumbs"));
             r.images = images.size();
             r.originals = originals.size();
             r.thumbs = thumbs.size();
-            r.entries = WallpaperStore.load(context).size() - skip.size();
+            r.entries = WallpaperStore.load(context).size();
 
             writeManifest(context, zout, r, images, thumbs, originals);
-            if (skip.isEmpty()) {
-                writeFile(zout, new File(context.getFilesDir(), "library.json"), "library.json");
-            } else {
-                writeBytes(zout, WallpaperStore.serializeExcluding(context, skip), "library.json");
-            }
+            writeFile(zout, new File(context.getFilesDir(), "library.json"), "library.json");
             writeFile(zout, new File(context.getFilesDir(), "libraries.json"), "libraries.json");
             for (File f : images) {
                 writeFile(zout, f, DIR_IN_ZIP + f.getName());
@@ -271,8 +261,8 @@ public final class BackupStore {
             WallpaperStore.invalidateCache();
             dropMissingImages(context);
             retagUnknownLibs(context, restoredLibIds);
-            // 在线壁纸库的图不在包里：清掉还原回来的当日配额与半截下载记录，马上补下一批
-            OnlineLibraries.resetAfterRestore(context);
+            LibraryStore.load(context);
+            TimerScheduler.cancelRetiredOnlineWork(context);
             r.items = WallpaperStore.load(context).size();
             r.error = null;
         } catch (Exception | OutOfMemoryError e) {
@@ -337,29 +327,6 @@ public final class BackupStore {
         ZipEntry e = new ZipEntry("manifest.json");
         byte[] bytes = o.toString(2).getBytes(StandardCharsets.UTF_8);
         zout.putNextEntry(e);
-        zout.write(bytes);
-        zout.closeEntry();
-    }
-
-    /** 按文件名（去掉扩展名就是壁纸 id）筛掉 ids 里的那些；ids 为空原样返回。 */
-    private static java.util.List<File> withoutIds(java.util.List<File> files, java.util.Set<String> ids) {
-        if (ids.isEmpty()) {
-            return files;
-        }
-        java.util.List<File> out = new java.util.ArrayList<>();
-        for (File f : files) {
-            String n = f.getName();
-            int dot = n.lastIndexOf('.');
-            if (!ids.contains(dot > 0 ? n.substring(0, dot) : n)) {
-                out.add(f);
-            }
-        }
-        return out;
-    }
-
-    private static void writeBytes(java.util.zip.ZipOutputStream zout, byte[] bytes,
-                                   String entryName) throws Exception {
-        zout.putNextEntry(new ZipEntry(entryName));
         zout.write(bytes);
         zout.closeEntry();
     }

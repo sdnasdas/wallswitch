@@ -5,6 +5,10 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <group android:id="@+id/group_gallery_normal">
         <item
+            android:id="@+id/action_browse_wallpapers"
+            android:title="@string/browse_wallpapers"
+            app:showAsAction="always" />
+        <item
             android:id="@+id/action_new_lib"
             android:icon="@drawable/ic_add"
             app:iconTint="?attr/colorOnSurfaceVariant"

@@ -64,11 +64,6 @@ public class LibraryStore {
         public String name;
         /** 用户指定的封面壁纸 id；null = 自动（在屏那张优先，其次库内第一张）。读时要验它还在库里。 */
         public String cover;
-        /**
-         * 在线壁纸库的来源（v3.184）：{@link OnlineLibraries#SRC_MET} / {@link OnlineLibraries#SRC_AIC}；
-         * null = 普通库。订阅开关就是「这个来源的库在不在」，删掉库就等于关掉订阅。
-         */
-        public String online;
         // ===== 以下为遗留字段（见类注释），只为 JSON 往返保留 =====
         public boolean home;
         public boolean lock;
@@ -88,9 +83,11 @@ public class LibraryStore {
             } catch (Exception | OutOfMemoryError ignored) {
                 arr = new JSONArray();
             }
+            boolean retiredSubscriptions = false;
             for (int i = 0; i < arr.length(); i++) {
                 try {
                     JSONObject o = arr.getJSONObject(i);
+                    retiredSubscriptions |= o.has("online");
                     Library lib = new Library();
                     lib.id = o.getString("id");
                     lib.name = o.optString("name", "库");
@@ -101,12 +98,14 @@ public class LibraryStore {
                     lib.mode = o.optString("mode", MODE_ORDER);
                     String cover = o.optString("cover", "");
                     lib.cover = cover.isEmpty() ? null : cover;
-                    String online = o.optString("online", "");
-                    lib.online = online.isEmpty() ? null : online;
                     libs.add(lib);
                 } catch (Exception ignored) {
                     // 单条缺 id 属于历史脏数据，跳过该条，不影响其余库
                 }
+            }
+            if (retiredSubscriptions) {
+                // 只撤订阅标记，库 id、图片归属和切换指针保持原样。
+                saveList(ctx, libs);
             }
             migrateSlotsIfNeeded(ctx, libs);
             return libs;
@@ -209,9 +208,6 @@ public class LibraryStore {
                 if (lib.cover != null) {
                     o.put("cover", lib.cover);
                 }
-                if (lib.online != null) {
-                    o.put("online", lib.online);
-                }
                 arr.put(o);
             }
             MetaFiles.writeJson(ctx, LIBS_FILE, arr.toString());
@@ -291,40 +287,6 @@ public class LibraryStore {
         lib.enabled = false;
         lib.intervalSeconds = DEFAULT_INTERVAL_SECONDS;
         lib.mode = MODE_ORDER;
-        libs.add(lib);
-        saveList(ctx, libs);
-        return lib;
-    }
-
-    /** 某个在线来源对应的库；没开这个订阅（库不在）返回 null。 */
-    public static Library findOnline(Context ctx, String source) {
-        if (source == null) {
-            return null;
-        }
-        for (Library lib : load(ctx)) {
-            if (source.equals(lib.online)) {
-                return lib;
-            }
-        }
-        return null;
-    }
-
-    /** 建一个在线壁纸库（已经有了就直接返回那个，不建第二个）。 */
-    public static Library createOnline(Context ctx, String source, String name) {
-        Library existing = findOnline(ctx, source);
-        if (existing != null) {
-            return existing;
-        }
-        List<Library> libs = load(ctx);
-        Library lib = new Library();
-        lib.id = UUID.randomUUID().toString();
-        lib.name = name;
-        lib.home = true;
-        lib.lock = false;
-        lib.enabled = false;
-        lib.intervalSeconds = DEFAULT_INTERVAL_SECONDS;
-        lib.mode = MODE_ORDER;
-        lib.online = source;
         libs.add(lib);
         saveList(ctx, libs);
         return lib;

@@ -1,5 +1,6 @@
 package io.github.sdnasdas.wallswitch;
 
+import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -77,7 +78,9 @@ final class GalleryController {
         galleryRecycler.setAdapter(libAdapter);
         galleryToolbar.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == R.id.action_new_lib) {
+            if (id == R.id.action_browse_wallpapers) {
+                a.startActivity(new Intent(a, WallpaperBrowserActivity.class));
+            } else if (id == R.id.action_new_lib) {
                 showNewLibDialog();
             } else if (id == R.id.action_reorder) {
                 setGalleryMode(LibAdapter.REORDER);

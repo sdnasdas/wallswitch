@@ -381,7 +381,6 @@ final class ImportController {
      * 原图更宽就左右裁，更高就上下裁；返回原图像素坐标。
      */
     private static Rect centerCoverRect(int srcW, int srcH, int viewW, int viewH) {
-        // 几何收在 WallpaperStore 一处：在线壁纸库的后台入库（v3.184）也用同一套默认取景
         return WallpaperStore.centerCoverRect(srcW, srcH, viewW, viewH);
     }
 

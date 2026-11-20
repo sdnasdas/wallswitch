@@ -56,6 +56,8 @@ public class EditActivity extends AppCompatActivity {
     // 目标壁纸库 id 的 Intent extra key：导入模式是「入哪个库」；v3.117 起重编模式也带上，
     // 表示「从哪个库进来的」——挂在几个库里的那张要分叉，得点名往哪个库挂新条目
     public static final String EXTRA_LIB_ID = "lib_id";
+    static final String EXTRA_SOURCE_TITLE = "source_title";
+    static final String EXTRA_SOURCE_URL = "source_url";
 
     private CropView cropView;
     private Button btnConfirm;
@@ -609,7 +611,9 @@ public class EditActivity extends AppCompatActivity {
                     }, "reapply-wallpaper").start();
                 }
             } else {
-                WallpaperStore.confirmImport(appCtx, inboxId, result, libId);
+                WallpaperStore.confirmImport(appCtx, inboxId, result, libId,
+                        getIntent().getStringExtra(EXTRA_SOURCE_TITLE),
+                        getIntent().getStringExtra(EXTRA_SOURCE_URL));
                 touchedId = inboxId;
                 saved = true;
             }
