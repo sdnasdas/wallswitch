@@ -61,6 +61,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @OptIn(markerClass = UnstableApi.class)
 public final class VideoTrimActivity extends AppCompatActivity {
@@ -105,13 +107,15 @@ public final class VideoTrimActivity extends AppCompatActivity {
     private String albumName;
     private Bundle restored;
     private boolean binding;
-    private boolean exporting;
+    private volatile boolean exporting;
     private boolean previewing;
     private boolean started;
     private boolean handedOff;
     private volatile boolean closed;
-    private volatile int coverRequest;
-    private final Runnable coverTick = this::loadCover;
+    /** 拖动中最新的封面位置，单槽位只记最新；-1 表示没有待解的请求。 */
+    private final AtomicLong pendingCoverUs = new AtomicLong(-1);
+    /** 是否已有提帧任务在排队消化 pendingCoverUs。 */
+    private final AtomicBoolean coverScheduled = new AtomicBoolean(false);
 
     @Override
     protected void onCreate(Bundle state) {
@@ -445,24 +449,30 @@ public final class VideoTrimActivity extends AppCompatActivity {
     }
 
     /**
-     * 立刻排一帧提帧，不做去抖：去抖会在拖动中被每个变更事件不断重置，
-     * 结果只有松手后才出图。同一帧里的连续变更合并，worker 里过时的任务
-     * 靠 {@code coverRequest} 计数秒退，永远只解最新位置。
+     * 排一次封面提帧：只把最新位置写进 {@code pendingCoverUs}，没有任务在跑就排一个。
+     * 旧方案靠「请求号作废」不行——解码比拖动的变更事件慢，解完送回主线程时
+     * 请求号已经前进，每一帧都被当过时丢掉，看起来就是松手才出图。
      */
     private void requestCover() {
-        coverRequest++;
-        handler.removeCallbacks(coverTick);
-        handler.post(coverTick);
+        pendingCoverUs.set(selectedCoverUs);
+        if (coverScheduled.compareAndSet(false, true)) {
+            worker.execute(this::drainCover);
+        }
     }
 
-    private void loadCover() {
-        if (selection == null || selectedCoverUs < 0 || closed || exporting) {
-            return;
-        }
-        int request = coverRequest;
-        long timeUs = selectedCoverUs;
-        worker.execute(() -> {
-            if (closed || request != coverRequest) {
+    /**
+     * 常驻提帧任务：循环取最新位置提帧、解完立刻上屏（允许滞后一点点），
+     * 然后看有没有更新的位置，有就接着解，没有才收摊。
+     */
+    private void drainCover() {
+        while (!closed && !exporting) {
+            long timeUs = pendingCoverUs.getAndSet(-1);
+            if (timeUs < 0) {
+                coverScheduled.set(false);
+                // 清空调度标记的一瞬间又来了新位置：自己续上，不等主线程再排
+                if (pendingCoverUs.get() >= 0 && coverScheduled.compareAndSet(false, true)) {
+                    continue;
+                }
                 return;
             }
             Bitmap frame = null;
@@ -480,7 +490,8 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 frame = frameAtUs(coverRetriever, timeUs, 1080);
                 Bitmap result = frame;
                 handler.post(() -> {
-                    if (closed || request != coverRequest) {
+                    // 不校验"还是不是最新位置"：滞后一拍也比干等松手强
+                    if (closed || exporting) {
                         result.recycle();
                         return;
                     }
@@ -497,13 +508,18 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 }
                 closeRetriever(coverRetriever);
                 coverRetriever = null;
+                pendingCoverUs.set(-1);
+                coverScheduled.set(false);
                 handler.post(() -> {
-                    if (request == coverRequest) {
+                    if (!closed && !exporting) {
                         showFailure(e);
                     }
                 });
+                return;
             }
-        });
+        }
+        pendingCoverUs.set(-1);
+        coverScheduled.set(false);
     }
 
     private void generateLive() {
@@ -511,8 +527,6 @@ public final class VideoTrimActivity extends AppCompatActivity {
             return;
         }
         releasePlayer();
-        coverRequest++;
-        handler.removeCallbacks(coverTick);
         setExporting(true);
         // 等上一轮系统提帧释放解码器，再启动导出，避免同时占用两个硬解码器；
         // 常驻提帧器也顺手关掉，导出期间不占解码资源。
@@ -812,8 +826,6 @@ public final class VideoTrimActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         closed = true;
-        coverRequest++;
-        handler.removeCallbacks(coverTick);
         if (transformer != null) {
             transformer.cancel();
             transformer = null;
