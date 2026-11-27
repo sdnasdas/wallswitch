@@ -70,12 +70,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *   脏时画帧，静止时零渲染；切换过渡（淡入/模糊）由 GPU 逐帧混合，无 CPU 全屏搬运。
  *
  * 性能自记：每次真正解码（≈ 每次壁纸内容变化）后把累计统计追加到
- * 公共 Download/wallswitch/log/engine_stats.txt，无需 adb 即可直观核对
+ * 私有 files/log/engine_stats.txt，需要排查时从设置页手动导出，无需 adb。
  * 「纹理上传次数 ≈ 切换次数」与 GL 帧数是否异常。
  *
  * 已知风险：用户/主题商店若把壁纸换成别的，引擎被停用，Switcher 自动回退到
  * 静态 setBitmap 链路（功能不中断，但幽灵图风险回来）；主界面会提示引擎未激活。
- * GL 初始化/绘制异常无回退开关，全部写 engine_crash.txt 与 engine_stats.txt 取证。
+ * GL 初始化/绘制异常无回退开关，全部写私有 engine_crash.txt 与 engine_stats.txt 取证。
  */
 public class WallSwitchService extends GLWallpaperService {
 
@@ -987,7 +987,7 @@ public class WallSwitchService extends GLWallpaperService {
                 return;
             }
             lastCrashWriteMs = now;
-            TakeoverManager.appendPublicLog(ctx, "engine_crash.txt",
+            TakeoverManager.appendLog(ctx, "engine_crash.txt",
                     PERF_TIME.format(new Date()) + "\n"
                             + android.util.Log.getStackTraceString(t) + "\n");
         } catch (Exception ignored) {
@@ -1077,7 +1077,7 @@ public class WallSwitchService extends GLWallpaperService {
                     + (lastFaultDiag != null
                     ? "判读: 引擎读不到当前壁纸或 GL 渲染异常（异常态）\n"
                     : "判读: 正常（解码次数应≈切换次数，纹理上传应略多于解码）\n");
-            TakeoverManager.appendPublicLog(ctx, "engine_stats.txt", content);
+            TakeoverManager.appendLog(ctx, "engine_stats.txt", content);
         } catch (Exception ignored) {
         }
     }

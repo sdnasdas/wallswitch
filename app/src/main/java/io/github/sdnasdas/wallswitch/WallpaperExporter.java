@@ -40,8 +40,7 @@ import java.util.Map;
  * 3) v3.89 起**图片**只剩两个手动入口：设置页「立即导出全部壁纸」与「备份整库」（zip 也写这个
  *    目录）。以前 {@code confirmImport} 每导入一张会自动复制一份出去，已按要求删掉 ——
  *    它会在用户没动手的情况下往目录里塞图，且重编过的壁纸不会更新那一份，只会叠副本。
- *    目录里还住着切换日志的两份 txt（{@link SwitchLog} 每次记日志同步一份过来），
- *    那是文本镜像不是图片出口，用户明确要求保留。
+ *    目录里不再自动写日志；切换日志与引擎日志都留在 App 私有目录，需要时从设置页手动打包导出。
  */
 public final class WallpaperExporter {
 
@@ -156,8 +155,7 @@ public final class WallpaperExporter {
 
     /**
      * 换/清目录后，按文件名缓存的文档 URI 全部失效（指向旧目录），清掉让下次重建。
-     * v3.168 起切换日志镜像改走 {@link TakeoverManager#appendPublicLog}（默认导出目录
-     * log/ 下追加），这类键只剩历史遗留，这里顺手清。
+     * 日志已改为私有目录写入、手动打包导出，不再使用这类文本镜像缓存；这里只清理历史遗留键。
      */
     private static void clearDocCache(Context context) {
         SharedPreferences p = prefs(context);

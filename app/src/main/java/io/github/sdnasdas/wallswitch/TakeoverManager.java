@@ -314,7 +314,7 @@ public final class TakeoverManager {
         return prefs(ctx).getString(KEY_LOCK_ITEM, null);
     }
 
-    /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目（WallSwitchService 的公共日志也复用）。 */
+    /** 在指定 MediaStore 集合的子目录里按文件名找本 App 写入的条目。 */
     static Uri findEntry(Context ctx, Uri collection, String name, String dir) {
         // 只按显示名查，RELATIVE_PATH 放进投影逐行比对：荣耀等厂商的 MediaProvider
         // 查不出来 RELATIVE_PATH（备份包扫描踩过同一个坑），把它写进查询条件会永远 0 行，
@@ -349,46 +349,18 @@ public final class TakeoverManager {
         return null;
     }
 
-    /** 公共日志目录：默认导出目录（{@link WallpaperExporter#DEFAULT_RELATIVE_PATH}）下的 log/。 */
-    static final String LOG_DIR = "Download/wallswitch/log";
-
-    /** 往公共日志目录追加一段文本，文件不存在就新建。 */
-    static void appendPublicLog(Context ctx, String name, String content) {
-        writePublicLog(ctx, name, content, true);
+    /** 私有日志目录：所有自动写入都落在这里，公共目录只在手动导出时生成 zip。 */
+    static File logDir(Context ctx) {
+        return new File(ctx.getFilesDir(), "log");
     }
 
-    /** 把公共日志目录里的同名文件截断重写（清空日志用）。 */
-    static void overwritePublicLog(Context ctx, String name, String content) {
-        writePublicLog(ctx, name, content, false);
-    }
-
-    /** 公共日志统一出口：追加/截断一个参数之差，低版本退化到内部存储。 */
-    private static void writePublicLog(Context ctx, String name, String content, boolean append) {
+    /** 往私有日志目录追加一段文本，文件不存在就新建。 */
+    static synchronized void appendLog(Context ctx, String name, String content) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentResolver cr = ctx.getContentResolver();
-                Uri uri = findEntry(ctx, MediaStore.Downloads.EXTERNAL_CONTENT_URI, name, LOG_DIR);
-                if (uri == null) {
-                    ContentValues values = new ContentValues();
-                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, LOG_DIR);
-                    uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                    if (uri == null) {
-                        return;
-                    }
-                }
-                try (OutputStream out = cr.openOutputStream(uri, append ? "wa" : "wt")) {
-                    if (out != null) {
-                        out.write(content.getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-            } else {
-                File dir = new File(ctx.getFilesDir(), "log");
-                if (dir.exists() || dir.mkdirs()) {
-                    try (OutputStream out = new FileOutputStream(new File(dir, name), append)) {
-                        out.write(content.getBytes(StandardCharsets.UTF_8));
-                    }
+            File dir = logDir(ctx);
+            if (dir.exists() || dir.mkdirs()) {
+                try (OutputStream out = new FileOutputStream(new File(dir, name), true)) {
+                    out.write(content.getBytes(StandardCharsets.UTF_8));
                 }
             }
         } catch (Exception ignored) {

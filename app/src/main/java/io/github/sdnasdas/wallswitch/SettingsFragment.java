@@ -188,6 +188,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         click("export_dir", this::onExportDirTapped);
         click("live_converter", () -> host().pickLiveConverterVideo());
         click("export_now", () -> host().exportAllWallpapers());
+        click("export_logs", () -> host().exportLogs());
         click("backup", () -> host().startBackup());
         click("restore", () -> host().launchRestorePicker());
         click("prune", () -> host().startPrune());

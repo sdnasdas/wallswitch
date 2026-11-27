@@ -301,6 +301,11 @@
     <string name="export_need_dir">请先选一个导出目录</string>
     <string name="export_running">正在导出…</string>
     <string name="export_done">已导出 %1$d 张壁纸</string>
+    <string name="export_logs_title">导出日志</string>
+    <string name="export_logs_summary">打包切换日志与引擎日志，保存到导出文件夹</string>
+    <string name="export_logs_running">正在导出日志…</string>
+    <string name="export_logs_done">日志已导出：%1$s</string>
+    <string name="export_logs_failed">日志导出失败：%1$s</string>
     <string name="launcher_overlay_set">已设置</string>
     <string name="launcher_overlay_action_view">查看当前底图</string>
     <string name="launcher_overlay_action_change">更换底图</string>

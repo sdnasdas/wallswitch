@@ -50,11 +50,11 @@ import java.util.regex.Pattern;
  * 每个版本段的第一条不带括号（那会儿没有可比的上一条）。
  *
  * 记录行行尾还藏着一段 {@code [w:<壁纸id> l:<库id>]}：点日志看缩略图时按 id 反查，
- * 壁纸/库改名都不影响。日志窗显示、复制、导出目录镜像前由 {@link #stripRefs} 剥掉，
+ * 壁纸/库改名都不影响。日志窗显示、复制和手动导出前由 {@link #stripRefs} 剥掉，
  * 私有文件里留着。
  *
  * 文件写在应用私有目录 {@code files/switch_log_home.txt} / {@code switch_log_lock.txt}；
- * 设了导出目录就同名各同步一份。
+ * 需要给用户看时从设置页手动导出，不再自动镜像公共目录。
  */
 public final class SwitchLog {
 
@@ -312,9 +312,7 @@ public final class SwitchLog {
             editor.putLong(KEY_ANCHOR_PREFIX + suffix, now);
         }
         editor.apply();
-        // 镜像到公共日志目录（默认导出目录的 log/）：只追加本次新写的这段，
-        // 剥掉行尾 id 段 —— 私有文件里留着供点行反查，镜像不整份重写
-        TakeoverManager.appendPublicLog(ctx, fileName(forHome), stripRefs(sb.toString()));
+        // 私有文件就是唯一真源；需要给用户看时由「导出日志」统一打包，不再镜像公共目录。
     }
 
     private static String entryLine(Context ctx, long now, String detail, String parens) {
@@ -620,7 +618,7 @@ public final class SwitchLog {
     /**
      * 清空两个范围的日志：私有目录两份文件、三套按范围键，外加 v3.67 及以前那份共用的
      * {@code switch_log.txt} 和它的两个键（拆开后没人再读写，留着只会让人以为还有记录）。
-     * 公共日志目录里的两份镜像一并截断成空。纯 IO。
+     * 纯 IO。
      */
     public static void clear(Context ctx) {
         if (ctx == null) {
@@ -632,8 +630,6 @@ public final class SwitchLog {
             } catch (Exception ignored) {
             }
         }
-        TakeoverManager.overwritePublicLog(ctx, FILE_HOME, "");
-        TakeoverManager.overwritePublicLog(ctx, FILE_LOCK, "");
         SharedPreferences.Editor editor = prefs(ctx).edit();
         for (boolean forHome : new boolean[]{true, false}) {
             String suffix = suffix(forHome);

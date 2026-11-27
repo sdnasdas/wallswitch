@@ -228,6 +228,30 @@ final class BackupController {
         }, "wallpaper-export-all").start();
     }
 
+    /** 把私有日志打包成一个 zip，写到当前导出目录；纯 IO，放后台线程。 */
+    void exportLogs() {
+        if (!WallpaperExporter.canExport(a)) {
+            Toast.makeText(a, R.string.export_need_dir, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(a, R.string.export_logs_running, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final BackupStore.LogExportResult result = BackupStore.exportLogs(a.getApplicationContext());
+            a.runOnUiThread(() -> {
+                if (a.isFinishing() || a.isDestroyed()) {
+                    return;
+                }
+                if (result.error != null) {
+                    Toast.makeText(a, a.getString(R.string.export_logs_failed, result.error),
+                            Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(a, a.getString(R.string.export_logs_done, result.name),
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "wallswitch-log-export").start();
+    }
+
     /**
      * 清理冗余文件：后台扫出孤儿与双格式残留（留 JPEG 删 PNG），弹确认窗报完分类计数才动手。
      * 双格式那批的格式标记在 deleteRedundant 里作废，网格角标重算，不用刷网格。

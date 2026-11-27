@@ -157,6 +157,14 @@
                     app:key="export_now"
                     app:persistent="false"
                     app:title="@string/export_now_title" />
+
+                <Preference
+                    app:iconSpaceReserved="false"
+                    app:icon="@drawable/ic_save_alt"
+                    app:key="export_logs"
+                    app:persistent="false"
+                    app:summary="@string/export_logs_summary"
+                    app:title="@string/export_logs_title" />
             </PreferenceCategory>
 
             <PreferenceCategory

@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
@@ -79,6 +80,12 @@ public final class BackupStore {
         public String error;
     }
 
+    /** 日志导出结果：成功时 name 是 zip 文件名，失败时 error 非空。 */
+    public static final class LogExportResult {
+        public String name;
+        public String error;
+    }
+
     /** 包里的现场（还原前给用户看一眼，别盲覆盖现有库）。 */
     public static final class Manifest {
         public int images;
@@ -150,6 +157,44 @@ public final class BackupStore {
             }
             zout.finish();
             r.error = null;
+            r.name = name;
+        } catch (Exception | OutOfMemoryError e) {
+            r.error = "打包失败：" + e.getClass().getSimpleName();
+            deleteQuietly(context, doc);
+        } finally {
+            closeQuietly(zout);
+        }
+        return r;
+    }
+
+    /**
+     * 手动导出日志：只打私有目录里的切换日志与引擎日志，不碰壁纸和 prefs。
+     * 文件名带时间戳，避免荣耀 MediaProvider 的同名查找/改名问题。纯 IO，调用方放后台线程。
+     */
+    public static LogExportResult exportLogs(Context context) {
+        LogExportResult r = new LogExportResult();
+        if (!WallpaperExporter.canExport(context)) {
+            r.error = "没设导出目录";
+            return r;
+        }
+        String name = "wallswitch-logs-"
+                + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()) + ".zip";
+        Uri doc = WallpaperExporter.openDocForWrite(context, name, "application/zip");
+        if (doc == null) {
+            r.error = "建文件失败";
+            return r;
+        }
+        java.util.zip.ZipOutputStream zout = null;
+        try {
+            zout = new java.util.zip.ZipOutputStream(
+                    context.getContentResolver().openOutputStream(doc, "wt"));
+            File logDir = TakeoverManager.logDir(context);
+            writeFile(zout, new File(logDir, "engine_stats.txt"), "engine_stats.txt");
+            writeFile(zout, new File(logDir, "engine_crash.txt"), "engine_crash.txt");
+            writeFile(zout, SwitchLog.logFile(context, true), SwitchLog.fileName(true));
+            writeFile(zout, SwitchLog.logFile(context, false), SwitchLog.fileName(false));
+            writeLogManifest(context, zout);
+            zout.finish();
             r.name = name;
         } catch (Exception | OutOfMemoryError e) {
             r.error = "打包失败：" + e.getClass().getSimpleName();
@@ -295,6 +340,20 @@ public final class BackupStore {
 
     private static File prefsFile(Context context, String name) {
         return new File(new File(context.getFilesDir().getParentFile(), "shared_prefs"), name + ".xml");
+    }
+
+    private static void writeLogManifest(Context context, java.util.zip.ZipOutputStream zout)
+            throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("app_version", versionName(context));
+        o.put("export_time", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()));
+        o.put("device", Build.MANUFACTURER + " " + Build.MODEL);
+        o.put("android_sdk", Build.VERSION.SDK_INT);
+        ZipEntry e = new ZipEntry("manifest.json");
+        byte[] bytes = o.toString(2).getBytes(StandardCharsets.UTF_8);
+        zout.putNextEntry(e);
+        zout.write(bytes);
+        zout.closeEntry();
     }
 
     private static void writeManifest(Context context, java.util.zip.ZipOutputStream zout,
