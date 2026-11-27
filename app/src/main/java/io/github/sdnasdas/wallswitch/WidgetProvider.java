@@ -63,6 +63,8 @@ public class WidgetProvider extends AppWidgetProvider {
         new Thread(() -> {
             try {
                 TimerScheduler.catchUp(app);
+                // 时段换库也借这个「设备活跃」时机补换（当前时段尚未执行才动，手动换库后不覆盖）
+                LibScheduler.catchUp(app);
             } catch (Exception ignored) {
             } finally {
                 if (pending != null) {

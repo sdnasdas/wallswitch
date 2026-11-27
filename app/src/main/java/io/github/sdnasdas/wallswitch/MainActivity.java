@@ -818,9 +818,12 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // 自愈：每次回到应用都核对一遍排定（槽位配置没变时走 KEEP，不碰系统里已有的周期格子）
         TimerScheduler.scheduleAll(this);
+        // 时段换库的边界任务同样核对一遍（指纹相同不重排；被 ROM 清掉时这里补上）
+        LibScheduler.rescheduleAll(this);
         // 打开应用同样是“设备活跃”时机：后台补跑被 Doze/ROM 冻结而漏掉的定时切换
         new Thread(() -> {
-            final boolean did = TimerScheduler.catchUp(getApplicationContext());
+            final boolean did = TimerScheduler.catchUp(getApplicationContext())
+                    | LibScheduler.catchUp(getApplicationContext());
             if (did) {
                 runOnUiThread(() -> {
                     if (!isFinishing()) {
@@ -1556,6 +1559,10 @@ public class MainActivity extends AppCompatActivity {
         bindSlotLibRow(content, forHome);
         content.findViewById(R.id.row_slot_lib).setOnClickListener(
                 v -> showLibPickerDialog(forHome, content));
+        // 按时段换库（v3.191）：摘要行 + 点进二级配置
+        bindTimeLibRow(content, forHome);
+        content.findViewById(R.id.row_time_lib).setOnClickListener(
+                v -> showTimeLibSheet(forHome, content));
         MaterialButtonToggleGroup mode = content.findViewById(R.id.toggle_mode);
         mode.check(LibraryStore.MODE_RANDOM.equals(LibraryStore.scopeMode(this, forHome))
                 ? R.id.btn_mode_random : R.id.btn_mode_order);
@@ -1615,6 +1622,315 @@ public class MainActivity extends AppCompatActivity {
         sheet.getBehavior().setSkipCollapsed(true);
         sheet.setOnDismissListener(d -> refreshCurrentPage());
         sheet.show();
+    }
+
+    // ==================== 按时段换库（v3.191） ====================
+
+    /** 面板里「按时段换库」那一行的摘要：关 / 07:00 山景 · 23:00 星空（多于两条折叠成「等N段」）。 */
+    private void bindTimeLibRow(View content, boolean forHome) {
+        TextView tv = content.findViewById(R.id.tv_time_lib_value);
+        tv.setText(timeLibSummary(forHome));
+    }
+
+    /** 摘要文案：无配置 = 「关」。 */
+    String timeLibSummary(boolean forHome) {
+        List<LibScheduleStore.Rule> rules = LibScheduleStore.load(this, forHome);
+        if (rules.isEmpty()) {
+            return getString(R.string.time_lib_off);
+        }
+        StringBuilder sb = new StringBuilder();
+        int shown = Math.min(2, rules.size());
+        for (int i = 0; i < shown; i++) {
+            LibScheduleStore.Rule r = rules.get(i);
+            if (sb.length() > 0) {
+                sb.append(getString(R.string.time_lib_summary_sep));
+            }
+            sb.append(timeText(r.start)).append(' ').append(libNameOf(r.libId));
+        }
+        if (rules.size() > shown) {
+            sb.append(getString(R.string.time_lib_more, rules.size() - shown));
+        }
+        return sb.toString();
+    }
+
+    /** 时刻文案：当天分钟数 → HH:mm。 */
+    private String timeText(int minutes) {
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60);
+    }
+
+    /** 库名（「全部壁纸」也认；库已删返回空串）。 */
+    private String libNameOf(String libId) {
+        LibraryStore.Library lib = LibraryStore.get(this, libId);
+        return lib == null ? "" : lib.name;
+    }
+
+    /**
+     * 二级配置面板：时段列表（点行编辑、行尾删除键移除）+「添加时段」。改动即保存并续排边界任务。
+     * 关面板时若动过配置、且「此刻所属时段的目标库」与当前库不同，弹一次标准的换库确认
+     * （confirmSlotLib，与手动选库同一链路）—— 让配置当场可见地生效，而不是干等下一个边界。
+     */
+    private void showTimeLibSheet(final boolean forHome, final View slotSheetContent) {
+        if (LibraryStore.slotLibId(this, forHome) == null) {
+            Toast.makeText(this, R.string.time_lib_need_slot, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final BottomSheetDialog sheet = new BottomSheetDialog(this);
+        final View content = LayoutInflater.from(this).inflate(R.layout.dialog_time_lib, null, false);
+        sheet.setContentView(content);
+        // 工作副本：改一条存一次；dirty 记录本次动过配置
+        final List<LibScheduleStore.Rule> rules = new ArrayList<>(LibScheduleStore.load(this, forHome));
+        final boolean[] dirty = {false};
+        final LinearLayout box = content.findViewById(R.id.box_time_rules);
+        final View emptyHint = content.findViewById(R.id.tv_time_rules_empty);
+        final Runnable[] render = new Runnable[1];
+        final Runnable persist = () -> {
+            LibScheduleStore.save(this, forHome, rules);
+            // WorkManager 的排是进程内 IPC，主线程调用（与其它设置写点同口径）
+            LibScheduler.reschedule(this, forHome);
+            bindTimeLibRow(slotSheetContent, forHome);
+            refreshSlotCards();
+        };
+        render[0] = () -> {
+            box.removeAllViews();
+            emptyHint.setVisibility(rules.isEmpty() ? View.VISIBLE : View.GONE);
+            for (int i = 0; i < rules.size(); i++) {
+                final int index = i;
+                LibScheduleStore.Rule r = rules.get(i);
+                View row = LayoutInflater.from(MainActivity.this)
+                        .inflate(R.layout.item_time_rule, box, false);
+                ((TextView) row.findViewById(R.id.tv_rule_time)).setText(getString(
+                        R.string.time_lib_rule_time, timeText(r.start), timeText(r.end)));
+                ((TextView) row.findViewById(R.id.tv_rule_lib)).setText(libNameOf(r.libId));
+                row.setOnClickListener(v ->
+                        showTimeRuleDialog(forHome, rules, index, dirty, persist, render[0]));
+                row.findViewById(R.id.iv_rule_delete).setOnClickListener(v -> {
+                    new AppAlertDialogBuilder(MainActivity.this)
+                            .setTitle(R.string.time_lib_delete_title)
+                            .setMessage(getString(R.string.time_lib_delete_msg,
+                                    timeText(r.start), timeText(r.end), libNameOf(r.libId)))
+                            .setPositiveButton(R.string.confirm, (d, w) -> {
+                                rules.remove(index);
+                                dirty[0] = true;
+                                persist.run();
+                                render[0].run();
+                            })
+                            .setNegativeButton(R.string.cancel, null)
+                            .show();
+                });
+                box.addView(row);
+            }
+        };
+        render[0].run();
+        content.findViewById(R.id.btn_time_add).setOnClickListener(v ->
+                showTimeRuleDialog(forHome, rules, -1, dirty, persist, render[0]));
+        content.findViewById(R.id.btn_time_done).setOnClickListener(v -> sheet.dismiss());
+        sheet.setOnDismissListener(d -> {
+            if (!dirty[0]) {
+                return;
+            }
+            String target = LibScheduleStore.currentLibId(this, forHome,
+                    LibScheduleStore.minutesOfDay(System.currentTimeMillis()));
+            String live = LibraryStore.slotLibId(this, forHome);
+            if (target != null && !target.equals(live) && !LibraryStore.slotPaused(this, forHome)) {
+                confirmSlotLib(forHome, target, slotSheetContent);
+            }
+        });
+        sheet.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
+        sheet.getBehavior().setSkipCollapsed(true);
+        sheet.show();
+    }
+
+    /** 新增/编辑时段：主弹窗显示时间字段与库列表，点时间字段再开滚轮。 */
+    private void showTimeRuleDialog(boolean forHome, final List<LibScheduleStore.Rule> rules,
+            final int index, final boolean[] dirty, final Runnable persist, final Runnable render) {
+        final boolean isNew = index < 0;
+        final LibScheduleStore.Rule draft = isNew
+                ? new LibScheduleStore.Rule(7 * 60, 23 * 60, null)
+                : new LibScheduleStore.Rule(rules.get(index).start, rules.get(index).end,
+                        rules.get(index).libId);
+        final View content = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_time_rule_fields, null, false);
+        final TextView startTime = content.findViewById(R.id.tv_rule_start_time);
+        final TextView endTime = content.findViewById(R.id.tv_rule_end_time);
+        final TextView timeError = content.findViewById(R.id.tv_rule_time_error);
+        final Runnable refreshTimes = () -> {
+            startTime.setText(timeText(draft.start));
+            endTime.setText(timeText(draft.end));
+        };
+        refreshTimes.run();
+
+        final LinearLayout libBox = content.findViewById(R.id.box_rule_libs);
+        final List<LibraryStore.Library> libs = LibraryStore.loadWithAll(this);
+        for (LibraryStore.Library lib : libs) {
+            View row = LayoutInflater.from(this).inflate(R.layout.item_time_rule_lib, libBox, false);
+            ((TextView) row.findViewById(R.id.tv_rule_lib_name)).setText(lib.name);
+            int count = WallpaperStore.loadByLib(this, lib.id).size();
+            ((TextView) row.findViewById(R.id.tv_rule_lib_sub)).setText(
+                    LibraryStore.isAll(lib.id)
+                            ? getString(R.string.lib_all_sub, count)
+                            : getString(R.string.lib_count, count));
+            bindThumb((ImageView) row.findViewById(R.id.img_rule_lib_thumb),
+                    slotThumbId(lib.id, forHome), R.drawable.ic_tab_wallpaper, 8);
+            row.setTag(lib.id);
+            libBox.addView(row);
+        }
+        final Runnable refreshLibSelection = () -> {
+            for (int i = 0; i < libBox.getChildCount(); i++) {
+                View row = libBox.getChildAt(i);
+                row.findViewById(R.id.iv_rule_lib_radio).setVisibility(
+                        row.getTag().equals(draft.libId) ? View.VISIBLE : View.INVISIBLE);
+            }
+        };
+        refreshLibSelection.run();
+        for (int i = 0; i < libBox.getChildCount(); i++) {
+            final String libId = (String) libBox.getChildAt(i).getTag();
+            libBox.getChildAt(i).setOnClickListener(v -> {
+                draft.libId = libId;
+                refreshLibSelection.run();
+            });
+        }
+
+        AlertDialog dialog = new AppAlertDialogBuilder(this)
+                .setTitle(isNew ? R.string.time_lib_new_title : R.string.time_lib_edit_title)
+                .setView(content)
+                .setPositiveButton(R.string.confirm, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.show();
+        final Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        final Runnable validateTime = () -> {
+            String error = timeRuleValidationError(rules, index, draft.start, draft.end);
+            timeError.setText(error);
+            timeError.setVisibility(error == null ? View.GONE : View.VISIBLE);
+            positive.setEnabled(error == null);
+        };
+        final Runnable onTimeChanged = () -> {
+            refreshTimes.run();
+            validateTime.run();
+        };
+        content.findViewById(R.id.field_rule_start).setOnClickListener(v ->
+                showTimeWheelPicker(rules, index, draft, true, onTimeChanged));
+        content.findViewById(R.id.field_rule_end).setOnClickListener(v ->
+                showTimeWheelPicker(rules, index, draft, false, onTimeChanged));
+        validateTime.run();
+        positive.setOnClickListener(v -> {
+            if (timeRuleValidationError(rules, index, draft.start, draft.end) != null) {
+                validateTime.run();
+                return;
+            }
+            if (draft.libId == null) {
+                Toast.makeText(this, R.string.time_lib_no_lib, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (isNew) {
+                rules.add(draft);
+            } else {
+                rules.set(index, draft);
+            }
+            dirty[0] = true;
+            persist.run();
+            render.run();
+            dialog.dismiss();
+        });
+    }
+
+    /** 单个时刻的滚轮弹窗：变化即校验，冲突时禁用「完成」。 */
+    private void showTimeWheelPicker(final List<LibScheduleStore.Rule> rules, final int index,
+            final LibScheduleStore.Rule draft, final boolean editingStart, final Runnable onChanged) {
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        int pad8 = (int) (8 * getResources().getDisplayMetrics().density);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, pad / 2, pad, pad8);
+        final NumberPicker[] wheels = timeWheels(editingStart ? draft.start : draft.end);
+        box.addView(ruleWheelRow(wheels));
+        final TextView timeError = new TextView(this);
+        timeError.setTextSize(12);
+        timeError.setTextColor(getColor(R.color.danger));
+        timeError.setPadding(0, pad8, 0, 0);
+        timeError.setVisibility(View.GONE);
+        box.addView(timeError);
+
+        AlertDialog dialog = new AppAlertDialogBuilder(this)
+                .setTitle(editingStart ? R.string.time_lib_pick_start_title : R.string.time_lib_pick_end_title)
+                .setView(box)
+                .setPositiveButton(R.string.done, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.show();
+        final Button done = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        final Runnable validate = () -> {
+            int chosen = wheels[0].getValue() * 60 + wheels[1].getValue() * 15;
+            int start = editingStart ? chosen : draft.start;
+            int end = editingStart ? draft.end : chosen;
+            String error = timeRuleValidationError(rules, index, start, end);
+            timeError.setText(error);
+            timeError.setVisibility(error == null ? View.GONE : View.VISIBLE);
+            done.setEnabled(error == null);
+        };
+        NumberPicker.OnValueChangeListener listener = (picker, oldValue, newValue) -> validate.run();
+        for (NumberPicker wheel : wheels) {
+            wheel.setOnValueChangedListener(listener);
+        }
+        validate.run();
+        done.setOnClickListener(v -> {
+            if (!done.isEnabled()) {
+                return;
+            }
+            int chosen = wheels[0].getValue() * 60 + wheels[1].getValue() * 15;
+            if (editingStart) {
+                draft.start = chosen;
+            } else {
+                draft.end = chosen;
+            }
+            onChanged.run();
+            dialog.dismiss();
+        });
+    }
+
+    private String timeRuleValidationError(List<LibScheduleStore.Rule> rules, int index,
+            int start, int end) {
+        if (start == end) {
+            return getString(R.string.time_lib_same_hint);
+        }
+        for (int i = 0; i < rules.size(); i++) {
+            if (i == index) {
+                continue;
+            }
+            LibScheduleStore.Rule other = rules.get(i);
+            if (LibScheduleStore.overlaps(start, end, other.start, other.end)) {
+                return getString(R.string.time_lib_overlap_hint,
+                        timeText(other.start), timeText(other.end), libNameOf(other.libId));
+            }
+        }
+        return null;
+    }
+
+    /** 一对「时 / 分」滚轮（分钟按 15 步进，与间隔滚轮同口径）。 */
+    private NumberPicker[] timeWheels(int minutes) {
+        NumberPicker hour = new NumberPicker(this);
+        hour.setMinValue(0);
+        hour.setMaxValue(23);
+        hour.setWrapSelectorWheel(true);
+        hour.setFormatter(value -> String.format(Locale.getDefault(), "%02d", value));
+        hour.setValue(minutes / 60);
+        NumberPicker minute = new NumberPicker(this);
+        minute.setMinValue(0);
+        minute.setMaxValue(3);
+        minute.setWrapSelectorWheel(true);
+        minute.setDisplayedValues(new String[]{"00", "15", "30", "45"});
+        minute.setValue((minutes % 60) / 15);
+        return new NumberPicker[]{hour, minute};
+    }
+
+    /** 一组「时 / 分」滚轮排成一行（复用间隔滚轮的 wheelColumn 列样式）。 */
+    private LinearLayout ruleWheelRow(NumberPicker[] wheels) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.addView(wheelColumn(wheels[0], getString(R.string.interval_hour)));
+        row.addView(wheelColumn(wheels[1], getString(R.string.interval_minute)));
+        return row;
     }
 
     // ==================== 图库 ====================

@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wallswitch · 新增时段弹窗布局原型</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d0f13;
+    --panel: #15181d;
+    --panel-2: #1c2026;
+    --dialog: #23272e;
+    --line: #343a44;
+    --text: #f3f5f7;
+    --muted: #a5adb8;
+    --dim: #737d8a;
+    --accent: #6f97e8;
+    --accent-soft: rgba(111, 151, 232, .16);
+    --danger: #ef6b73;
+    --radius: 20px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; }
+  button:focus-visible, .option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .page { max-width: 1480px; margin: 0 auto; padding: 34px 28px 110px; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 26px; }
+  .eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  h1 { margin: 8px 0 8px; font-size: 30px; line-height: 1.2; letter-spacing: -.02em; }
+  .subtitle { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+  .demo-toggle {
+    display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+    padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--panel); color: var(--muted); font-size: 13px; cursor: pointer;
+  }
+  .demo-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
+  .option {
+    position: relative; min-width: 0; padding: 18px;
+    border: 1px solid #292e36; border-radius: 22px; background: var(--panel);
+    transition: border-color .18s ease, background .18s ease;
+  }
+  .option.selected { border-color: var(--accent); background: #171c24; }
+  .option-head { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: start; }
+  .option-index {
+    display: grid; place-items: center; width: 32px; height: 32px;
+    border-radius: 10px; background: #262c35; color: var(--muted); font-size: 13px; font-weight: 800;
+  }
+  .option.selected .option-index { background: var(--accent); color: #0d1320; }
+  .option h2 { margin: 1px 0 4px; font-size: 16px; }
+  .option p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .choose {
+    border: 1px solid var(--line); border-radius: 999px; background: transparent;
+    color: var(--muted); padding: 7px 11px; font-size: 12px; cursor: pointer;
+  }
+  .option.selected .choose { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .phone-shell {
+    width: min(100%, 294px); aspect-ratio: 9 / 19.5; margin: 18px auto 14px;
+    padding: 6px; border: 1px solid #3b424d; border-radius: 35px;
+    background: #06070a; box-shadow: 0 18px 45px rgba(0,0,0,.28); overflow: hidden;
+  }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 28px; background: #171a1f; overflow: hidden; }
+  .statusbar {
+    position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: 30px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 15px; color: #d9dde3; font-size: 9px; font-weight: 650;
+  }
+  .status-icons { display: flex; align-items: center; gap: 5px; }
+  .signal { display: flex; align-items: flex-end; gap: 1px; height: 9px; }
+  .signal i { width: 2px; background: #cfd4db; border-radius: 1px; }
+  .signal i:nth-child(1) { height: 3px; } .signal i:nth-child(2) { height: 5px; }
+  .signal i:nth-child(3) { height: 7px; } .signal i:nth-child(4) { height: 9px; }
+  .battery { width: 15px; height: 7px; border: 1px solid #cfd4db; border-radius: 2px; padding: 1px; }
+  .battery::after { content: ""; display: block; width: 75%; height: 100%; background: #cfd4db; border-radius: 1px; }
+  .app-bg { position: absolute; inset: 30px 0 0; padding: 16px 15px; opacity: .42; }
+  .app-title { font-size: 21px; font-weight: 750; }
+  .app-sub { margin-top: 3px; color: var(--muted); font-size: 10px; }
+  .app-cards { display: flex; gap: 9px; margin-top: 18px; }
+  .app-card { flex: 1; height: 104px; border-radius: 16px; background: #2b3139; border: 1px solid #353c46; }
+  .app-card:first-child { background: #334039; }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.58); }
+  .sheet-handle { position: absolute; z-index: 4; top: 7px; left: 50%; width: 34px; height: 4px; border-radius: 99px; background: #626a76; transform: translateX(-50%); }
+  .dialog {
+    position: absolute; z-index: 3; left: 10px; right: 10px; bottom: 11px;
+    display: flex; flex-direction: column; padding: 18px 16px 14px;
+    border: 1px solid #3a414b; border-radius: 23px; background: var(--dialog);
+    box-shadow: 0 -10px 35px rgba(0,0,0,.25);
+  }
+  .dialog-a { top: 68px; }
+  .dialog-b { top: 94px; }
+  .dialog-c { top: 55px; }
+  .dialog-title { margin: 0; font-size: 19px; line-height: 1.3; letter-spacing: -.01em; }
+  .dialog-kicker { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+  .section-label { margin: 13px 0 7px; color: var(--muted); font-size: 10px; font-weight: 650; }
+  .lib-row {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 49px;
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 13px;
+    background: #1b1f25; color: var(--text); text-align: left; cursor: pointer;
+  }
+  .lib-thumb {
+    position: relative; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
+    display: grid; place-items: center; overflow: hidden; background: #31463b; color: #dbe9df;
+    font-size: 10px; font-weight: 750;
+  }
+  .lib-thumb.star { background: #343852; color: #e3e6ff; }
+  .lib-thumb.all { background: #3b414a; color: #eef1f5; }
+  .lib-thumb svg { width: 24px; height: 24px; }
+  .lib-copy { min-width: 0; flex: 1; }
+  .lib-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+  .lib-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; }
+  .chev { width: 15px; height: 15px; color: var(--dim); flex: 0 0 auto; }
+  .time-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .time-block { min-width: 0; padding: 9px 5px 8px; border-radius: 13px; background: #1b1f25; }
+  .time-block-head { display: flex; align-items: center; justify-content: center; gap: 5px; color: var(--muted); font-size: 10px; }
+  .time-block-head svg { width: 12px; height: 12px; }
+  .wheel-pair { display: flex; align-items: flex-start; justify-content: center; gap: 5px; margin-top: 6px; }
+  .wheel-wrap { display: flex; flex-direction: column; align-items: center; }
+  .wheel {
+    position: relative; width: 39px; height: 92px; overflow: hidden;
+    color: var(--muted); cursor: pointer; user-select: none; touch-action: manipulation;
+  }
+  .wheel::before, .wheel::after {
+    content: ""; position: absolute; z-index: 2; left: 0; right: 0; height: 1px; background: #69717e;
+  }
+  .wheel::before { top: 44px; } .wheel::after { bottom: 24px; }
+  .wheel-value {
+    position: absolute; left: 0; right: 0; height: 22px; display: grid; place-items: center;
+    font-size: 15px; font-variant-numeric: tabular-nums; opacity: .42;
+  }
+  .wheel-value:nth-child(1) { top: 2px; font-size: 11px; opacity: .26; }
+  .wheel-value:nth-child(2) { top: 24px; font-size: 13px; opacity: .5; }
+  .wheel-value:nth-child(3) { top: 46px; font-size: 17px; opacity: 1; color: var(--text); font-weight: 650; }
+  .wheel-value:nth-child(4) { top: 68px; font-size: 13px; opacity: .5; }
+  .wheel-value:nth-child(5) { top: 90px; font-size: 11px; opacity: .26; }
+  .wheel-unit { margin-top: 43px; color: var(--muted); font-size: 9px; }
+  .wheel-wrap { position: relative; padding-bottom: 14px; }
+  .wheel-wrap .wheel-unit { position: absolute; bottom: 0; left: 0; right: 0; margin: 0; text-align: center; }
+  .time-divider { align-self: center; margin-top: 24px; color: var(--dim); font-size: 11px; }
+  .time-columns { display: grid; grid-template-columns: 1fr 16px 1fr; align-items: center; }
+  .conflict-msg {
+    display: none; margin-top: 9px; padding: 8px 9px; border-radius: 9px;
+    background: rgba(239,107,115,.1); color: var(--danger); font-size: 10px; line-height: 1.45;
+  }
+  body.conflict-demo .conflict-msg { display: block; }
+  .dialog-spacer { flex: 1; min-height: 7px; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  .btn {
+    min-height: 34px; padding: 0 14px; border: 0; border-radius: 999px;
+    font-size: 11px; font-weight: 650; cursor: pointer;
+  }
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-primary { background: #dce3ee; color: #171b21; }
+  .btn-primary:disabled { background: #4a515c; color: #858d98; cursor: not-allowed; }
+  .time-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
+  .time-field {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+    padding: 11px 12px; border: 1px solid var(--line); border-radius: 13px;
+    background: #1b1f25; color: var(--text); cursor: pointer;
+  }
+  .time-field small { color: var(--muted); font-size: 9px; }
+  .time-field strong { font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  .time-field svg { width: 13px; height: 13px; color: var(--muted); }
+  .field-head { display: flex; align-items: center; gap: 5px; }
+  .lib-list { display: flex; flex-direction: column; gap: 5px; }
+  .lib-option {
+    display: flex; align-items: center; gap: 9px; width: 100%; min-height: 43px;
+    padding: 5px 8px; border: 1px solid transparent; border-radius: 11px;
+    background: transparent; color: var(--text); text-align: left; cursor: pointer;
+  }
+  .lib-option.selected { border-color: #465b80; background: var(--accent-soft); }
+  .radio {
+    width: 15px; height: 15px; border: 1.5px solid #66707d; border-radius: 50%;
+    display: grid; place-items: center; flex: 0 0 auto;
+  }
+  .lib-option.selected .radio { border-color: var(--accent); }
+  .lib-option.selected .radio::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .mini-note { margin: 8px 0 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
+  .scroll-time { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-right: 2px; }
+  .scroll-time::-webkit-scrollbar { display: none; }
+  .stack-time { margin-top: 8px; padding: 8px 8px 4px; border-radius: 13px; background: #1b1f25; }
+  .stack-time + .stack-time { margin-top: 7px; }
+  .stack-time .time-block-head { justify-content: flex-start; padding-left: 4px; }
+  .stack-time .wheel-pair { margin-top: 2px; }
+  .stack-time .wheel { width: 45px; height: 86px; }
+  .stack-time .wheel::before { top: 42px; } .stack-time .wheel::after { bottom: 22px; }
+  .stack-time .wheel-value:nth-child(3) { top: 44px; }
+  .stack-time .wheel-value:nth-child(2) { top: 22px; }
+  .stack-time .wheel-value:nth-child(4) { top: 66px; }
+  .stack-time .wheel-value:nth-child(1) { top: 0; }
+  .stack-time .wheel-value:nth-child(5) { top: 88px; }
+  .stack-time .wheel-unit { margin-top: 38px; }
+  .pinned-lib { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); background: var(--dialog); }
+  .pinned-lib .section-label { margin: 0 0 6px; }
+  .picker-overlay {
+    position: absolute; z-index: 8; inset: 0; display: none; place-items: center;
+    padding: 16px; background: rgba(0,0,0,.68);
+  }
+  .picker-overlay.open { display: grid; }
+  .picker-card { width: 100%; padding: 16px 13px 12px; border: 1px solid #424a56; border-radius: 20px; background: #282d35; }
+  .picker-card h3 { margin: 0; font-size: 15px; }
+  .picker-card .wheel-pair { margin: 13px 0 8px; gap: 20px; }
+  .picker-card .wheel { width: 48px; height: 104px; }
+  .picker-card .wheel::before { top: 50px; } .picker-card .wheel::after { bottom: 28px; }
+  .picker-card .wheel-value:nth-child(3) { top: 52px; }
+  .picker-card .wheel-value:nth-child(2) { top: 28px; }
+  .picker-card .wheel-value:nth-child(4) { top: 76px; }
+  .picker-card .wheel-value:nth-child(1) { top: 4px; }
+  .picker-card .wheel-value:nth-child(5) { top: 100px; }
+  .picker-card .wheel-unit { margin-top: 59px; }
+  .selection-bar {
+    position: fixed; z-index: 20; left: 50%; bottom: 20px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px; width: min(620px, calc(100% - 32px));
+    padding: 13px 15px; border: 1px solid #3b4451; border-radius: 16px;
+    background: rgba(24,28,34,.96); box-shadow: 0 12px 40px rgba(0,0,0,.4);
+    backdrop-filter: blur(12px);
+  }
+  .selection-copy { flex: 1; min-width: 0; }
+  .selection-copy small { display: block; color: var(--muted); font-size: 10px; }
+  .selection-copy strong { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .selection-bar .btn { min-height: 36px; white-space: nowrap; }
+  .footnote { margin: 20px 0 0; color: var(--dim); font-size: 12px; text-align: center; }
+  @media (max-width: 1080px) {
+    .grid { grid-template-columns: 1fr; }
+    .option { display: grid; grid-template-columns: minmax(0, 1fr) 294px; gap: 18px; align-items: center; }
+    .option-head { grid-template-columns: 34px 1fr; }
+    .choose { grid-column: 2; justify-self: start; }
+    .phone-shell { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  }
+  @media (max-width: 680px) {
+    .page { padding: 22px 14px 104px; }
+    .hero { align-items: flex-start; flex-direction: column; }
+    h1 { font-size: 24px; }
+    .option { display: block; }
+    .option-head { grid-template-columns: 34px 1fr auto; }
+    .choose { grid-column: auto; }
+    .phone-shell { margin: 18px auto 0; }
+    .selection-bar { gap: 9px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mountain" viewBox="0 0 32 32"><path d="m3 25 9-15 6 9 3-5 8 11H3Z" fill="currentColor" opacity=".9"/><path d="m9 15 3 2 3-3" fill="none" stroke="#31463b" stroke-width="2"/></symbol>
+    <symbol id="i-star" viewBox="0 0 32 32"><path d="m16 4 2.7 7.3L26 14l-7.3 2.7L16 24l-2.7-7.3L6 14l7.3-2.7L16 4Z" fill="currentColor"/><circle cx="25" cy="6" r="1.5" fill="currentColor"/><circle cx="7" cy="25" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 32 32"><rect x="5" y="5" width="9" height="9" rx="2" fill="currentColor"/><rect x="18" y="5" width="9" height="9" rx="2" fill="currentColor" opacity=".7"/><rect x="5" y="18" width="9" height="9" rx="2" fill="currentColor" opacity=".7"/><rect x="18" y="18" width="9" height="9" rx="2" fill="currentColor"/></symbol>
+  </defs>
+</svg>
+
+<main class="page">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">wallswitch · UI exploration</div>
+      <h1>新增时段弹窗，换一种布局</h1>
+      <p class="subtitle">三套方案都保留「时间 + 对应壁纸库 + 实时防重叠」。点击方案卡片选择，滚轮与库选项可操作。</p>
+    </div>
+    <label class="demo-toggle"><input id="conflictToggle" type="checkbox">演示时间冲突</label>
+  </header>
+
+  <section class="grid" aria-label="布局方案">
+    <article class="option selected" data-option="A" tabindex="0">
+      <div class="option-head">
+        <div class="option-index">A</div>
+        <div><h2>紧凑同屏</h2><p>选库置顶，开始 / 结束并排。信息最全，改动最直接。</p></div>
+        <button class="choose" type="button">选择 A</button>
+      </div>
+      <div class="phone-shell"><div class="screen">
+        <div class="statusbar"><span>20:50</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>5G</span><span class="battery"></span></div></div>
+        <div class="app-bg"><div class="app-title">此刻</div><div class="app-sub">接管中</div><div class="app-cards"><div class="app-card"></div><div class="app-card"></div></div></div>
+        <div class="scrim"></div><div class="sheet-handle"></div>
+        <div class="dialog dialog-a">
+          <h3 class="dialog-title">新增时段</h3>
+          <p class="dialog-kicker">到点切换到这个壁纸库</p>
+          <div class="section-label">壁纸库</div>
+          <button class="lib-row cycle-lib" type="button" data-libs="全部壁纸|山景|星空">
+            <span class="lib-thumb"><svg><use href="#i-mountain"/></svg></span>
+            <span class="lib-copy"><span class="lib-name">山景</span><span class="lib-meta">18 张壁纸</span></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <div class="time-grid">
+            <div class="time-block">
+              <div class="time-block-head"><svg><use href="#i-clock"/></svg>开始时刻</div>
+              <div class="wheel-pair">
+                <div class="wheel-wrap"><div class="wheel" data-kind="hour" data-value="7"></div><span class="wheel-unit">时</span></div>
+                <div class="wheel-wrap"><div class="wheel" data-kind="minute" data-value="0"></div><span class="wheel-unit">分</span></div>
+              </div>
+            </div>
+            <div class="time-block">
+              <div class="time-block-head"><svg><use href="#i-clock"/></svg>结束时刻</div>
+              <div class="wheel-pair">
+                <div class="wheel-wrap"><div class="wheel" data-kind="hour" data-value="23"></div><span class="wheel-unit">时</span></div>
+                <div class="wheel-wrap"><div class="wheel" data-kind="minute" data-value="0"></div><span class="wheel-unit">分</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="conflict-msg">与 07:00–12:00（山景）重叠，请调整时刻</div>
+          <div class="dialog-spacer"></div>
+          <div class="actions"><button class="btn btn-ghost" type="button">取消</button><button class="btn btn-primary confirm-btn" type="button">确认</button></div>
+        </div>
+      </div></div>
+    </article>
+
+    <article class="option" data-option="B" tabindex="0">
+      <div class="option-head">
+        <div class="option-index">B</div>
+        <div><h2>时间字段式</h2><p>时间收成两枚字段，点开才出滚轮；库列表始终可见。</p></div>
+        <button class="choose" type="button">选择 B</button>
+      </div>
+      <div class="phone-shell"><div class="screen">
+        <div class="statusbar"><span>20:50</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>5G</span><span class="battery"></span></div></div>
+        <div class="app-bg"><div class="app-title">此刻</div><div class="app-sub">接管中</div><div class="app-cards"><div class="app-card"></div><div class="app-card"></div></div></div>
+        <div class="scrim"></div><div class="sheet-handle"></div>
+        <div class="dialog dialog-b">
+          <h3 class="dialog-title">新增时段</h3>
+          <p class="dialog-kicker">先定时间，再选要切换的壁纸库</p>
+          <div class="time-fields">
+            <button class="time-field open-picker" type="button" data-target="startTime" data-title="选择开始时刻">
+              <span class="field-head"><svg><use href="#i-clock"/></svg><small>开始</small></span><strong id="startTime">07:00</strong>
+            </button>
+            <button class="time-field open-picker" type="button" data-target="endTime" data-title="选择结束时刻">
+              <span class="field-head"><svg><use href="#i-clock"/></svg><small>结束</small></span><strong id="endTime">23:00</strong>
+            </button>
+          </div>
+          <div class="section-label">切换到</div>
+          <div class="lib-list" role="radiogroup" aria-label="选择壁纸库">
+            <button class="lib-option" type="button" data-lib="全部壁纸"><span class="lib-thumb all"><svg><use href="#i-grid"/></svg></span><span class="lib-copy"><span class="lib-name">全部壁纸</span><span class="lib-meta">36 张</span></span><span class="radio"></span></button>
+            <button class="lib-option selected" type="button" data-lib="山景"><span class="lib-thumb"><svg><use href="#i-mountain"/></svg></span><span class="lib-copy"><span class="lib-name">山景</span><span class="lib-meta">18 张</span></span><span class="radio"></span></button>
+            <button class="lib-option" type="button" data-lib="星空"><span class="lib-thumb star"><svg><use href="#i-star"/></svg></span><span class="lib-copy"><span class="lib-name">星空</span><span class="lib-meta">18 张</span></span><span class="radio"></span></button>
+          </div>
+          <p class="mini-note">开始晚于结束，会自动按跨零点时段处理。</p>
+          <div class="conflict-msg">与 07:00–12:00（山景）重叠，请调整时刻</div>
+          <div class="dialog-spacer"></div>
+          <div class="actions"><button class="btn btn-ghost" type="button">取消</button><button class="btn btn-primary confirm-btn" type="button">确认</button></div>
+          <div class="picker-overlay">
+            <div class="picker-card">
+              <h3 class="picker-title">选择开始时刻</h3>
+              <div class="wheel-pair">
+                <div class="wheel-wrap"><div class="wheel picker-wheel" data-kind="hour" data-value="7"></div><span class="wheel-unit">时</span></div>
+                <div class="wheel-wrap"><div class="wheel picker-wheel" data-kind="minute" data-value="0"></div><span class="wheel-unit">分</span></div>
+              </div>
+              <div class="actions"><button class="btn btn-ghost picker-cancel" type="button">取消</button><button class="btn btn-primary picker-done" type="button">完成</button></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </article>
+
+    <article class="option" data-option="C" tabindex="0">
+      <div class="option-head">
+        <div class="option-index">C</div>
+        <div><h2>选库吸底</h2><p>时间区域可滚动，壁纸库固定在按钮上方，永不被裁掉。</p></div>
+        <button class="choose" type="button">选择 C</button>
+      </div>
+      <div class="phone-shell"><div class="screen">
+        <div class="statusbar"><span>20:50</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>5G</span><span class="battery"></span></div></div>
+        <div class="app-bg"><div class="app-title">此刻</div><div class="app-sub">接管中</div><div class="app-cards"><div class="app-card"></div><div class="app-card"></div></div></div>
+        <div class="scrim"></div><div class="sheet-handle"></div>
+        <div class="dialog dialog-c">
+          <h3 class="dialog-title">新增时段</h3>
+          <p class="dialog-kicker">时间可上下滚动，选库始终在下方</p>
+          <div class="scroll-time">
+            <div class="stack-time">
+              <div class="time-block-head"><svg><use href="#i-clock"/></svg>开始时刻</div>
+              <div class="wheel-pair">
+                <div class="wheel-wrap"><div class="wheel" data-kind="hour" data-value="7"></div><span class="wheel-unit">时</span></div>
+                <div class="wheel-wrap"><div class="wheel" data-kind="minute" data-value="0"></div><span class="wheel-unit">分</span></div>
+              </div>
+            </div>
+            <div class="stack-time">
+              <div class="time-block-head"><svg><use href="#i-clock"/></svg>结束时刻</div>
+              <div class="wheel-pair">
+                <div class="wheel-wrap"><div class="wheel" data-kind="hour" data-value="23"></div><span class="wheel-unit">时</span></div>
+                <div class="wheel-wrap"><div class="wheel" data-kind="minute" data-value="0"></div><span class="wheel-unit">分</span></div>
+              </div>
+            </div>
+            <div class="conflict-msg">与 07:00–12:00（山景）重叠，请调整时刻</div>
+          </div>
+          <div class="pinned-lib">
+            <div class="section-label">壁纸库</div>
+            <button class="lib-row cycle-lib" type="button" data-libs="全部壁纸|山景|星空">
+              <span class="lib-thumb"><svg><use href="#i-mountain"/></svg></span>
+              <span class="lib-copy"><span class="lib-name">山景</span><span class="lib-meta">18 张壁纸</span></span>
+              <svg class="chev"><use href="#i-chev"/></svg>
+            </button>
+          </div>
+          <div class="actions"><button class="btn btn-ghost" type="button">取消</button><button class="btn btn-primary confirm-btn" type="button">确认</button></div>
+        </div>
+      </div></div>
+    </article>
+  </section>
+
+  <p class="footnote">原型使用示例数据；正式实现仍以 15 分钟为步进，并实时检查跨零点重叠。</p>
+</main>
+
+<div class="selection-bar" aria-live="polite">
+  <div class="selection-copy"><small>当前选择</small><strong id="selectionText">A · 紧凑同屏</strong></div>
+  <button class="btn btn-primary" id="confirmSelection" type="button">选定此方案</button>
+</div>
+
+<script>
+  const optionNames = { A: '紧凑同屏', B: '时间字段式', C: '选库吸底' };
+  const options = [...document.querySelectorAll('.option')];
+  const selectionText = document.getElementById('selectionText');
+  const confirmSelection = document.getElementById('confirmSelection');
+  let selected = localStorage.getItem('wallswitch-time-layout') || 'A';
+  if (!optionNames[selected]) selected = 'A';
+
+  function selectOption(key) {
+    selected = key;
+    localStorage.setItem('wallswitch-time-layout', key);
+    options.forEach(option => {
+      const active = option.dataset.option === key;
+      option.classList.toggle('selected', active);
+      option.querySelector('.choose').textContent = active ? '已选择' : `选择 ${option.dataset.option}`;
+    });
+    selectionText.textContent = `${key} · ${optionNames[key]}`;
+  }
+  options.forEach(option => {
+    option.querySelector('.choose').addEventListener('click', () => selectOption(option.dataset.option));
+    option.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectOption(option.dataset.option);
+      }
+    });
+  });
+  confirmSelection.addEventListener('click', () => {
+    selectionText.textContent = `已选定 ${selected} · ${keySafe(selected)}`;
+    confirmSelection.textContent = '已记录';
+    setTimeout(() => { confirmSelection.textContent = '选定此方案'; }, 1400);
+  });
+  function keySafe(key) { return optionNames[key] || optionNames.A; }
+  selectOption(selected);
+
+  document.getElementById('conflictToggle').addEventListener('change', event => {
+    document.body.classList.toggle('conflict-demo', event.target.checked);
+    document.querySelectorAll('.confirm-btn').forEach(button => { button.disabled = event.target.checked; });
+  });
+
+  function renderWheel(wheel) {
+    const kind = wheel.dataset.kind;
+    let value = Number(wheel.dataset.value || 0);
+    if (kind === 'minute') value = ((Math.round(value / 15) % 4) + 4) % 4 * 15;
+    else value = ((value % 24) + 24) % 24;
+    wheel.dataset.value = String(value);
+    wheel.replaceChildren();
+    for (let offset = -2; offset <= 2; offset++) {
+      const itemValue = kind === 'minute'
+        ? ((Math.round(value / 15) + offset + 40) % 4) * 15
+        : (value + offset + 48) % 24;
+      const item = document.createElement('span');
+      item.className = 'wheel-value';
+      item.textContent = kind === 'minute'
+        ? String(itemValue).padStart(2, '0')
+        : String(itemValue).padStart(2, '0');
+      item.dataset.value = String(itemValue);
+      wheel.appendChild(item);
+    }
+  }
+  document.querySelectorAll('.wheel').forEach(wheel => {
+    renderWheel(wheel);
+    wheel.addEventListener('click', event => {
+      const item = event.target.closest('.wheel-value');
+      if (!item) return;
+      wheel.dataset.value = item.dataset.value;
+      renderWheel(wheel);
+    });
+  });
+
+  document.querySelectorAll('.cycle-lib').forEach(row => {
+    let index = 1;
+    row.addEventListener('click', () => {
+      const libs = row.dataset.libs.split('|');
+      index = (index + 1) % libs.length;
+      row.querySelector('.lib-name').textContent = libs[index];
+      row.querySelector('.lib-thumb use').setAttribute('href', index === 0 ? '#i-grid' : index === 2 ? '#i-star' : '#i-mountain');
+      row.querySelector('.lib-thumb').classList.toggle('all', index === 0);
+      row.querySelector('.lib-thumb').classList.toggle('star', index === 2);
+    });
+  });
+
+  document.querySelectorAll('.lib-list').forEach(list => {
+    list.querySelectorAll('.lib-option').forEach(option => {
+      option.addEventListener('click', () => {
+        list.querySelectorAll('.lib-option').forEach(item => item.classList.remove('selected'));
+        option.classList.add('selected');
+      });
+    });
+  });
+
+  let pickerTarget = null;
+  const pickerOverlay = document.querySelector('.picker-overlay');
+  const pickerTitle = document.querySelector('.picker-title');
+  const pickerWheels = [...document.querySelectorAll('.picker-wheel')];
+  document.querySelectorAll('.open-picker').forEach(field => {
+    field.addEventListener('click', () => {
+      pickerTarget = field.dataset.target;
+      pickerTitle.textContent = field.dataset.title;
+      const [hour, minute] = document.getElementById(pickerTarget).textContent.split(':').map(Number);
+      pickerWheels[0].dataset.value = String(hour);
+      pickerWheels[1].dataset.value = String(minute);
+      pickerWheels.forEach(renderWheel);
+      pickerOverlay.classList.add('open');
+    });
+  });
+  document.querySelector('.picker-cancel').addEventListener('click', () => pickerOverlay.classList.remove('open'));
+  document.querySelector('.picker-done').addEventListener('click', () => {
+    if (!pickerTarget) return;
+    const hour = String(pickerWheels[0].dataset.value).padStart(2, '0');
+    const minute = String(pickerWheels[1].dataset.value).padStart(2, '0');
+    document.getElementById(pickerTarget).textContent = `${hour}:${minute}`;
+    pickerOverlay.classList.remove('open');
+  });
+</script>
+</body>
+</html>

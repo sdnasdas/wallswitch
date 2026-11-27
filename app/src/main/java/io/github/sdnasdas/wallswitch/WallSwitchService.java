@@ -721,6 +721,11 @@ public class WallSwitchService extends GLWallpaperService {
                         LibraryStore.scopeTriggerMode(WallSwitchService.this, true))) {
                     DRAW_EXECUTOR.execute(() -> Switcher.switchOnHomeReturn(WallSwitchService.this));
                 }
+                // 时段换库（v3.191）：亮屏回到桌面同样是「设备活跃」时机，深睡期间晚到的
+                // 边界在这里补换（当前时段尚未执行才动；执行后手动换库不会被覆盖）
+                if (!isPreview()) {
+                    DRAW_EXECUTOR.execute(() -> LibScheduler.catchUp(WallSwitchService.this));
+                }
             } else {
                 // 不可见 = 人不在桌面（进 App / 灭屏）。实况必须立刻停：
                 // 这是「循环播放」那档不把发热变成常驻负载的关键一道

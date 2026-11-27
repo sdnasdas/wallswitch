@@ -222,9 +222,13 @@ public class TimerScheduler {
         LibraryStore.setSlotPaused(ctx, forHome, paused);
         if (paused) {
             cancelScope(ctx, forHome);
+            // 时段换库的边界任务同步撤掉：暂停期间连一次唤醒都没有（恢复时按需续上）
+            LibScheduler.cancel(ctx, forHome);
             SwitchLog.recordPaused(ctx, forHome);
         } else {
             long next = restartScope(ctx, forHome, null);
+            // 恢复：时段配置还在的话边界任务也续回来（LibScheduler.reschedule 自查闸门）
+            LibScheduler.reschedule(ctx, forHome);
             SwitchLog.recordResumed(ctx, forHome, next);
         }
         WidgetProvider.updateWidget(ctx);

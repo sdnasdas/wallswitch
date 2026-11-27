@@ -15,10 +15,13 @@ public class BootReceiver extends BroadcastReceiver {
         final Context app = context.getApplicationContext();
         // 先重排定时（个别 ROM 会清掉调度器任务）
         TimerScheduler.scheduleAll(app);
+        LibScheduler.rescheduleAll(app);
         final PendingResult pending = goAsync();
         new Thread(() -> {
             try {
                 TimerScheduler.catchUp(app);
+                // 时段换库：关机期间跨过的边界在开机的这个「设备活跃」时机补换
+                LibScheduler.catchUp(app);
                 // 通知不跨重启存活：开机/覆盖安装后补发常驻切换通知（涉及缩略图解码，放后台线程）
                 StatusNotifier.update(app);
             } catch (Exception ignored) {

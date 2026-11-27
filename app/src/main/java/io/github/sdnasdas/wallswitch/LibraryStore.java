@@ -304,6 +304,10 @@ public class LibraryStore {
         saveList(ctx, remain);
         WallpaperStore.deleteByLib(ctx, libId);
         Switcher.clearProgress(ctx, libId);
+        // 时段换库配置里引用这个库的条目一并剔除（两面都查），再各续一次边界任务
+        LibScheduleStore.removeLib(ctx, libId);
+        LibScheduler.reschedule(ctx, true);
+        LibScheduler.reschedule(ctx, false);
         for (boolean forHome : new boolean[]{true, false}) {
             if (ownsScope(ctx, libId, forHome)) {
                 setSlotLib(ctx, forHome, null);
@@ -314,8 +318,9 @@ public class LibraryStore {
 
     // ==================== 范围槽位（v3.60） ====================
 
-    /** 槽位 prefs 键前缀：_lib 占位库、_mode 切换模式、_interval 切换间隔（秒）。 */
-    private static String slotKey(boolean forHome) {
+    /** 槽位 prefs 键前缀：_lib 占位库、_mode 切换模式、_interval 切换间隔（秒）。
+     *  包内共用（LibScheduleStore 的时段配置键也挂在同一前缀下，随槽位与备份包走）。 */
+    static String slotKey(boolean forHome) {
         return forHome ? "slot_home" : "slot_lock";
     }
 
@@ -525,16 +530,23 @@ public class LibraryStore {
         // 两条分支各自的重排入口（cancelScope / restartScope）内部都会刷小组件与常驻通知，这里不再重复刷
         if (trimmed.isEmpty()) {
             TimerScheduler.cancelScope(ctx, forHome);
+            // 不再使用此面 = 时段换库配置一并清掉、边界任务撤掉（重排后要当新面配）
+            editor.remove(slotKey(forHome) + "_lib_sched").apply();
+            LibScheduler.cancel(ctx, forHome);
             SwitchLog.recordStopped(ctx, forHome);
             // 停了就没有"本轮计时"：抹掉日志的起算点，免得以后重新占库去跟几天前那条比间隔
             SwitchLog.resetAnchor(ctx, forHome);
         } else {
+            // 显式换库后把本时段视为已处理：手动选择优先，下个边界再自动换。
+            LibScheduler.markCurrentApplied(ctx, forHome);
             // 换库=该范围换了一张图（上屏由调用方的接管同步去做），所以按「重新起算」同一本账处理；
             // 这一刻新库的指针还没落地，日志里只标库名、不标壁纸标题
             long next = TimerScheduler.restartScope(ctx, forHome, null);
             Library target = get(ctx, trimmed);
             SwitchLog.recordSwitchLib(ctx, forHome,
                     target == null ? "" : target.name, next);
+            // 首次占位 / 换库后把时段边界任务按新配置续上（没配时段时它自查撤掉）
+            LibScheduler.reschedule(ctx, forHome);
         }
     }
 
@@ -567,6 +579,9 @@ public class LibraryStore {
             editor.remove(key + "_paused");
         }
         editor.apply();
+        if (libId != null && !libId.isEmpty()) {
+            LibScheduler.markCurrentApplied(ctx, forHome);
+        }
     }
 
     /** 重命名库（库行点库名就地改名的写回入口；留空则保留原名）。 */

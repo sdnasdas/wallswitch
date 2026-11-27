@@ -379,6 +379,33 @@
     <string name="slot_confirm_title">确认设置</string>
     <string name="slot_confirm_msg">把「%1$s」改为「%2$s」？</string>
     <string name="slot_confirm_clear">把「%1$s」改为不切换？该范围将停止自动切换。</string>
+    <!-- v3.191 按时段换库：每面各一份「时段 → 库」配置（存槽位键下，随备份包走）。
+         到点只是一次性「替用户选库」的动作，之后随时可手动换，下个时段到点再切；
+         深睡期间晚到的边界由开应用 / 刷小组件 / 亮屏回桌面时机补换（LibScheduler） -->
+    <string name="time_lib_title">按时段换库</string>
+    <string name="time_lib_off">关</string>
+    <string name="time_lib_sheet_hint">到点自动把这一面换成对应库（一次性动作，之后仍可手动换）；各时段不能重叠。</string>
+    <string name="time_lib_empty_hint">还没有时段。添加后到点自动换库，库内仍按「切换间隔」换图。</string>
+    <string name="time_lib_add">添加时段</string>
+    <string name="time_lib_rule_time">%1$s – %2$s</string>
+    <string name="time_lib_summary_sep">" · "</string>
+    <string name="time_lib_more">" 等%1$d段"</string>
+    <string name="time_lib_start">开始时刻</string>
+    <string name="time_lib_end">结束时刻</string>
+    <string name="time_lib_new_title">新增时段</string>
+    <string name="time_lib_edit_title">编辑时段</string>
+    <string name="time_lib_rule_kicker">先定时间，再选要切换的壁纸库</string>
+    <string name="time_lib_choose_lib">切换到</string>
+    <string name="time_lib_cross_midnight_hint">开始晚于结束，会自动按跨零点时段处理。</string>
+    <string name="time_lib_pick_start_title">选择开始时刻</string>
+    <string name="time_lib_pick_end_title">选择结束时刻</string>
+    <string name="time_lib_same_hint">开始与结束时刻不能相同</string>
+    <string name="time_lib_overlap_hint">与 %1$s – %2$s（%3$s）重叠，请调整时刻</string>
+    <string name="time_lib_no_lib">先给这条时段选一个壁纸库</string>
+    <string name="time_lib_need_slot">先给这一面选一个壁纸库，时段到点才有库可换</string>
+    <string name="time_lib_delete">删除时段</string>
+    <string name="time_lib_delete_title">删除这条时段？</string>
+    <string name="time_lib_delete_msg">%1$s – %2$s（%3$s）删除后到点不再自动换库。</string>
     <!-- 切换日志：桌面/锁屏各一份文件（files/switch_log_home.txt / switch_log_lock.txt），各记各的账。
          段头讲清版本·范围·设置·模式，正文一条一行；带缩进的串要整体加引号，否则 aapt 会吃掉行首空格 -->
     <string name="log_block_header">=== %1$s · %2$s · 每 %3$d 分钟 · %4$s ===</string>
