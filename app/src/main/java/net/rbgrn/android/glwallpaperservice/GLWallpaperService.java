@@ -70,9 +70,9 @@ public class GLWallpaperService extends WallpaperService {
                 public void onVisibilityChanged(boolean visible) {
                         if (visible) {
                                 onResume();
-                        } else {
-                                onPause();
                         }
+                        // 不可见时不 pause：RENDERMODE_WHEN_DIRTY 下 GL 线程本来就零帧等待，
+                        // 保留 EGL Surface 和最后一帧，避免状态栏收起时冷重建露出系统壁纸。
                         super.onVisibilityChanged(visible);
                 }
 
@@ -329,6 +329,7 @@ class EglHelper {
         private EGLDisplay mEglDisplay;
         private EGLSurface mEglSurface;
         private EGLContext mEglContext;
+        private boolean contextLost;
         EGLConfig mEglConfig;
 
         private final GLSurfaceView.EGLConfigChooser mEGLConfigChooser;
@@ -449,22 +450,47 @@ class EglHelper {
         /**
          * Display the current render surface.
          *
-         * @return false if the context has been lost.
+         * @return false if the surface or context has been lost.
          */
         public boolean swap() {
-                mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
+                try {
+                        mEgl.eglSwapBuffers(mEglDisplay, mEglSurface);
+                        /*
+                         * Always check for EGL_CONTEXT_LOST, which means the context and all associated data were lost (For instance
+                         * because the device went to sleep). We need to sleep until we get a new surface.
+                         */
+                        int error = mEgl.eglGetError();
+                        contextLost = error == EGL11.EGL_CONTEXT_LOST;
+                        return error == EGL10.EGL_SUCCESS;
+                } catch (RuntimeException e) {
+                        // MagicOS 会在 Surface 已失效时继续走到 swap；不能让整个 GL 线程/进程崩掉。
+                        Log.e("GLWallpaperService", "eglSwapBuffers failed, rebuilding EGL surface", e);
+                        contextLost = false;
+                        return false;
+                }
+        }
 
-                /*
-                 * Always check for EGL_CONTEXT_LOST, which means the context and all associated data were lost (For instance
-                 * because the device went to sleep). We need to sleep until we get a new surface.
-                 */
-                return mEgl.eglGetError() != EGL11.EGL_CONTEXT_LOST;
+        public boolean isContextLost() {
+                return contextLost;
+        }
+
+        public void destroyContext() {
+                if (mEglContext != null) {
+                        mEGLContextFactory.destroyContext(mEgl, mEglDisplay, mEglContext);
+                        mEglContext = null;
+                }
+                contextLost = false;
         }
 
         public void destroySurface() {
                 if (mEglSurface != null && mEglSurface != EGL10.EGL_NO_SURFACE) {
-                        mEgl.eglMakeCurrent(mEglDisplay, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
-                        mEGLWindowSurfaceFactory.destroySurface(mEgl, mEglDisplay, mEglSurface);
+                        try {
+                                mEgl.eglMakeCurrent(mEglDisplay, EGL10.EGL_NO_SURFACE,
+                                        EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
+                                mEGLWindowSurfaceFactory.destroySurface(mEgl, mEglDisplay, mEglSurface);
+                        } catch (RuntimeException ignored) {
+                                // Surface 可能已被 ROM 提前销毁；清引用后走重建即可。
+                        }
                         mEglSurface = null;
                 }
         }
@@ -610,7 +636,7 @@ class GLThread extends Thread {
                                                         return;
                                                 }
 
-                                                if (mEventsWaiting) {
+                                                if (mEventsWaiting && !needStart && !mPaused && mHasSurface && mHaveEgl) {
                                                         eventsWaiting = true;
                                                         mEventsWaiting = false;
                                                         break;
@@ -679,7 +705,17 @@ class GLThread extends Thread {
                                          * Once we're done with GL, we need to call swapBuffers() to instruct the system to display the
                                          * rendered frame
                                          */
-                                        mEglHelper.swap();
+                                        if (!mEglHelper.swap()) {
+                                                // Surface/context 已失效：拆掉当前 EGL surface，下一轮重建并重放当前壁纸。
+                                                synchronized (sGLThreadManager) {
+                                                        stopEglLocked();
+                                                        if (mEglHelper.isContextLost()) {
+                                                                mEglHelper.destroyContext();
+                                                        }
+                                                }
+                                                // 连续失败时给 ROM 一点回收 Surface 的时间，避免紧循环重建。
+                                                Thread.sleep(50);
+                                        }
                                 }
                         }
                 } finally {

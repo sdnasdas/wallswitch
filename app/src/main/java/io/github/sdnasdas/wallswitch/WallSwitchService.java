@@ -833,7 +833,7 @@ public class WallSwitchService extends GLWallpaperService {
                         flushPerfStatsRateLimited(ctx, NORMAL_FLUSH_INTERVAL_MS);
                         if (!key.equals(uploadedKey)) {
                             // 纹理不在了（Surface 重建/恢复可见后的重放）：从缓存直接上传，零解码
-                            uploadToRenderer(null, false, key);
+                            uploadToRenderer(cachedBitmap, null, null, false, key);
                         } else {
                             // 内容与纹理都已就位：RENDERMODE_WHEN_DIRTY 下只需标脏，零成本
                             requestRender();
@@ -872,22 +872,24 @@ public class WallSwitchService extends GLWallpaperService {
             Bitmap old = cachedBitmap;
             cachedBitmap = fresh;
             cachedKey = key;
-            if (old != null && !old.isRecycled()) {
-                old.recycle();
-            }
-            uploadToRenderer(fromBlur, animate, key);
+            // 旧位图可能仍被前一个排队中的 GL 上传任务引用，延后到后一个上传事件完成后回收。
+            uploadToRenderer(fresh, old, fromBlur, animate, key);
             // 正常解码后落盘：纹理上传次数 ≈ 切换次数是 GL 引擎健康的核心判据
             flushPerfStats(ctx);
         }
 
         /** 经 queueEvent 在 GL 线程上传纹理（过渡动画由渲染器驱动，引擎不再 sleep 逐帧）。 */
-        private void uploadToRenderer(Bitmap blurred, boolean animate, String key) {
-            Bitmap bmp = cachedBitmap;
+        private void uploadToRenderer(Bitmap bmp, Bitmap previous, Bitmap blurred,
+                                      boolean animate, String key) {
             queueEvent(() -> {
                 boolean shown = renderer.setImage(bmp, blurred, animate);
                 // blurred 是一次性素材：上传完成（或因不可见被跳过）后即可回收
                 if (blurred != null && !blurred.isRecycled()) {
                     blurred.recycle();
+                }
+                // 上传事件 FIFO 执行：跑到这里，前一个事件已经用完 previous，可以安全回收。
+                if (previous != null && previous != bmp && !previous.isRecycled()) {
+                    previous.recycle();
                 }
                 uploadedKey = shown ? key : null;
             });

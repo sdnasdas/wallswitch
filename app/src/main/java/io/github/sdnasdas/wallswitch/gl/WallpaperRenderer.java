@@ -199,31 +199,46 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
             return false;
         }
         if (animate && currentTex != 0) {
-            // 过渡期间旧画面就是 currentTex，无需 CPU 侧旧图
+            // 过渡期间旧画面就是 currentTex，无需 CPU 侧旧图；新纹理上传成功后才替换旧 next。
+            int freshNext = upload(bmp);
+            if (freshNext == 0) {
+                return false;
+            }
             deleteTex(nextTex);
-            nextTex = upload(bmp);
+            nextTex = freshNext;
             nextAspect = aspectOf(bmp);
             if (blurred != null && !blurred.isRecycled()) {
-                deleteTex(blurTex);
-                blurTex = upload(blurred);
-                blurAspect = aspectOf(blurred);
-                mode = MODE_BLUR;
-                transitionDuration = BLUR_MS;
+                int freshBlur = upload(blurred);
+                if (freshBlur != 0) {
+                    deleteTex(blurTex);
+                    blurTex = freshBlur;
+                    blurAspect = aspectOf(blurred);
+                    mode = MODE_BLUR;
+                    transitionDuration = BLUR_MS;
+                } else {
+                    mode = MODE_FADE;
+                    transitionDuration = FADE_MS;
+                }
             } else {
                 mode = MODE_FADE;
                 transitionDuration = FADE_MS;
             }
             transitionStart = SystemClock.elapsedRealtime();
         } else {
-            // 非过渡替换（首次显示/恢复重放）：丢掉可能残留的过渡状态
-            deleteTex(nextTex);
-            nextTex = 0;
-            deleteTex(blurTex);
-            blurTex = 0;
-            deleteTex(currentTex);
-            currentTex = upload(bmp);
-            currentAspect = aspectOf(bmp);
-            mode = MODE_NONE;
+            // 非过渡替换：先上传新图，成功了才删旧纹理；上传失败时旧帧仍在。
+            int freshTex = upload(bmp);
+            if (freshTex != 0) {
+                deleteTex(nextTex);
+                nextTex = 0;
+                deleteTex(blurTex);
+                blurTex = 0;
+                deleteTex(currentTex);
+                currentTex = freshTex;
+                currentAspect = aspectOf(bmp);
+                mode = MODE_NONE;
+            } else {
+                return false;
+            }
         }
         requestRenderHook.run();
         return true;
@@ -633,12 +648,19 @@ public class WallpaperRenderer implements GLSurfaceView.Renderer {
         int[] ids = new int[1];
         GLES20.glGenTextures(1, ids, 0);
         int tex = ids[0];
+        if (tex == 0) {
+            return 0;
+        }
         GLES20.glBindTexture(GL10.GL_TEXTURE_2D, tex);
         GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_LINEAR);
         GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR);
         GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE);
         GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE);
         GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, bmp, 0);
+        if (GLES20.glGetError() != GLES20.GL_NO_ERROR) {
+            deleteTex(tex);
+            return 0;
+        }
         WallSwitchService.perfUploads.incrementAndGet();
         return tex;
     }
