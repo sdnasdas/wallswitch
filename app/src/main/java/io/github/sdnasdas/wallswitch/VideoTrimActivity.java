@@ -94,6 +94,8 @@ public final class VideoTrimActivity extends AppCompatActivity {
     private VideoFrameTimes frameTimes;
     private long selectedCoverUs = -1;
     private Bitmap coverBitmap;
+    /** 常驻封面提帧器：只开一次容器，拖动中才能跟上手指；仅 worker 线程使用。 */
+    private MediaMetadataRetriever coverRetriever;
     private File source;
     private File scratch;
     private File pendingLive;
@@ -200,11 +202,10 @@ public final class VideoTrimActivity extends AppCompatActivity {
     }
 
     /**
-     * 「裁完存相册」那一档的文案：这一档片段上限取消，产出也不回编辑页取景，
-     * 所以最长 3 秒那行、生成按钮和提示语都得换成保存的说法（布局里写死的是壁纸档那套）。
+     * 「裁完存相册」那一档的文案：产出不回编辑页取景，生成按钮和提示语用保存的说法
+     * （布局里写死的是壁纸档那套）。片段上限已放开，两档的时长文案一致，不用再换。
      */
     private void applyAlbumMode() {
-        rangeLabel.setText(R.string.video_trim_limit_none);
         confirm.setText(R.string.video_trim_confirm_save);
     }
 
@@ -253,7 +254,7 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 throw new IOException("文件中没有视频轨");
             }
             long duration = Long.parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-            VideoSelection initial = new VideoSelection(duration, toAlbum ? 0 : VideoSelection.MAX_DURATION_MS);
+            VideoSelection initial = new VideoSelection(duration);
             VideoFrameTimes timestamps = readFrameTimes();
             if (restored != null) {
                 initial.setEnd(restored.getLong("end", initial.endMs()));
@@ -443,10 +444,15 @@ public final class VideoTrimActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 立刻排一帧提帧，不做去抖：去抖会在拖动中被每个变更事件不断重置，
+     * 结果只有松手后才出图。同一帧里的连续变更合并，worker 里过时的任务
+     * 靠 {@code coverRequest} 计数秒退，永远只解最新位置。
+     */
     private void requestCover() {
         coverRequest++;
         handler.removeCallbacks(coverTick);
-        handler.postDelayed(coverTick, 100);
+        handler.post(coverTick);
     }
 
     private void loadCover() {
@@ -459,11 +465,19 @@ public final class VideoTrimActivity extends AppCompatActivity {
             if (closed || request != coverRequest) {
                 return;
             }
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             Bitmap frame = null;
             try {
-                retriever.setDataSource(source.getAbsolutePath());
-                frame = frameAtUs(retriever, timeUs, 1080);
+                if (coverRetriever == null) {
+                    MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                    try {
+                        retriever.setDataSource(source.getAbsolutePath());
+                    } catch (Exception e) {
+                        closeRetriever(retriever);
+                        throw e;
+                    }
+                    coverRetriever = retriever;
+                }
+                frame = frameAtUs(coverRetriever, timeUs, 1080);
                 Bitmap result = frame;
                 handler.post(() -> {
                     if (closed || request != coverRequest) {
@@ -481,13 +495,13 @@ public final class VideoTrimActivity extends AppCompatActivity {
                 if (frame != null) {
                     frame.recycle();
                 }
+                closeRetriever(coverRetriever);
+                coverRetriever = null;
                 handler.post(() -> {
                     if (request == coverRequest) {
                         showFailure(e);
                     }
                 });
-            } finally {
-                closeRetriever(retriever);
             }
         });
     }
@@ -500,8 +514,13 @@ public final class VideoTrimActivity extends AppCompatActivity {
         coverRequest++;
         handler.removeCallbacks(coverTick);
         setExporting(true);
-        // 等上一轮系统提帧释放解码器，再启动导出，避免同时占用两个硬解码器。
-        worker.execute(() -> handler.post(this::startExport));
+        // 等上一轮系统提帧释放解码器，再启动导出，避免同时占用两个硬解码器；
+        // 常驻提帧器也顺手关掉，导出期间不占解码资源。
+        worker.execute(() -> {
+            closeRetriever(coverRetriever);
+            coverRetriever = null;
+            handler.post(this::startExport);
+        });
     }
 
     private void startExport() {
@@ -813,6 +832,8 @@ public final class VideoTrimActivity extends AppCompatActivity {
         }
         File directory = scratch;
         worker.execute(() -> {
+            closeRetriever(coverRetriever);
+            coverRetriever = null;
             if (directory != null) {
                 File[] files = directory.listFiles();
                 if (files != null) {

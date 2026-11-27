@@ -138,12 +138,11 @@
     <string name="url_download_done">下载完成</string>
     <string name="url_download_failed">下载失败：链接打不开、超过 64MB 或网络异常</string>
     <string name="video_detected_title">识别到 MP4 视频文件</string>
-    <string name="video_detected_message">是否转为 Live 导入？可裁剪最多 3 秒，并选择封面首图。</string>
+    <string name="video_detected_message">是否转为 Live 导入？可裁剪时长，并选择封面首图。</string>
     <string name="video_yes">是</string>
     <string name="video_no">否</string>
     <string name="video_trim_title">视频转实况照片</string>
     <string name="video_trim_range">保留片段</string>
-    <string name="video_trim_limit">最长 3 秒</string>
     <string name="video_trim_no_frames">片段内没有视频帧，请扩大裁剪范围</string>
     <string name="video_trim_cover">封面位置</string>
     <string name="video_trim_hint">拖动左右手柄调整片段；黄色标记是封面。生成后继续调整壁纸取景。</string>

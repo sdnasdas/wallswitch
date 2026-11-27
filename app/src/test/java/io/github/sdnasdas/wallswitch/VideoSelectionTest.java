@@ -4,10 +4,10 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class VideoSelectionTest {
-    @Test public void defaultsToFirstThreeSeconds() {
+    @Test public void defaultsToEntireVideo() {
         VideoSelection selection = new VideoSelection(10_000);
         assertEquals(0, selection.startMs());
-        assertEquals(3000, selection.endMs());
+        assertEquals(10_000, selection.endMs());
         assertEquals(0, selection.coverMs());
     }
 
@@ -18,16 +18,17 @@ public class VideoSelectionTest {
         assertEquals(749, selection.coverMs());
     }
 
-    @Test public void movingEndKeepsAtMostThreeSeconds() {
+    @Test public void movingEndKeepsStart() {
         VideoSelection selection = new VideoSelection(10_000);
         selection.setEnd(8500);
-        assertEquals(5500, selection.startMs());
+        assertEquals(0, selection.startMs());
         assertEquals(8500, selection.endMs());
-        assertEquals(5500, selection.coverMs());
+        assertEquals(0, selection.coverMs());
     }
 
-    @Test public void movingStartCanShiftTheWindowPastItsOldEnd() {
+    @Test public void movingStartPastTheEndKeepsRangeNonempty() {
         VideoSelection selection = new VideoSelection(10_000);
+        selection.setEnd(5000);
         selection.setStart(9000);
         assertEquals(9000, selection.startMs());
         assertEquals(9001, selection.endMs());
@@ -36,21 +37,13 @@ public class VideoSelectionTest {
         assertEquals(10_000, selection.endMs());
     }
 
-    @Test public void movingStartBackEnforcesLimit() {
-        VideoSelection selection = new VideoSelection(10_000);
-        selection.setEnd(9000);
-        selection.setStart(2000);
-        assertEquals(2000, selection.startMs());
-        assertEquals(5000, selection.endMs());
-    }
-
     @Test public void coverStaysInsideSelectedRange() {
         VideoSelection selection = new VideoSelection(10_000);
         selection.setCover(1000);
         selection.setStart(1500);
         assertEquals(1500, selection.coverMs());
         selection.setCover(9000);
-        assertEquals(2999, selection.coverMs());
+        assertEquals(9000, selection.coverMs());
         selection.setEnd(2000);
         assertEquals(1999, selection.coverMs());
     }
