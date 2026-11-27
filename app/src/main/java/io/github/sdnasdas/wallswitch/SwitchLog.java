@@ -11,10 +11,8 @@ import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -511,28 +509,39 @@ public final class SwitchLog {
         return sb.toString();
     }
 
+    /** 一条物理日志行：显示文字与它自己的 id 段始终绑在一起，不用显示文字反查。 */
+    public static final class DisplayLine {
+        public final String text;
+        public final EntryRef ref;
+
+        private DisplayLine(String text, EntryRef ref) {
+            this.text = text;
+            this.ref = ref;
+        }
+    }
+
     /**
-     * 从日志正文建「显示行 → id 段」索引，给点记录行取图用。
-     * 同一个显示行可能对应几条记录（同一分钟、同一标题反复手动切），按写入顺序都留着。
+     * 把已经排好序的日志正文拆成物理行，并逐行取下自己的 id 段。
+     *
+     * <p>必须先 {@link #reorder} 再拆：倒序时整行（包括隐藏 id）一起移动，同文字记录也不会串图。
+     * 不再用「显示行 → id 列表」索引——时间只有分钟、标题又已下线，同文字是连续切换的正常结果。
      */
-    public static Map<String, List<EntryRef>> refIndex(String... contents) {
-        Map<String, List<EntryRef>> index = new HashMap<>();
-        for (String content : contents) {
-            if (content == null || content.isEmpty()) {
-                continue;
-            }
-            for (String raw : content.split("\n")) {
-                String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
-                Matcher matcher = REF_SUFFIX.matcher(line);
-                if (!matcher.find()) {
-                    continue;
-                }
-                String key = line.substring(0, matcher.start()).trim();
-                index.computeIfAbsent(key, k -> new ArrayList<>())
-                        .add(new EntryRef(matcher.group(1), matcher.group(2)));
+    public static List<DisplayLine> parseDisplayLines(String content) {
+        List<DisplayLine> out = new ArrayList<>();
+        if (content == null || content.trim().isEmpty()) {
+            return out;
+        }
+        for (String raw : content.split("\n", -1)) {
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            Matcher matcher = REF_SUFFIX.matcher(line);
+            if (matcher.find()) {
+                out.add(new DisplayLine(line.substring(0, matcher.start()),
+                        new EntryRef(matcher.group(1), matcher.group(2))));
+            } else {
+                out.add(new DisplayLine(line, null));
             }
         }
-        return index;
+        return out;
     }
 
     /** 把正文拆成「版本段 → 日期组 → 记录行」；没有段头/日期行的记录归进对应字段为 null 的那一层。 */

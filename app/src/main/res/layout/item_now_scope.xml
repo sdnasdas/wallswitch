@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 此刻页的一面：整张照片就是卡片，面名与设置叠在顶部，库名、切换规则、三颗控制与下次时间叠在底部。
-     上下薄渐隐保证亮图也读得清，字固定中性白；点图仍开这一面的详情与设置入口。 -->
+     上下薄渐隐保证亮图也读得清，字固定中性白；点图开详情，点库名进库定位，长按卡身开设置。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="0dp"

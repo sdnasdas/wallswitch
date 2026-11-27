@@ -15,7 +15,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.Window;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -37,16 +36,12 @@ import com.google.android.material.shape.ShapeAppearanceModel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * 全屏切换记录页那一簇：卡片式日志（版本段 → 日期 → 一条一张描边卡）、桌面/锁屏两面切换、
- * 顺序翻转、复制、清空、点记录看成品图小窗。文件仍是原来的纯文本格式，只改显示。
+ * 顺序翻转、复制、清空、短按记录定位进库、长按看成品图小窗。文件仍是原来的纯文本格式，只改显示。
  * 旧版等宽文本弹窗（showSwitchLogDialog / showSwitchLogCardsDialog 及其触摸取行辅助）已无调用方，随本次拆分一并下线。
  */
 final class SwitchLogController {
@@ -59,21 +54,22 @@ final class SwitchLogController {
     private android.widget.ImageButton logJumpButton;
     private boolean logJumpToTop = true;
     private LogCardAdapter logAdapter;
-    private final String[] logContents = {"", ""};
     private final String[] logDisplayed = {"", ""};
     private int logScope;
     private boolean logNewestFirst;
     // 打开/关闭/重新读取都推进：后台日志读取与缩略图解码回来时据此丢掉过期结果
     private int logPageToken;
-    private Map<String, List<SwitchLog.EntryRef>> logRefs = new HashMap<>();
+    private boolean logOpenRequested;
+    private String logAnchorKey;
+    private int logAnchorOccurrence;
+    private int logScrollOffset;
     private boolean bindingLogControls;
 
     SwitchLogController(MainActivity a) {
         this.a = a;
     }
 
-    private record LogSnapshot(String[] contents, String[] displayed, List<List<LogRow>> rows,
-                               Map<String, List<SwitchLog.EntryRef>> refs, boolean hasAny) { }
+    private record LogSnapshot(String[] displayed, List<List<LogRow>> rows, boolean hasAny) { }
 
     void confirmClearSwitchLog(AlertDialog logDialog) {
         new AppAlertDialogBuilder(a)
@@ -89,9 +85,7 @@ final class SwitchLogController {
                             logDialog.dismiss();
                         }
                         logPageToken++;
-                        logContents[0] = logContents[1] = "";
                         logDisplayed[0] = logDisplayed[1] = "";
-                        logRefs = new HashMap<>();
                         logToolbar.getMenu().findItem(R.id.action_log_copy).setEnabled(false);
                         if (a.logOpen) {
                             showSwitchLog();
@@ -187,26 +181,31 @@ final class SwitchLogController {
     }
 
     /** 后台构造两范围的显示快照；只有字符串/模型，没有 View 操作。 */
-    private static LogSnapshot prepareLogSnapshot(Context app, String[] contents,
-            Map<String, List<SwitchLog.EntryRef>> refs, boolean newestFirst) {
+    private static LogSnapshot prepareLogSnapshot(Context app, String[] contents, boolean newestFirst) {
         String[] displayed = new String[2];
         List<List<LogRow>> rows = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            displayed[i] = SwitchLog.stripRefs(SwitchLog.reorder(contents[i], newestFirst));
-            rows.add(buildLogRows(app, displayed[i], refs));
+            String ordered = SwitchLog.reorder(contents[i], newestFirst);
+            displayed[i] = SwitchLog.stripRefs(ordered);
+            rows.add(buildLogRows(app, SwitchLog.parseDisplayLines(ordered)));
         }
-        return new LogSnapshot(contents, displayed, rows, refs,
+        return new LogSnapshot(displayed, rows,
                 !contents[0].trim().isEmpty() || !contents[1].trim().isEmpty());
     }
 
-    private void openSwitchLogPage(LogSnapshot snapshot) {
+    private void openSwitchLogPage(LogSnapshot snapshot, boolean animate) {
         a.logOpen = true;
+        logOpenRequested = true;
         bindingLogControls = true;
         logScopeToggle.check(logScope == 0 ? R.id.log_scope_home : R.id.log_scope_lock);
         bindingLogControls = false;
         updateLogOrderButton();
         submitSwitchLogPage(snapshot);
-        a.motion.show(a.pageLog, logAdapter::prepareVisible);
+        if (animate) {
+            a.motion.show(a.pageLog, logAdapter::prepareVisible);
+        } else {
+            a.motion.restore(a.pageLog);
+        }
         logAdapter.rebindVisible();
     }
 
@@ -219,15 +218,16 @@ final class SwitchLogController {
 
     private void bindSwitchLogPage() {
         if (!a.logOpen) return;
+        logAnchorKey = null;
         final int request = ++logPageToken;
         final int scope = logScope;
         final boolean newestFirst = logNewestFirst;
-        final String[] contents = logContents.clone();
-        final Map<String, List<SwitchLog.EntryRef>> refs = logRefs;
         final Context app = a.getApplicationContext();
         setLogLoading();
         a.imageLoader.execute(() -> {
-            LogSnapshot snapshot = prepareLogSnapshot(app, contents, refs, newestFirst);
+            LogSnapshot snapshot = prepareLogSnapshot(app,
+                    new String[]{SwitchLog.readAllText(app, true), SwitchLog.readAllText(app, false)},
+                    newestFirst);
             a.runOnUiThread(() -> {
                 if (a.isFinishing() || a.isDestroyed() || !a.logOpen || request != logPageToken
                         || scope != logScope || newestFirst != logNewestFirst) return;
@@ -242,29 +242,102 @@ final class SwitchLogController {
     }
 
     private void submitSwitchLogPage(LogSnapshot snapshot) {
-        System.arraycopy(snapshot.contents, 0, logContents, 0, 2);
         System.arraycopy(snapshot.displayed, 0, logDisplayed, 0, 2);
-        logRefs = snapshot.refs;
         logAdapter.setRows(snapshot.rows.get(logScope));
         logRecycler.setVisibility(View.VISIBLE);
-        int latest = logNewestFirst ? 0 : Math.max(0, logAdapter.getItemCount() - 1);
-        logRecycler.scrollToPosition(latest);
+        int anchor = logAnchorKey == null ? RecyclerView.NO_POSITION
+                : findLogAnchor(logAdapter.rows, logAnchorKey, logAnchorOccurrence);
+        if (anchor != RecyclerView.NO_POSITION) {
+            ((LinearLayoutManager) logRecycler.getLayoutManager())
+                    .scrollToPositionWithOffset(anchor, logScrollOffset);
+        } else {
+            int latest = logNewestFirst ? 0 : Math.max(0, logAdapter.getItemCount() - 1);
+            logRecycler.scrollToPosition(latest);
+        }
+        logAnchorKey = null;
         logJumpButton.setVisibility(View.GONE);
         Menu menu = logToolbar.getMenu();
         menu.findItem(R.id.action_log_copy).setEnabled(!logDisplayed[logScope].trim().isEmpty());
         menu.findItem(R.id.action_log_clear).setEnabled(snapshot.hasAny);
     }
 
+    private static String logRowKey(LogRow row) {
+        if (row.type == LogRow.ENTRY && row.record != null) {
+            return "entry|" + row.record.line + "|"
+                    + (row.ref == null ? "" : row.ref.wallpaperId) + "|"
+                    + (row.ref == null ? "" : row.ref.libId);
+        }
+        return row.type + "|" + row.time + "|" + row.title + "|"
+                + row.subtitle + "|" + row.meta + "|" + row.kind;
+    }
+
+    private static int findLogAnchor(List<LogRow> rows, String key, int occurrence) {
+        int seen = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            if (key.equals(logRowKey(rows.get(i))) && seen++ == occurrence) {
+                return i;
+            }
+        }
+        return RecyclerView.NO_POSITION;
+    }
+
     void closeSwitchLogPage() {
         a.logOpen = false;
+        logOpenRequested = false;
+        logAnchorKey = null;
         logPageToken++;
         a.unbindImageTree(a.pageLog);
         a.motion.hide(a.pageLog);
         logJumpButton.setVisibility(View.GONE);
     }
 
+    boolean isOpenOrPending() {
+        return a.logOpen || logOpenRequested;
+    }
+
+    /** 日志尚未打开时离开入口，废掉还在后台读盘的旧请求，避免晚到的日志盖住新页面。 */
+    void cancelPendingOpen() {
+        if (!a.logOpen) {
+            logOpenRequested = false;
+            logAnchorKey = null;
+            logPageToken++;
+        }
+    }
+
     /** 日志读盘、排序、剥离 refs 和建模都完成后才打开第一页。 */
     void showSwitchLog() {
+        showSwitchLog(true, false);
+    }
+
+    /** 从库页返回时刷新日志，但保留用户刚才上滑到的位置。 */
+    void refreshSwitchLogKeepingPosition() {
+        showSwitchLog(true, true);
+    }
+
+    /** 重建恢复不播进入动画，避免临时点击盾牌盖住已经恢复在它上面的库页。 */
+    void restoreSwitchLog() {
+        showSwitchLog(false, false);
+    }
+
+    private void showSwitchLog(boolean animate, boolean keepPosition) {
+        logAnchorKey = null;
+        if (keepPosition && a.logOpen && logRecycler.getLayoutManager() instanceof LinearLayoutManager lm) {
+            int anchor = lm.findFirstVisibleItemPosition();
+            if (anchor != RecyclerView.NO_POSITION && anchor < logAdapter.rows.size()) {
+                String key = logRowKey(logAdapter.rows.get(anchor));
+                int occurrence = 0;
+                for (int i = 0; i < anchor; i++) {
+                    if (key.equals(logRowKey(logAdapter.rows.get(i)))) {
+                        occurrence++;
+                    }
+                }
+                View anchorView = lm.findViewByPosition(anchor);
+                logAnchorKey = key;
+                logAnchorOccurrence = occurrence;
+                logScrollOffset = anchorView == null ? 0 : anchorView.getTop() - logRecycler.getPaddingTop();
+            }
+        }
+        logOpenRequested = true;
         final int request = ++logPageToken;
         if (!a.logOpen) {
             logScope = 0;
@@ -278,15 +351,14 @@ final class SwitchLogController {
         new Thread(() -> {
             final String home = SwitchLog.readAllText(app, true);
             final String lock = SwitchLog.readAllText(app, false);
-            final Map<String, List<SwitchLog.EntryRef>> refs = SwitchLog.refIndex(home, lock);
-            final LogSnapshot snapshot = prepareLogSnapshot(app, new String[]{home, lock}, refs, newestFirst);
+            final LogSnapshot snapshot = prepareLogSnapshot(app, new String[]{home, lock}, newestFirst);
             a.runOnUiThread(() -> {
                 if (a.isFinishing() || a.isDestroyed() || request != logPageToken
                         || scope != logScope || newestFirst != logNewestFirst) return;
                 a.motion.whenIdle("log-snapshot", () -> {
                     if (a.isFinishing() || a.isDestroyed() || request != logPageToken
                             || scope != logScope || newestFirst != logNewestFirst) return;
-                    openSwitchLogPage(snapshot);
+                    openSwitchLogPage(snapshot, animate);
                 });
             });
         }, "log-read").start();
@@ -309,23 +381,22 @@ final class SwitchLogController {
         /** 这条记录切到的那张的 id（行尾隐藏段第一把）；老行没有，卡片就不画小缩略图。 */
         String thumbId;
         SwitchLog.RecordLine record;
-        List<SwitchLog.EntryRef> refs;
+        /** 只属于这一物理行；同文字记录不再共享一个列表。 */
+        SwitchLog.EntryRef ref;
     }
 
-    /** 显示文本 → 卡片模型；只读旧格式，不改变 SwitchLog 的落盘/备份兼容性。 */
-    private static List<LogRow> buildLogRows(Context app, String content,
-                                           Map<String, List<SwitchLog.EntryRef>> refs) {
+    /** 物理日志行 → 卡片模型；只读旧格式，不改变 SwitchLog 的落盘/备份兼容性。 */
+    private static List<LogRow> buildLogRows(Context app, List<SwitchLog.DisplayLine> lines) {
         List<LogRow> out = new ArrayList<>();
-        if (content == null || content.trim().isEmpty()) {
+        if (lines == null || lines.isEmpty()) {
             LogRow row = new LogRow();
             row.type = LogRow.EMPTY;
             row.title = app.getString(R.string.log_view_empty);
             out.add(row);
             return out;
         }
-        for (String raw : content.split("\\n")) {
-            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
-            String text = line.trim();
+        for (SwitchLog.DisplayLine displayLine : lines) {
+            String text = displayLine.text.trim();
             if (text.isEmpty()) {
                 continue;
             }
@@ -347,9 +418,9 @@ final class SwitchLogController {
                 row.record = SwitchLog.parseRecordLine(app, text);
                 if (row.record != null) {
                     row.type = LogRow.ENTRY;
-                    row.refs = refs == null ? null : refs.get(row.record.line);
-                    if (row.refs != null && !row.refs.isEmpty()) {
-                        row.thumbId = row.refs.get(0).wallpaperId;
+                    row.ref = displayLine.ref;
+                    if (row.ref != null && row.ref.wallpaperId != null && !row.ref.wallpaperId.isEmpty()) {
+                        row.thumbId = row.ref.wallpaperId;
                     }
                     int firstOpen = body.indexOf('「');
                     int lastClose = body.lastIndexOf('」');
@@ -637,7 +708,13 @@ final class SwitchLogController {
             h.card.setRippleColor(ColorStateList.valueOf(MaterialColors.getColor(h.card,
                     com.google.android.material.R.attr.colorSecondaryContainer)));
             h.card.setOnClickListener(clickable
-                    ? v -> showLogThumbnail(item.record, item.refs, logDialog) : null);
+                    ? v -> a.openLibraryAndLocate(item.ref == null ? null : item.ref.libId,
+                            item.ref == null ? null : item.ref.wallpaperId) : null);
+            h.card.setOnLongClickListener(clickable
+                    ? v -> {
+                        showLogThumbnail(item.ref, logDialog);
+                        return true;
+                    } : null);
         }
     }
 
@@ -660,50 +737,40 @@ final class SwitchLogController {
     }
 
     /**
-     * 记录行 → 看图小窗。行尾藏着壁纸 id，直接按 id 取图（库改名都不影响）；
+     * 长按记录行 → 看图小窗。行尾藏着壁纸 id，直接按 id 取图（库改名都不影响）；
      * v3.131 之前的老行没有 id 段，无从反查，点了就提示找不到。
      * 显示的是<b>成品图宽高各半</b>的完整构图（不是方形缩略图），挂 previews 大图缓存，
      * 解码放后台线程，解完再弹；半尺寸解不动时退回网格那颗方形缩略图。
      */
-    void showLogThumbnail(SwitchLog.RecordLine record,
-                          List<SwitchLog.EntryRef> exact, AlertDialog logDialog) {
+    void showLogThumbnail(SwitchLog.EntryRef ref, AlertDialog logDialog) {
         final Context app = a.getApplicationContext();
         final int pageToken = logPageToken;
         final int pageScope = logScope;
         final long epoch = a.imageEpoch;
         new Thread(() -> {
-            List<Bitmap> thumbs = new ArrayList<>();
-            Map<String, Bitmap> decoded = new HashMap<>();
-            Set<String> seen = new HashSet<>();
-            for (SwitchLog.EntryRef ref : exact == null ? new ArrayList<SwitchLog.EntryRef>() : exact) {
-                if (ref.wallpaperId == null || ref.wallpaperId.isEmpty()
-                        || !seen.add(ref.wallpaperId)) {
-                    continue;
-                }
+            Bitmap thumb = null;
+            String cacheKey = null;
+            if (ref != null && ref.wallpaperId != null && !ref.wallpaperId.isEmpty()) {
                 WallpaperStore.Item item = WallpaperStore.get(app, ref.wallpaperId);
-                if (item == null) {
-                    continue;
-                }
-                String key = "log_" + item.id;
-                Bitmap thumb = a.previews.get(key);
-                if (thumb == null) {
-                    thumb = a.decodeFullHalf(app, item.id);
+                if (item != null) {
+                    cacheKey = "log_" + item.id;
+                    thumb = a.previews.get(cacheKey);
                     if (thumb == null) {
-                        thumb = WallpaperStore.getThumb(app, item.id);
-                    } else {
-                        decoded.put(key, thumb);
+                        thumb = a.decodeFullHalf(app, item.id);
+                        if (thumb == null) {
+                            thumb = WallpaperStore.getThumb(app, item.id);
+                        }
                     }
                 }
-                if (thumb != null && !containsSameThumb(thumbs, thumb)) {
-                    thumbs.add(thumb);
-                }
             }
+            final Bitmap result = thumb;
+            final String resultKey = cacheKey;
             a.runOnUiThread(() -> {
                 if (a.isFinishing() || a.isDestroyed() || epoch != a.imageEpoch) {
                     return;
                 }
-                for (Map.Entry<String, Bitmap> entry : decoded.entrySet()) {
-                    a.previews.put(entry.getKey(), entry.getValue());
+                if (result != null && resultKey != null) {
+                    a.previews.put(resultKey, result);
                 }
                 // 旧弹窗或新独立页只要入口还在屏上就允许出缩略图；都关了就不往别处飞图
                 boolean dialogOpen = logDialog != null && logDialog.isShowing();
@@ -711,58 +778,35 @@ final class SwitchLogController {
                 if (!dialogOpen && !pageOpen) {
                     return;
                 }
-                if (thumbs.isEmpty()) {
+                if (result == null) {
                     Toast.makeText(a, R.string.log_thumb_gone, Toast.LENGTH_SHORT).show();
                     return;
                 }
-                showThumbnailWindow(thumbs);
+                showThumbnailWindow(result);
             });
         }, "log-thumb").start();
     }
 
-    /** 只摆图的小窗：宽与网格一格同大、高按各自宽高比，圆角 12dp（与网格的 RoundedGrid 一致）。 */
-    void showThumbnailWindow(List<Bitmap> thumbs) {
+    /** 只摆这一条记录所属成品图的小窗：宽与网格一格同大、高按图片宽高比，圆角 12dp。 */
+    void showThumbnailWindow(Bitmap thumb) {
         float density = a.getResources().getDisplayMetrics().density;
         // 与网格一格的显示宽度一致：屏宽 − 两侧 12dp 内边距 − 每格 4dp×2 外边距，再对半
         int cell = Math.max(1,
                 (a.getResources().getDisplayMetrics().widthPixels - (int) (40 * density)) / 2);
-        int gap = (int) (8 * density);
-        LinearLayout row = new LinearLayout(a);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.TOP);
-        for (Bitmap thumb : thumbs) {
-            ShapeableImageView image = new ShapeableImageView(a);
-            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            image.setContentDescription(a.getString(R.string.thumb_desc));
-            image.setShapeAppearanceModel(ShapeAppearanceModel.builder()
-                    .setAllCornerSizes(12 * density).build());
-            int h = thumb.getWidth() > 0
-                    ? Math.round(cell * thumb.getHeight() / (float) thumb.getWidth()) : cell;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, h);
-            if (row.getChildCount() > 0) {
-                lp.setMarginStart(gap);
-            }
-            row.addView(image, lp);
-            image.setImageBitmap(thumb);
-        }
-        int width = cell;
-        HorizontalScrollView scroll = new HorizontalScrollView(a);
-        scroll.addView(row);
-        if (thumbs.size() > 1) {
-            // 多张同名时窗口按候选数加宽，放到屏幕放不下为止，再横向滑
-            int needed = thumbs.size() * cell + (thumbs.size() - 1) * gap;
-            int max = Math.max(cell, a.getResources().getDisplayMetrics().widthPixels
-                    - (int) (64 * density));
-            width = Math.min(needed, max);
-            scroll.setLayoutParams(new ViewGroup.LayoutParams(
-                    width, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
+        ShapeableImageView image = new ShapeableImageView(a);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setContentDescription(a.getString(R.string.thumb_desc));
+        image.setShapeAppearanceModel(ShapeAppearanceModel.builder()
+                .setAllCornerSizes(12 * density).build());
+        image.setImageBitmap(thumb);
+        int h = thumb.getWidth() > 0
+                ? Math.round(cell * thumb.getHeight() / (float) thumb.getWidth()) : cell;
         LinearLayout content = new LinearLayout(a);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
-        content.addView(scroll);
+        content.addView(image, new LinearLayout.LayoutParams(cell, h));
         // 对话框自带最小宽度与 24dp 背景内缩，照默认量出来两边都是白：把背景让掉、内缩归零，
-        // 再把窗宽压到图本身（多张时是那一排的宽）
+        // 再把窗宽压到图本身
         AlertDialog dialog = new AppAlertDialogBuilder(a)
                 .setBackground(new ColorDrawable(Color.TRANSPARENT))
                 .setBackgroundInsetStart(0)
@@ -773,18 +817,8 @@ final class SwitchLogController {
                 .show();
         Window window = dialog.getWindow();
         if (window != null) {
-            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setLayout(cell, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
-    }
-
-    /** 两张缩略图是不是同一张图：复制出来的副本视觉上一致，合并成一份，不并排出两张一样的。 */
-    private static boolean containsSameThumb(List<Bitmap> thumbs, Bitmap candidate) {
-        for (Bitmap thumb : thumbs) {
-            if (thumb.sameAs(candidate)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** 复制日志全文到剪贴板。 */

@@ -22,6 +22,7 @@ import androidx.transition.TransitionSet;
 import com.google.android.material.transition.MaterialFadeThrough;
 
 final class UiMotion {
+    private static final long READY_TIMEOUT_MS = 1200L;
     private final Activity activity;
     private final ViewGroup root;
     private final Requests deferred = new Requests();
@@ -342,6 +343,7 @@ final class UiMotion {
         final View focused;
         ViewTreeObserver observer;
         ViewTreeObserver.OnPreDrawListener preDraw;
+        Runnable readyTimeout;
         ValueAnimator animator;
         float progress;
         boolean entering;
@@ -438,6 +440,14 @@ final class UiMotion {
             };
             observer.addOnPreDrawListener(preDraw);
             front.requestLayout();
+            // ready 条件偶尔会被图片绑定/列表布局竞争卡住；超时也继续转场，不能无限挡着底层页面。
+            readyTimeout = () -> {
+                if (running == Navigation.this && preDraw != null) {
+                    removePreDraw();
+                    towards(entering);
+                }
+            };
+            root.postDelayed(readyTimeout, READY_TIMEOUT_MS);
         }
 
         void towards(boolean enter) {
@@ -494,6 +504,10 @@ final class UiMotion {
         }
 
         void removePreDraw() {
+            if (readyTimeout != null) {
+                root.removeCallbacks(readyTimeout);
+                readyTimeout = null;
+            }
             if (preDraw != null) {
                 if (observer != null && observer.isAlive()) {
                     observer.removeOnPreDrawListener(preDraw);

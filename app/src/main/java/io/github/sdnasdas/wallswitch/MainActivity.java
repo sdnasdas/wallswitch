@@ -1,6 +1,7 @@
 package io.github.sdnasdas.wallswitch;
 
 import android.Manifest;
+import android.animation.ValueAnimator;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -33,6 +34,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Process;
+import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.text.InputType;
@@ -77,8 +79,9 @@ import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -117,7 +120,7 @@ import java.util.concurrent.Executors;
  * 主界面 v3.134：单 Activity + 底部三栏。
  * <ul>
  *   <li><b>此刻</b>：桌面 / 锁屏两张竖向预览卡（在屏那张成品图），各带上一张 / 暂停 / 下一张，
- *       点预览图开这一面的设置面板；没配好时顶上是三步引导；下面是快捷设置与最近切换。</li>
+ *       点预览图开详情、点库名进库定位、长按卡身开设置；没配好时顶上是三步引导；下面是快捷设置与最近切换。</li>
  *   <li><b>图库</b>：库卡片两列网格，点进库详情（三列壁纸网格 + 「设为桌面 / 设为锁屏」），
  *       点一张进全屏单张详情（调整取景 / 设为桌面 / 改标题 / 删除）；长按进多选。</li>
  *   <li><b>设置</b>：{@link SettingsFragment}（原左侧抽屉）。</li>
@@ -136,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_NOTIFY_PROMPTED = "notify_prompted";
     private static final String STATE_TAB = "tab";
     private static final String STATE_LIB_OPEN = "lib_open";
+    private static final String STATE_LOG_OPEN = "log_open";
     private static final String STATE_SETTINGS_SCREEN = "settings_screen";
     private static final String STATE_SETTINGS_TITLE = "settings_title";
     // 底部三栏外观：悬浮胶囊 / 贴底经典（设置页可切换，默认经典）
@@ -208,6 +212,15 @@ public class MainActivity extends AppCompatActivity {
     private GridLayoutManager wallpaperLayout;
     private int wallpaperColumns = 2;
     private int wallpaperFilter;
+    /** 日志/此刻卡跳库时待定位的壁纸；只按 id 记，不靠列表下标。 */
+    private String pendingLocateLibId;
+    private String pendingLocateWallpaperId;
+    private int locateGeneration;
+    private long locateDeadline;
+    private final Handler locateHandler = new Handler(Looper.getMainLooper());
+    private RecyclerView.OnScrollListener locateScrollListener;
+    private Runnable locateScrollFallback;
+    private int locateTargetPosition;
     private String detailLibId;
     private boolean detailUsesFilter;
     /** 正在后台上屏（设为桌面/锁屏）：详情与快捷设置共用，期间禁掉重复触发。 */
@@ -305,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
         currentTab = R.id.nav_now;
         motion = new UiMotion(this);
         images = new UiImages(this, imageLoader, thumbs, previews, motion::whenIdle, motion::discard);
-        motion.setLayers(findViewById(R.id.main_root), pageLibrary, pageSettingsSecondary, pageLog, pageDetail);
+        motion.setLayers(findViewById(R.id.main_root), pageSettingsSecondary, pageLog, pageLibrary, pageDetail);
         motion.setTab(pageNow, () -> { });
 
         setupInsets();
@@ -342,7 +355,11 @@ public class MainActivity extends AppCompatActivity {
         showTab(tab, false);
         setupNavigation();
         if (savedInstanceState != null) {
-            if (tab == R.id.nav_gallery && savedInstanceState.getBoolean(STATE_LIB_OPEN, false)
+            // 日志是库页的底层：先恢复日志，再把库页恢复在它上面。
+            if (savedInstanceState.getBoolean(STATE_LOG_OPEN, false)) {
+                log.restoreSwitchLog();
+            }
+            if (savedInstanceState.getBoolean(STATE_LIB_OPEN, false)
                     && currentLib() != null) {
                 libraryOpen = true;
                 refreshList();
@@ -382,6 +399,7 @@ public class MainActivity extends AppCompatActivity {
         super.onSaveInstanceState(outState);
         outState.putInt(STATE_TAB, currentTab);
         outState.putBoolean(STATE_LIB_OPEN, libraryOpen);
+        outState.putBoolean(STATE_LOG_OPEN, log.isOpenOrPending());
         outState.putString(STATE_SETTINGS_SCREEN, settingsSecondaryKey);
         outState.putString(STATE_SETTINGS_TITLE, settingsSecondaryTitle);
     }
@@ -407,6 +425,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onStop() {
+        // 退到后台后未完成的定位/平滑滚动不留到下一次恢复再猜。
+        clearPendingLocate();
+        if (wallpaperAdapter != null) {
+            wallpaperAdapter.clearLocateHighlight();
+        }
         motion.finish();
         super.onStop();
     }
@@ -415,6 +438,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         // 「更多」菜单开着时重建（切深色、改字号）不能留下挂在旧窗口上的 PopupWindow
         dismissSelectionMore();
+        clearPendingLocate();
+        if (wallpaperAdapter != null) {
+            wallpaperAdapter.clearLocateHighlight();
+        }
         super.onDestroy();
         stopLive();
         images.close();
@@ -599,6 +626,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showTab(int id, boolean animate) {
         if (currentTab != id) {
+            log.cancelPendingOpen();
             if (settingsSecondaryKey != null) {
                 closeSettingsSecondary();
             }
@@ -663,29 +691,246 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void openLibrary(String libId) {
+        openLibrary(libId, null);
+    }
+
+    /** 日志/此刻卡专用：进原库并定位这一张；目标不在原库时明确提示，不拿别的库顶包。 */
+    void openLibraryAndLocate(String libId, String wallpaperId) {
+        WallpaperStore.Item item = wallpaperId == null ? null : WallpaperStore.get(this, wallpaperId);
+        if (item == null) {
+            Toast.makeText(this, R.string.locate_gone, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 「全部壁纸」是虚拟库，没有可进入的库详情；落到它剩下的第一个真实归属。
+        if (LibraryStore.isAll(libId)) {
+            libId = null;
+            for (String owner : item.libIds) {
+                if (!LibraryStore.isAll(owner) && LibraryStore.get(this, owner) != null) {
+                    libId = owner;
+                    break;
+                }
+            }
+        }
+        LibraryStore.Library lib = LibraryStore.get(this, libId);
+        if (lib == null || !item.inLib(lib.id)) {
+            Toast.makeText(this, R.string.locate_gone, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 库页是当前页之上的全屏覆盖层：先切底栏页，日志/首页会留在下面，返回即可原路露出。
+        openLibrary(lib.id, item.id);
+    }
+
+    private void openLibrary(String libId, String locateWallpaperId) {
         if (LibraryStore.get(this, libId) == null) {
             return;
         }
-        if (currentTab != R.id.nav_gallery) {
-            showTab(R.id.nav_gallery, false);
-            bottomNav.setSelectedItemId(R.id.nav_gallery);
-        }
+        clearPendingLocate();
+        wallpaperAdapter.clearLocateHighlight();
+        log.cancelPendingOpen();
         currentLibId = libId;
         wallpaperFilter = 0;
         prefs.edit().putString(LibraryStore.KEY_CURRENT_LIB, libId).apply();
         libraryOpen = true;
-        libraryRecycler.scrollToPosition(0);
+        if (locateWallpaperId == null) {
+            libraryRecycler.scrollToPosition(0);
+        }
         refreshList();
         libraryRecycler.post(this::syncAddFab);
-        motion.show(pageLibrary, wallpaperAdapter::isEntryReady);
+        // 数据身份已同步即可进覆盖页；图片/列表绑定各自后台完成，不再让转场等它们。
+        motion.show(pageLibrary, wallpaperAdapter::isDataReady);
+        if (locateWallpaperId != null) {
+            pendingLocateLibId = libId;
+            pendingLocateWallpaperId = locateWallpaperId;
+            locateGeneration++;
+            locateDeadline = SystemClock.uptimeMillis() + 2000L;
+            motion.whenIdle("library-locate", this::tryLocatePendingWallpaper);
+        }
+    }
+
+    /** 等进库转场结束后按 id 重查下标；数据尚未发布时在超时前继续等。 */
+    private void tryLocatePendingWallpaper() {
+        final String libId = pendingLocateLibId;
+        final String wallpaperId = pendingLocateWallpaperId;
+        final int generation = locateGeneration;
+        if (libId == null || wallpaperId == null || locateScrollListener != null) {
+            return;
+        }
+        if (!libraryOpen || pageLibrary.getVisibility() != View.VISIBLE
+                || !libId.equals(currentLibId())) {
+            clearPendingLocate();
+            return;
+        }
+        if (SystemClock.uptimeMillis() > locateDeadline) {
+            clearPendingLocate();
+            Toast.makeText(this, R.string.locate_timeout, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int itemIndex = wallpaperAdapter.positionOf(wallpaperId);
+        if (itemIndex < 0) {
+            WallpaperStore.Item item = WallpaperStore.get(this, wallpaperId);
+            if (item == null || !item.inLib(libId)) {
+                clearPendingLocate();
+                Toast.makeText(this, R.string.locate_gone, Toast.LENGTH_SHORT).show();
+            } else {
+                // 条目还在、只是列表数据还没发布：等到发布后再定位，不误报“已删除”。
+                libraryRecycler.postOnAnimation(() -> {
+                    if (generation == locateGeneration) tryLocatePendingWallpaper();
+                });
+            }
+            return;
+        }
+        if (libraryRecycler.hasPendingAdapterUpdates() || libraryRecycler.isLayoutRequested()) {
+            libraryRecycler.postOnAnimation(() -> {
+                if (generation == locateGeneration) tryLocatePendingWallpaper();
+            });
+            return;
+        }
+        startLocateSmoothScroll(itemIndex + 1, libId, wallpaperId, generation);
+    }
+
+    /** 快速但可见地滑到目标；第 0 格是头部，目标下标已 +1。 */
+    private void startLocateSmoothScroll(int position, String libId,
+                                         String wallpaperId, int generation) {
+        removeLocateScrollListener();
+        locateTargetPosition = position;
+        // 必须先停旧滚动再注册监听：否则 stopScroll 的同步 IDLE 会被当成新滚动已结束。
+        libraryRecycler.stopScroll();
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            locateDeadline = SystemClock.uptimeMillis() + 1200L;
+            wallpaperLayout.scrollToPositionWithOffset(position, dp(16));
+            libraryRecycler.post(() -> finishLocateWallpaper(libId, wallpaperId, generation));
+            return;
+        }
+
+        long fallbackMs = estimateLocateFallbackMs(position);
+        locateDeadline = SystemClock.uptimeMillis() + fallbackMs;
+        locateScrollListener = new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    finishLocateIfIdle(libId, wallpaperId, generation);
+                }
+            }
+        };
+        libraryRecycler.addOnScrollListener(locateScrollListener);
+        locateScrollFallback = () -> {
+            if (generation != locateGeneration) return;
+            removeLocateScrollListener();
+            clearPendingLocate();
+            Toast.makeText(this, R.string.locate_timeout, Toast.LENGTH_SHORT).show();
+        };
+        libraryRecycler.postDelayed(locateScrollFallback, fallbackMs);
+
+        LinearSmoothScroller scroller = new LinearSmoothScroller(this) {
+            @Override
+            protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
+                // 约 25ms/英寸：80 张库约 1 秒内滑到，过程仍清楚可见。
+                return 25f / displayMetrics.densityDpi;
+            }
+
+            @Override
+            protected void onTargetFound(@NonNull View targetView, RecyclerView.State state,
+                                         @NonNull Action action) {
+                int dy = targetView.getTop() - libraryRecycler.getPaddingTop() - dp(16);
+                action.update(0, dy, 180, null);
+            }
+        };
+        scroller.setTargetPosition(position);
+        wallpaperLayout.startSmoothScroll(scroller);
+        libraryRecycler.postDelayed(() -> finishLocateIfIdle(libId, wallpaperId, generation), 50L);
+    }
+
+    private long estimateLocateFallbackMs(int position) {
+        int firstVisible = wallpaperLayout.findFirstVisibleItemPosition();
+        if (firstVisible <= 0) firstVisible = 1;
+        int rows = Math.max(1, Math.abs(position - firstVisible) / wallpaperColumns);
+        int cell = Math.max(1, libraryRecycler.getWidth() / wallpaperColumns);
+        float msPerPixel = 25f / getResources().getDisplayMetrics().densityDpi;
+        long travelMs = (long) (rows * cell * msPerPixel);
+        return Math.max(900L, Math.min(3000L, travelMs + 600L));
+    }
+
+    private void finishLocateIfIdle(String libId, String wallpaperId, int generation) {
+        if (generation != locateGeneration || libraryRecycler.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            return;
+        }
+        // 监听留到最终高亮前：旧 settling 的伪 IDLE 或 holder 未就绪都不能提前收尾。
+        libraryRecycler.post(() -> finishLocateWallpaper(libId, wallpaperId, generation));
+    }
+
+    private void finishLocateWallpaper(String libId, String wallpaperId, int generation) {
+        if (generation != locateGeneration || !libraryOpen || !libId.equals(currentLibId())) {
+            clearPendingLocate();
+            return;
+        }
+        if (SystemClock.uptimeMillis() > locateDeadline) {
+            clearPendingLocate();
+            Toast.makeText(this, R.string.locate_timeout, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (libraryRecycler.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            return;
+        }
+        int itemIndex = wallpaperAdapter.positionOf(wallpaperId);
+        if (itemIndex < 0) {
+            clearPendingLocate();
+            Toast.makeText(this, R.string.locate_gone, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int position = itemIndex + 1;
+        if (position != locateTargetPosition) {
+            startLocateSmoothScroll(position, libId, wallpaperId, generation);
+            return;
+        }
+        RecyclerView.ViewHolder holder = libraryRecycler.findViewHolderForAdapterPosition(position);
+        if (holder == null) {
+            libraryRecycler.postOnAnimation(() -> finishLocateWallpaper(libId, wallpaperId, generation));
+            return;
+        }
+        clearPendingLocate();
+        wallpaperAdapter.animateLocateHighlight(holder.itemView, wallpaperId, position);
+    }
+
+    private void removeLocateScrollListener() {
+        if (locateScrollListener != null) {
+            libraryRecycler.removeOnScrollListener(locateScrollListener);
+            locateScrollListener = null;
+        }
+        if (locateScrollFallback != null) {
+            libraryRecycler.removeCallbacks(locateScrollFallback);
+            locateScrollFallback = null;
+        }
+    }
+
+    private void clearPendingLocate() {
+        pendingLocateLibId = null;
+        pendingLocateWallpaperId = null;
+        locateGeneration++;
+        locateDeadline = 0L;
+        removeLocateScrollListener();
+        libraryRecycler.stopScroll();
     }
 
     void closeLibrary() {
+        final boolean logBelow = log.isOpenOrPending();
+        clearPendingLocate();
+        wallpaperAdapter.clearLocateHighlight();
         exitOrganizeMode();
         closeDetail();
         libraryOpen = false;
         refreshLibs();
         motion.hide(pageLibrary);
+        motion.whenIdle("library-close", () -> {
+            if (libraryOpen) {
+                return;
+            }
+            // 覆盖层撤掉后按真正露出的页面刷新：日志重新读盘，此刻/图库刷新当前内容。
+            if (logBelow && log.isOpenOrPending()) {
+                refreshSwitchLogKeepingPosition();
+            } else {
+                refreshCurrentPage();
+            }
+        });
     }
 
     void onCurrentLibraryDeleted() {
@@ -736,7 +981,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 返回键/返回手势的分层：详情 → 多选 / 排序 → 库详情回图库 → 非「此刻」栏回「此刻」→ 交回系统。
+     * 返回键/返回手势的分层：详情 → 库内多选 → 库覆盖页 → 日志 → 图库多选/排序 → 非「此刻」栏回「此刻」。
      */
     private void setupBackPressed() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -750,20 +995,21 @@ public class MainActivity extends AppCompatActivity {
                     closeDetail();
                     return;
                 }
-                if (logOpen) {
-                    closeSwitchLogPage();
+                // 库页直接盖在日志/首页/图库之上，先关最上层；日志仍保留在下面。
+                if (libraryOpen) {
+                    if (wallpaperAdapter.isOrganizeMode()) {
+                        exitOrganizeMode();
+                    } else {
+                        closeLibrary();
+                    }
                     return;
                 }
-                if (wallpaperAdapter.isOrganizeMode()) {
-                    exitOrganizeMode();
+                if (log.isOpenOrPending()) {
+                    closeSwitchLogPage();
                     return;
                 }
                 if (gallery.inMode()) {
                     gallery.exitGalleryMode();
-                    return;
-                }
-                if (currentTab == R.id.nav_gallery && libraryOpen) {
-                    closeLibrary();
                     return;
                 }
                 if (settingsSecondaryKey != null) {
@@ -793,22 +1039,22 @@ public class MainActivity extends AppCompatActivity {
             motion.whenIdle("refresh", this::refreshCurrentPage);
             return;
         }
-        if (currentTab == R.id.nav_gallery) {
-            if (libraryOpen) {
-                if (currentLib() == null) {
-                    closeLibrary();
-                    return;
-                }
-                refreshList();
-            } else {
-                refreshLibs();
+        if (libraryOpen) {
+            if (currentLib() == null) {
+                closeLibrary();
+                return;
             }
+            refreshList();
+        } else if (log.isOpenOrPending()) {
+            refreshSwitchLogKeepingPosition();
+        } else if (currentTab == R.id.nav_gallery) {
+            refreshLibs();
         } else if (currentTab == R.id.nav_settings) {
             refreshSettings();
         } else {
             refreshNowPage();
         }
-        if (detailOpen && !(currentTab == R.id.nav_gallery && libraryOpen)) {
+        if (detailOpen && !libraryOpen) {
             refreshDetail();
         }
     }
@@ -1012,17 +1258,18 @@ public class MainActivity extends AppCompatActivity {
             prev = root.findViewById(R.id.btn_now_prev);
             pause = root.findViewById(R.id.btn_now_pause);
             nextBtn = root.findViewById(R.id.btn_now_next);
-            root.findViewById(R.id.now_preview).setOnClickListener(v -> openScopeDetail(forHome));
+            View preview = root.findViewById(R.id.now_preview);
+            preview.setOnClickListener(v -> openScopeDetail(forHome));
             root.findViewById(R.id.btn_now_settings).setOnClickListener(v -> showSlotSettingsSheet(forHome));
-            lib.setOnClickListener(v -> {
-                String id = LibraryStore.slotLibId(MainActivity.this, forHome);
-                // 「全部壁纸」不是一个能进的库（图库里没有它的详情页），点它等同于去改这一面的设置
-                if (id != null && !LibraryStore.isAll(id)) {
-                    openLibrary(id);
-                } else {
-                    showSlotSettingsSheet(forHome);
-                }
-            });
+            View.OnLongClickListener openSettings = v -> {
+                showSlotSettingsSheet(forHome);
+                return true;
+            };
+            // 卡身/预览区长按与右上角齿轮同一功能；三颗切换键仍保留自己的点按动作。
+            root.setOnLongClickListener(openSettings);
+            preview.setOnLongClickListener(openSettings);
+            lib.setOnLongClickListener(openSettings);
+            lib.setOnClickListener(v -> openScopeLibrary(forHome));
             prev.setOnClickListener(v -> slotSwitchPrev(forHome));
             pause.setOnClickListener(v -> toggleSlotPause(forHome));
             nextBtn.setOnClickListener(v -> slotSwitchNow(forHome));
@@ -2536,9 +2783,169 @@ public class MainActivity extends AppCompatActivity {
         private boolean organizeMode;
         // 勾选按壁纸 id 记，不按下标：一次整理会把选中的那几张从这一页摘走，下标会串位
         private final Set<String> selectedIds = new HashSet<>();
+        // 定位高亮按 id 保存；重绑同一格时保留正在进行的整格放大呼吸。
+        private String locateHighlightId;
+        private View locatePulseView;
+        private int locateHighlightPosition;
+        private long locateHighlightUntil;
 
         List<WallpaperStore.Item> items() {
             return items;
+        }
+
+        int positionOf(String wallpaperId) {
+            if (wallpaperId == null) {
+                return -1;
+            }
+            for (int i = 0; i < items.size(); i++) {
+                if (wallpaperId.equals(items.get(i).id)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        void clearLocateHighlight() {
+            locateHandler.removeCallbacksAndMessages(null);
+            locateHighlightId = null;
+            locatePulseView = null;
+            locateHighlightPosition = 0;
+            locateHighlightUntil = 0L;
+            for (int i = 0; i < libraryRecycler.getChildCount(); i++) {
+                resetLocateHighlight(libraryRecycler.getChildAt(i));
+            }
+        }
+
+        private void resetLocateHighlight(View itemView) {
+            if (itemView == null) {
+                return;
+            }
+            itemView.animate().cancel();
+            itemView.setAlpha(1f);
+            itemView.setScaleX(1f);
+            itemView.setScaleY(1f);
+            itemView.setTranslationX(0f);
+            itemView.setTranslationY(0f);
+            itemView.setTranslationZ(0f);
+            itemView.setPivotX(itemView.getWidth() * 0.5f);
+            itemView.setPivotY(itemView.getHeight() * 0.5f);
+            if (locatePulseView == itemView) {
+                locatePulseView = null;
+            }
+        }
+
+        private void dimLocateHighlight(View itemView) {
+            if (itemView == null || itemView == locatePulseView) {
+                return;
+            }
+            itemView.animate().cancel();
+            itemView.setScaleX(1f);
+            itemView.setScaleY(1f);
+            itemView.setTranslationX(0f);
+            itemView.setTranslationY(0f);
+            itemView.setTranslationZ(0f);
+            itemView.setPivotX(itemView.getWidth() * 0.5f);
+            itemView.setPivotY(itemView.getHeight() * 0.5f);
+            itemView.setAlpha(0.35f);
+        }
+
+        private void bindLocateHighlight(View itemView, String wallpaperId) {
+            boolean active = locateHighlightId != null
+                    && SystemClock.elapsedRealtime() < locateHighlightUntil;
+            if (active) {
+                if (wallpaperId != null && wallpaperId.equals(locateHighlightId)) {
+                    showLocateHighlightOnView(itemView);
+                } else {
+                    dimLocateHighlight(itemView);
+                }
+            } else {
+                if (wallpaperId != null && wallpaperId.equals(locateHighlightId)) {
+                    clearLocateHighlight();
+                } else {
+                    resetLocateHighlight(itemView);
+                }
+            }
+        }
+
+        private void showLocateHighlightOnView(View itemView) {
+            if (itemView == null || locatePulseView == itemView) {
+                return;
+            }
+            locatePulseView = itemView;
+            itemView.animate().cancel();
+            itemView.setAlpha(1f);
+            itemView.setScaleX(1f);
+            itemView.setScaleY(1f);
+            itemView.setTranslationX(0f);
+            itemView.setTranslationY(0f);
+            itemView.setTranslationZ(dp(8));
+            applyLocatePivot(itemView);
+            if (ValueAnimator.areAnimatorsEnabled()) {
+                pulseLocateCell(itemView, 2);
+            } else {
+                itemView.setScaleX(1.12f);
+                itemView.setScaleY(1.12f);
+            }
+        }
+
+        /** 边缘格锚定外侧边，只向网格内部放大；不挪位置，也不会被屏幕裁掉。 */
+        private void applyLocatePivot(View itemView) {
+            int column = (locateHighlightPosition - 1) % wallpaperColumns;
+            float pivotX = itemView.getWidth() * 0.5f;
+            if (column == 0) {
+                pivotX = 0f;
+            } else if (column == wallpaperColumns - 1) {
+                pivotX = itemView.getWidth();
+            }
+
+            float extra = itemView.getHeight() * 0.06f;
+            int top = itemView.getTop() - libraryRecycler.getPaddingTop();
+            int bottom = libraryRecycler.getHeight() - libraryRecycler.getPaddingBottom() - itemView.getBottom();
+            float pivotY = itemView.getHeight() * 0.5f;
+            if (top < extra) {
+                pivotY = 0f;
+            } else if (bottom < extra) {
+                pivotY = itemView.getHeight();
+            }
+            itemView.setPivotX(pivotX);
+            itemView.setPivotY(pivotY);
+        }
+
+        private void dimLocateNeighbors(View target) {
+            for (int i = 0; i < libraryRecycler.getChildCount(); i++) {
+                View child = libraryRecycler.getChildAt(i);
+                RecyclerView.ViewHolder holder = libraryRecycler.getChildViewHolder(child);
+                if (holder.getBindingAdapterPosition() > 0 && child != target) {
+                    dimLocateHighlight(child);
+                }
+            }
+        }
+
+        /** 目标整格放大呼吸两次并临时压暗周围格子；边缘格通过缩放锚点向网格内部长大。 */
+        void animateLocateHighlight(View itemView, String wallpaperId, int adapterPosition) {
+            if (wallpaperId == null || itemView == null) {
+                return;
+            }
+            clearLocateHighlight();
+            locateHighlightId = wallpaperId;
+            locateHighlightPosition = adapterPosition;
+            locateHighlightUntil = SystemClock.elapsedRealtime() + 900L;
+            dimLocateNeighbors(itemView);
+            showLocateHighlightOnView(itemView);
+            locateHandler.postDelayed(this::clearLocateHighlight, 900L);
+        }
+
+        private void pulseLocateCell(View itemView, int remaining) {
+            if (remaining <= 0 || !ValueAnimator.areAnimatorsEnabled()) {
+                itemView.setScaleX(1f);
+                itemView.setScaleY(1f);
+                return;
+            }
+            itemView.animate().scaleX(1.12f).scaleY(1.12f).setDuration(180)
+                    .withEndAction(() -> itemView.animate().scaleX(1f).scaleY(1f).setDuration(160)
+                            .withEndAction(() -> pulseLocateCell(itemView, remaining - 1))
+                            .start())
+                    .start();
         }
 
         void setItems(List<WallpaperStore.Item> newItems) {
@@ -2596,13 +3003,9 @@ public class MainActivity extends AppCompatActivity {
             publishItems(items);
         }
 
-        boolean isEntryReady() {
-            if (!prepareVisible()) return false;
-            RecyclerView.ViewHolder header = libraryRecycler.findViewHolderForAdapterPosition(0);
-            return header != null && entryLibraryId != null
-                    && entryLibraryId.equals(currentLibId())
-                    && entryLibraryId.equals(header.itemView.getTag())
-                    && images.isBound(header.itemView.findViewById(R.id.img_header_cover), entryCoverId);
+        /** 只确认列表数据已经切成当前库；真正布局/图片绑定不阻塞覆盖层转场。 */
+        boolean isDataReady() {
+            return entryLibraryId != null && entryLibraryId.equals(currentLibId());
         }
 
         boolean isOrganizeMode() {
@@ -2673,10 +3076,12 @@ public class MainActivity extends AppCompatActivity {
         void bindRow(RecyclerView.ViewHolder holder, int position) {
             View v = holder.itemView;
             if (position == 0) {
+                resetLocateHighlight(v);
                 bindHeader(v);
                 return;
             }
             final WallpaperStore.Item item = items.get(position - 1);
+            bindLocateHighlight(v, item.id);
             ImageView img = v.findViewById(R.id.img_thumb);
             images.thumbnail(img, item.id);
             // 回填读取此刻的多选态，不捕获旧 itemView 或绑定时的 mode。
@@ -2839,6 +3244,24 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, R.string.source_link_failed, Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    /** 此刻卡的库名入口：保留原来的进库行为，当前这张有效时再追加定位高亮。 */
+    private void openScopeLibrary(boolean forHome) {
+        String libId = LibraryStore.slotLibId(this, forHome);
+        // 「全部壁纸」没有自己的库详情，沿用原来的设置面板入口。
+        if (libId == null || LibraryStore.isAll(libId)) {
+            showSlotSettingsSheet(forHome);
+            return;
+        }
+        String wallpaperId = slotThumbId(libId, forHome);
+        WallpaperStore.Item item = wallpaperId == null ? null : WallpaperStore.get(this, wallpaperId);
+        if (item != null && item.inLib(libId)) {
+            openLibraryAndLocate(libId, item.id);
+        } else {
+            // 空库/旧指针失效也要能进库，不能因为“没有可定位的图”把入口堵死。
+            openLibrary(libId);
+        }
     }
 
     private void openScopeDetail(boolean forHome) {
@@ -4069,6 +4492,11 @@ public class MainActivity extends AppCompatActivity {
         backup.exportAllWallpapers();
     }
 
+    /** 把私有目录里的切换日志与引擎日志打包导出到导出目录。 */
+    void exportLogs() {
+        backup.exportLogs();
+    }
+
     void startPrune() {
         backup.startPrune();
     }
@@ -4100,6 +4528,10 @@ public class MainActivity extends AppCompatActivity {
 
     void showSwitchLog() {
         log.showSwitchLog();
+    }
+
+    void refreshSwitchLogKeepingPosition() {
+        log.refreshSwitchLogKeepingPosition();
     }
 
     void closeSwitchLogPage() {

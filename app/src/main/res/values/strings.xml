@@ -447,6 +447,8 @@
     <string name="log_view_copied">日志已复制</string>
     <!-- 点日志记录行弹出的缩略图小窗：按标题反查不到那张（改过名或已删）时的提示 -->
     <string name="log_thumb_gone">这张已经不在库里了</string>
+    <string name="locate_gone">这张壁纸已不在原库里，可能被删除或移走了</string>
+    <string name="locate_timeout">定位超时，请重试</string>
     <!-- 日志弹窗内的展示顺序：只影响显示，文件永远按时间顺序追加 -->
     <string name="log_view_order">排列顺序</string>
     <string name="log_order_asc">正序</string>

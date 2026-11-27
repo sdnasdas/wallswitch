@@ -86,6 +86,17 @@
     </FrameLayout>
 
     <include
+        android:id="@+id/page_settings_secondary"
+        layout="@layout/page_settings_secondary"
+        android:visibility="gone" />
+
+    <!-- 日志留在底层；从日志定位进库时直接盖上 page_library，返回即可原路露出日志。 -->
+    <include
+        android:id="@+id/page_switch_log"
+        layout="@layout/page_switch_log"
+        android:visibility="gone" />
+
+    <include
         android:id="@+id/page_library"
         layout="@layout/page_library"
         android:visibility="gone" />
@@ -171,17 +182,6 @@
                 app:tint="?attr/colorOnSurface" />
         </FrameLayout>
     </LinearLayout>
-
-    <include
-        android:id="@+id/page_settings_secondary"
-        layout="@layout/page_settings_secondary"
-        android:visibility="gone" />
-
-    <!-- 切换记录是全屏二级页，盖住主页面与底部导航；详情页仍放最后，必要时可盖在日志之上 -->
-    <include
-        android:id="@+id/page_switch_log"
-        layout="@layout/page_switch_log"
-        android:visibility="gone" />
 
     <include
         android:id="@+id/page_detail"
